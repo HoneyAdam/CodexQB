@@ -15,6 +15,11 @@ The bundled prompts are:
 - `references/Second-Planner.md` for Step 2 phase sub-planning.
 - `references/Third-Planner.md` for Step 3 sub-plan QA and coverage audit.
 
+Bundled support files:
+
+- `scripts/validate_planner_docs.py` for read-only structural validation of `Planner-docs/`.
+- `references/workflow-quality.md` for Goal mode reliability, validation, token discipline, and handoff practices.
+
 ## Workflow Selection
 
 1. If the user asks for normal planner startup, run Step 1.
@@ -55,8 +60,12 @@ Planner-docs/Main-Planing.md dosyasındaki tüm ana fazları okuyup, her faz iç
 When executing Step 2 directly:
 
 1. Read `references/Second-Planner.md`.
-2. Follow its repository inspection, file-boundary, naming, validation, and stopping rules exactly.
-3. Do not modify files outside `Planner-docs/`.
+2. Read `references/workflow-quality.md`.
+3. Follow repository inspection, file-boundary, naming, all-file validation, and stopping rules exactly.
+4. Run the bundled validator after generation when available:
+   `python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict`
+5. Do not modify files outside `Planner-docs/`.
+6. After the Step 2 summary, print the Step 3 `Hedefi Takip Et` handoff block from this skill.
 
 ## Step 3 Handoff
 
@@ -71,8 +80,20 @@ Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md ve Planner-docs/
 When executing Step 3 directly:
 
 1. Read `references/Third-Planner.md`.
-2. Follow its audit, file-boundary, validation, and stopping rules exactly.
-3. Modify only `Planner-docs/Sub-Planing-Audit.md`.
+2. Read `references/workflow-quality.md`.
+3. Run the bundled validator first when available and incorporate its findings into the audit:
+   `python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict`
+4. Follow audit, file-boundary, validation, and stopping rules exactly.
+5. Modify only `Planner-docs/Sub-Planing-Audit.md`.
+
+## Quality and Validation
+
+- Prefer `scripts/validate_planner_docs.py` over ad hoc validation scripts.
+- Use `--mode step1`, `--mode step2`, or `--mode step3` for the active workflow step.
+- Use `--strict` in Goal mode so generic or repeated section warnings become failures.
+- Do not report section counts from memory; report counts only after reading the active prompt or running validation.
+- For untracked `Planner-docs/`, use `find Planner-docs -maxdepth 4 -type f | sort`, `git status --short -- Planner-docs`, and `git diff -- Planner-docs` together.
+- Keep long Goal mode stdout concise. Put detailed evidence in the generated Markdown artifacts.
 
 ## Safety Rules
 

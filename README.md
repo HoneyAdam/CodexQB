@@ -18,7 +18,9 @@ CodexQB installs the `$codexqb` skill. The skill contains three bundled planner 
 - `Second-Planner.md`: Step 2 phase and sub-plan generation.
 - `Third-Planner.md`: Step 3 sub-plan QA and coverage audit.
 
-Step 1 runs in the current Codex thread. Step 2 and Step 3 are handed off as text-only Goal mode prompts so the user stays in control of long-running planning jobs.
+Step 1 runs in the current Codex thread. Step 2 and Step 3 are handed off as text-only Goal mode prompts so the user stays in control of long-running planning jobs. Step 2 is expected to finish by printing the Step 3 Goal handoff block.
+
+CodexQB also includes a read-only validator at `scripts/validate_planner_docs.py` inside the skill. It checks required sections, phase folders, filename conventions, index references, duplicate numbering, unindexed files, and length-bounded secret patterns.
 
 ## Quick Install
 
@@ -56,7 +58,7 @@ See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed setup and troubles
 
 4. Review `Planner-docs/Main-Planing.md`.
 5. If you want the detailed phase decomposition, copy the Step 2 prompt that CodexQB prints and send it with Goal mode.
-6. After Step 2 finishes, copy the Step 3 audit prompt that CodexQB prints and send it with Goal mode.
+6. After Step 2 finishes, review the validator result in the final summary, then copy the Step 3 audit prompt that CodexQB prints and send it with Goal mode.
 
 See [docs/USAGE.md](docs/USAGE.md) for the full workflow.
 
@@ -101,10 +103,13 @@ plugins/codexqb/
   skills/codexqb/
     SKILL.md
     agents/openai.yaml
+    scripts/
+      validate_planner_docs.py
     references/
       First-Planner.md
       Second-Planner.md
       Third-Planner.md
+      workflow-quality.md
 docs/
 LICENSE
 README.md

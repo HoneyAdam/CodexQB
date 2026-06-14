@@ -29,6 +29,11 @@ The primary source of truth for this step is:
 
 Planner-docs/Main-Planing.md
 
+Supporting operational reference:
+If available, read the CodexQB support note before generating:
+
+references/workflow-quality.md
+
 You must not invent a new master plan.
 You must not replace the main plan.
 You must not change the phase order unless the main plan is internally inconsistent, and even then you must preserve the original order while documenting the inconsistency in the generated index.
@@ -443,6 +448,24 @@ Use these principles while generating the sub-plans:
 14. If the repository has many planning files but little working runtime, say that clearly in the relevant sub-plans.
 15. If there are severe blockers, call them out directly.
 
+Operational validation requirements:
+
+1. Do not report phase counts, sub-plan counts, or section counts from memory.
+2. Report counts only after reading Planner-docs/Main-Planing.md and validating generated files.
+3. Every generated sub-plan must contain the full 13-section structure listed above.
+4. Validate every generated sub-plan, not only a sample.
+5. Prefer the bundled read-only validator over ad hoc validation snippets:
+
+   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+
+6. If the global skill path is unavailable but this prompt is running from a plugin checkout, use the equivalent local script path under:
+
+   plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py
+
+7. If the validator is unavailable, perform the equivalent checks manually for every file and state that fallback clearly.
+8. Avoid large noisy inline generation scripts unless unavoidable. If used, keep stdout concise and validate all outputs afterward.
+9. Use length-bounded secret checks. Do not use one-character `sk-` prefix patterns, because they can false-positive on normal filenames like task-spec.yaml.
+
 Goal-following behavior:
 
 This is a long planning task. Continue until all required sub-plan files and the index are created or updated.
@@ -458,6 +481,7 @@ A. Success:
 - every phase detected from Planner-docs/Main-Planing.md has a corresponding Planner-docs/Faz-<number>-Plans/ folder;
 - every phase has at least one FazX.Y-*.md sub-plan;
 - every sub-plan uses the required section structure;
+- the bundled validator passes, or equivalent all-file validation has been completed and reported;
 - all generated content is Turkish;
 - no files outside Planner-docs/ were modified;
 - git diff confirms only Planner-docs/ changes.
@@ -485,19 +509,32 @@ After generating all files:
 3. Read back:
    Planner-docs/Sub-Planing-Index.md
 
-4. Sample-read at least one generated sub-plan per phase.
+4. Run the bundled validator if available:
+   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
 
-5. Check that all required section headings exist in each sampled sub-plan.
+5. If the bundled validator is unavailable, manually check every generated sub-plan for:
+   - filename convention;
+   - folder/file phase number match;
+   - 13 required sections in the required order;
+   - duplicate numbering;
+   - missing or unindexed files;
+   - placeholder or repeated generic content.
 
 6. Run:
    git diff -- Planner-docs
 
 7. Run:
+   git status --short -- Planner-docs
+
+8. Run:
    git status --short
 
-8. Confirm no files outside Planner-docs were modified.
+9. Confirm no files outside Planner-docs were modified.
 
-9. Check generated docs for obvious secret leakage:
+10. Remember that git diff does not show untracked files. Use git status --short -- Planner-docs and find output when Planner-docs contains new untracked files.
+
+11. Check generated docs for obvious secret leakage with length-bounded patterns:
+   rg -n "sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|DSA|EC|PRIVATE) KEY|xox[baprs]-[A-Za-z0-9-]{20,}" Planner-docs
    - do not print secret values;
    - do not include tokens;
    - do not include local private endpoint credentials;
@@ -516,6 +553,13 @@ Include:
 - the recommended first sub-plan to execute next;
 - any blockers, ambiguities, or assumptions;
 - confirmation that only Planner-docs/ was modified, or explicitly list any unexpected modifications.
+- the Step 3 handoff text below, so the user can copy it into Hedefi Takip Et:
+
+```text
+Use $codexqb. Step 3'ü references/Third-Planner.md talimatlarına göre yürüt.
+
+Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md ve Planner-docs/Faz-*-Plans/*.md dosyalarını denetle. Ana faz coverage, dosya isimlendirme, sıralama, zorunlu bölüm yapısı, index tutarlılığı, içerik kalitesi, scope drift, readiness gerçekçiliği, güvenlik/governance ve Step 4 hazırlığını analiz et. Hiçbir plan dosyasını düzeltme; yalnızca Planner-docs/Sub-Planing-Audit.md raporunu üret. Tüm fazlar ve alt planlar incelenmeden durma.
+```
 
 Remember:
 Only create or modify files under Planner-docs/.

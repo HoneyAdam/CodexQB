@@ -24,22 +24,46 @@ Run:
 python3 /Users/alicankiraz/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/codexqb
 ```
 
-## Check Prompt Copies
+## Validate Planner Docs
 
-The bundled references should match the source planner prompt files used to generate the release:
+The skill ships a read-only validator for generated `Planner-docs/` outputs:
 
 ```bash
-cmp /Users/alicankiraz/Desktop/BillionDollarsIdeas/Planner/First-Planner.md plugins/codexqb/skills/codexqb/references/First-Planner.md
-cmp /Users/alicankiraz/Desktop/BillionDollarsIdeas/Planner/Second-Planner.md plugins/codexqb/skills/codexqb/references/Second-Planner.md
-cmp /Users/alicankiraz/Desktop/BillionDollarsIdeas/Planner/Third-Planner.md plugins/codexqb/skills/codexqb/references/Third-Planner.md
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step1
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step2 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3 --strict
 ```
 
-## Check For Stale Names
+When changing the validator, test at least:
+
+- a valid Step 2 fixture;
+- a missing-section fixture;
+- a normal filename containing `sk-` such as `task-spec.yaml`;
+- a fake long secret token that should be detected.
+
+## Check Skill Copy Parity
+
+After syncing the repo skill to the local global skill, compare both copies:
+
+```bash
+diff -ru plugins/codexqb/skills/codexqb /Users/alicankiraz/.codex/skills/codexqb
+```
+
+## Check For Stale Invocation Names
 
 CodexQB should use `$codexqb` as the skill invocation name:
 
 ```bash
-rg -n "project-planner|Project Planner|\\$project-planner" .
+python3 - <<'PY'
+from pathlib import Path
+needles = ["project-" + "planner", "Project " + "Planner", "$" + "project-" + "planner"]
+for path in Path(".").rglob("*"):
+    if path.is_file() and ".git" not in path.parts:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for needle in needles:
+            if needle in text:
+                print(f"{path}: contains stale invocation text")
+PY
 ```
 
 No public-facing stale references should remain.
@@ -48,16 +72,18 @@ No public-facing stale references should remain.
 
 1. Update `plugins/codexqb/.codex-plugin/plugin.json`.
 2. Update `plugins/codexqb/skills/codexqb/SKILL.md` and references as needed.
-3. Run the validation commands above.
-4. Commit with a focused message.
-5. Push to `main`.
-6. Reinstall the plugin in Codex:
+3. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure changes.
+4. Sync the repo skill to `/Users/alicankiraz/.codex/skills/codexqb` for local manual testing.
+5. Run the validation commands above.
+6. Commit with a focused message.
+7. Push to `main`.
+8. Reinstall the plugin in Codex:
 
    ```bash
    codex plugin add codexqb@codexqb
    ```
 
-7. Start a new Codex thread before testing.
+9. Start a new Codex thread before testing.
 
 ## Public Directory Status
 

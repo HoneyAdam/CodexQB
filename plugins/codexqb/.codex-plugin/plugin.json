@@ -1,6 +1,6 @@
 {
   "name": "codexqb",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CodexQB packages a three-step Codex planning workflow for main plans, phase sub-plans, and sub-plan audits.",
   "author": {
     "name": "Alican Kiraz",

@@ -52,6 +52,11 @@ Primary sources of truth:
 Main-Planing.md is the master plan.
 Sub-Planing-Index.md and all sub-plan files must be checked against it.
 
+Supporting operational reference:
+If available, read the CodexQB support note before auditing:
+
+references/workflow-quality.md
+
 Language:
 Write Planner-docs/Sub-Planing-Audit.md in Turkish.
 
@@ -74,6 +79,20 @@ Useful discovery commands:
 - rg "^#|^##|Faz|Phase|Aşama|Olgunluk|Kabul|Risk|Bağımlılık|Doğrulama|Test|Varmak|Kapsam|Kapsam Dışı|Mevcut Repo Kanıtı|Planlanan İş Kırılımı" Planner-docs
 - rg "TODO|FIXME|TBD|belirsiz|eksik|sonra|ileride|varsayım|assumption|blocked|blocker|risk|secret|token|credential|production|live|local|readiness" Planner-docs
 - rg "docs/|Planner-docs/|Main-Planing|Sub-Planing|Faz-" Planner-docs
+
+Before writing the audit, run the bundled read-only validator if available:
+
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+
+If the global skill path is unavailable but this prompt is running from a plugin checkout, use the equivalent local script path under:
+
+plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py
+
+If the validator exits nonzero, do not stop only because of that. Incorporate the validator findings into Planner-docs/Sub-Planing-Audit.md and continue the audit unless required source files are missing.
+
+Do not report phase counts, sub-plan counts, or section counts from memory. Report counts only after reading source files or running validation.
+
+Use length-bounded secret checks. Do not use one-character `sk-` prefix patterns, because they can false-positive on normal filenames like task-spec.yaml.
 
 If Planner-docs/Main-Planing.md is missing:
 - Create Planner-docs/Sub-Planing-Audit.md.
@@ -208,6 +227,7 @@ Flag cases where:
 Check sub-plans for:
 - secret-safe language;
 - no token/credential values;
+- length-bounded secret pattern scan result;
 - least privilege assumptions;
 - approval gates for risky operations;
 - command execution safety if relevant;
@@ -464,14 +484,20 @@ After creating/updating Planner-docs/Sub-Planing-Audit.md:
    find Planner-docs -maxdepth 4 -type f | sort
 
 3. Run:
-   git diff -- Planner-docs/Sub-Planing-Audit.md
+   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
 
 4. Run:
+   rg -n "sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|DSA|EC|PRIVATE) KEY|xox[baprs]-[A-Za-z0-9-]{20,}" Planner-docs
+
+5. Run:
+   git diff -- Planner-docs/Sub-Planing-Audit.md
+
+6. Run:
    git status --short
 
-5. Confirm whether only Planner-docs/Sub-Planing-Audit.md changed.
+7. Confirm whether only Planner-docs/Sub-Planing-Audit.md changed.
 
-6. If any file outside Planner-docs/Sub-Planing-Audit.md changed, report it as unexpected and do not attempt to fix unless explicitly asked.
+8. If any file outside Planner-docs/Sub-Planing-Audit.md changed, report it as unexpected and do not attempt to fix unless explicitly asked.
 
 Goal-following behavior:
 

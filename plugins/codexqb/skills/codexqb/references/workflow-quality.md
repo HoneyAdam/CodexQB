@@ -1,0 +1,72 @@
+# CodexQB Workflow Quality Notes
+
+Use these notes with the active planner prompt. They do not replace the planner
+prompt; they clarify reliability practices observed from first real use.
+
+## Read Before Reporting Counts
+
+- Read the full active planner prompt before summarizing requirements.
+- Do not report phase, sub-plan, or section counts from memory.
+- Report section counts only after reading the prompt or running validation.
+- Step 2 sub-plan files require 13 top-level `##` sections after the H1.
+
+## Use The Bundled Validator
+
+Prefer the bundled validator over ad hoc validation snippets:
+
+```bash
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+```
+
+If the skill is being executed from a plugin checkout instead of the global
+skill path, use the local script path under `skills/codexqb/scripts/`.
+
+The validator is read-only. It checks required sections, phase folders,
+filename conventions, index references, duplicate numbering, missing or
+unindexed files, and length-bounded secret patterns.
+
+## Keep Goal Mode Output Concise
+
+- Keep stdout concise during long Goal runs.
+- Avoid dumping full generated files unless the user explicitly asks.
+- Summarize counts, file paths, blockers, and validation status.
+- Preserve detailed evidence inside the generated Markdown artifacts.
+
+## Avoid Noisy Inline Generators
+
+- Avoid very large inline generation scripts when normal file editing is
+  practical.
+- If a script is unavoidable for bulk document generation, keep it small,
+  syntax-check it before use, and validate every generated file afterward.
+- Do not rely on sampled reads alone; Step 2 requires all-file structure
+  validation.
+
+## Handle Untracked Planner Docs Correctly
+
+`Planner-docs/` is often untracked during first use. `git diff -- Planner-docs`
+does not show new untracked files.
+
+Use these checks together:
+
+```bash
+find Planner-docs -maxdepth 4 -type f | sort
+git status --short -- Planner-docs
+git diff -- Planner-docs
+```
+
+When comparing an untracked generated file to another file, use
+`git diff --no-index` only as a read-only comparison helper.
+
+## Secret Scan Discipline
+
+- Do not use one-character `sk-` prefix patterns; they can match normal
+  filenames like `task-spec.yaml`.
+- Use length-bounded token patterns such as `sk-[A-Za-z0-9_-]{20,}`.
+- Do not print secret values if a secret-like pattern is detected.
+
+## Required Step Handoffs
+
+- Step 1 must hand off Step 2 as text for `Hedefi Takip Et`.
+- Step 2 must finish by handing off Step 3 as text for `Hedefi Takip Et`.
+- Step 3 must write only `Planner-docs/Sub-Planing-Audit.md`.

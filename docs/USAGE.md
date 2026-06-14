@@ -46,6 +46,14 @@ Planner-docs/Faz-<n>-Plans/Faz<n>.<m>-*.md
 
 Step 2 is allowed to modify only files under `Planner-docs/`.
 
+At the end of Step 2, CodexQB should run the bundled validator or an equivalent all-file check, summarize the result, and print the Step 3 Goal mode handoff block. Do not rely on sampled reads alone for Step 2 structure checks.
+
+The preferred validator command is:
+
+```bash
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+```
+
 ## Step 3: Sub-Plan QA Audit
 
 After Step 2, CodexQB prints another text block for Goal mode. Copy it, click `Hedefi Takip Et`, and send it.
@@ -66,6 +74,14 @@ Planner-docs/Sub-Planing-Audit.md
 
 Step 3 is an audit step. It reports problems but does not fix the sub-plans.
 
+Step 3 should run the validator first and incorporate its findings into `Planner-docs/Sub-Planing-Audit.md`:
+
+```bash
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+```
+
+If the validator exits nonzero because it found structural issues, Step 3 should still write the audit unless required source files are missing.
+
 ## Direct Step Invocation
 
 You can invoke Step 2 or Step 3 directly:
@@ -79,6 +95,21 @@ Use $codexqb to run Step 3 and audit the existing sub-plans.
 ```
 
 CodexQB skips the Step 1 intake when the requested step is explicit.
+
+## Validator Output
+
+The validator prints deterministic summary lines such as:
+
+```text
+planner_docs_validation=passed
+mode=step2
+phase_folder_count=9
+subplan_count=35
+warning_count=0
+error_count=0
+```
+
+It exits nonzero on structural failures. With `--strict`, repeated or generic section warnings are treated as failures. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged.
 
 ## Safety Expectations
 
