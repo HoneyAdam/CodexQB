@@ -1,0 +1,4 @@
+interface:
+  display_name: "CodexQB"
+  short_description: "Run the 3-step planning pipeline"
+  default_prompt: "Use $codexqb to create a main plan, phase sub-plans, and a QA audit for this project."

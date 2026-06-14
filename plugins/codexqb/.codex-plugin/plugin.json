@@ -1,0 +1,39 @@
+{
+  "name": "codexqb",
+  "version": "0.1.0",
+  "description": "CodexQB packages a three-step Codex planning workflow for main plans, phase sub-plans, and sub-plan audits.",
+  "author": {
+    "name": "Alican Kiraz",
+    "email": "167613664+alicankiraz1@users.noreply.github.com",
+    "url": "https://github.com/alicankiraz1"
+  },
+  "homepage": "https://github.com/alicankiraz1/CodexQB",
+  "repository": "https://github.com/alicankiraz1/CodexQB",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "planning",
+    "project-management",
+    "skills",
+    "goal-mode"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CodexQB",
+    "shortDescription": "Run a three-step Codex planning workflow.",
+    "longDescription": "CodexQB helps Codex create a master project plan, decompose it into phase-level sub-plans, and audit the resulting planning package for coverage, ordering, readiness, and governance.",
+    "developerName": "Alican Kiraz",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/alicankiraz1/CodexQB",
+    "defaultPrompt": [
+      "Use $codexqb to plan this project.",
+      "Use $codexqb to create phase sub-plans.",
+      "Use $codexqb to audit the planning docs."
+    ],
+    "brandColor": "#2563EB"
+  }
+}
