@@ -459,14 +459,14 @@ Provide a concise recommendation for the next Codex prompt.
 
 If audit PASS:
 - Recommend the Step 4 implementation Goal handoff prompt from references/Fourth-Planner.md.
-- Name the first phase/sub-plan to decompose.
+- Name the first phase/sub-plan in the implementation queue.
 - Print the copy-ready Step 4 prompt for Goal mode.
-- Remind the user to watch token use and avoid loading all sub-plans at once.
+- Remind the user that Step 4 should continue through the READY/READY_WITH_WARNINGS queue in small verified slices while avoiding loading all sub-plans at once.
 
 If PASS_WITH_WARNINGS:
 - If any P0/P1 finding or structural repair is present, recommend a Step 3.1 repair prompt targeting only the identified files.
 - Do not print the Step 4 prompt while P0/P1 findings exist.
-- If only P2/P3 findings remain, print the Step 4 prompt and state that those warnings must remain visible during implementation.
+- If only P2/P3 findings remain, print the Step 4 prompt and state that those warnings must remain visible during continuous implementation.
 
 If BLOCKED:
 - Recommend the minimal prompt needed to unblock Step 2/3.
@@ -559,7 +559,7 @@ Include:
 - the most important fix, if any;
 - the recommended next Codex prompt direction;
 - the Step 4 Goal mode prompt if and only if Step 4 is allowed by the audit and validator;
-- a token-use reminder when printing the Step 4 prompt;
+- a token-use and queue-continuation reminder when printing the Step 4 prompt;
 - confirmation that only Planner-docs/Sub-Planing-Audit.md was modified, or list unexpected modifications.
 
 Remember:

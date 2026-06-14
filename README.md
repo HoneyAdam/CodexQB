@@ -17,7 +17,7 @@ The current release is hardened for repository marketplace distribution: depende
 - **Project Autopsy:** Existing projects get a focused `Autopsy.md` report covering modules, features, placeholders, technical debt, integration gaps, validation gaps, and readiness risks.
 - **Full phase decomposition:** The main plan can be expanded into ordered phase folders and detailed sub-plan files, using Autopsy feedback when available.
 - **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, security/governance, and implementation preparedness.
-- **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin.
+- **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin, then guides that run through the READY queue in small verified slices.
 
 ## Workflow
 
