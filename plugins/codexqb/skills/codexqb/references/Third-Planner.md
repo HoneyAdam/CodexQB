@@ -74,24 +74,24 @@ Run only safe read-only commands such as:
 - git status --short --branch
 - git branch --show-current
 - git log --oneline -n 10
-- find Planner-docs -maxdepth 4 -type f | sort
+- if [ -d Planner-docs ]; then find Planner-docs -maxdepth 4 -type f | sort; fi
 - cat Planner-docs/Main-Planing.md
 - cat Planner-docs/Sub-Planing-Index.md
-- find Planner-docs -path "*/Faz-*-Plans/*.md" -type f | sort
+- if [ -d Planner-docs ]; then find Planner-docs -path "*/Faz-*-Plans/*.md" -type f | sort; fi
 - grep/ripgrep commands for headings and phase markers
 
 Useful discovery commands:
-- rg "^#|^##|Faz|Phase|Aşama|Olgunluk|Kabul|Risk|Bağımlılık|Doğrulama|Test|Varmak|Kapsam|Kapsam Dışı|Mevcut Repo Kanıtı|Planlanan İş Kırılımı" Planner-docs
-- rg "TODO|FIXME|TBD|belirsiz|eksik|sonra|ileride|varsayım|assumption|blocked|blocker|risk|secret|token|credential|production|live|local|readiness" Planner-docs
-- rg "docs/|Planner-docs/|Main-Planing|Sub-Planing|Faz-" Planner-docs
+- rg "^#|^##|Faz|Phase|Aşama|Olgunluk|Kabul|Risk|Bağımlılık|Doğrulama|Test|Varmak|Kapsam|Kapsam Dışı|Mevcut Repo Kanıtı|Planlanan İş Kırılımı" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
+- rg "TODO|FIXME|TBD|belirsiz|eksik|sonra|ileride|varsayım|assumption|blocked|blocker|risk|secret|token|credential|production|live|local|readiness" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
+- rg "docs/|Planner-docs/|Main-Planing|Sub-Planing|Faz-" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 
 Before writing the audit, run the bundled read-only validator if available:
 
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
 
-If the global skill path is unavailable but this prompt is running from a plugin checkout, use the equivalent local script path under:
+If an installed plugin exposes a different active skill script path, use that bundled validator path instead.
 
-plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py
+If no script path is accessible, perform equivalent all-file validation and state that validator execution was unavailable.
 
 If the validator exits nonzero, do not stop only because of that. Incorporate the validator findings into Planner-docs/Sub-Planing-Audit.md and continue the audit unless required source files are missing.
 
@@ -493,13 +493,13 @@ After creating/updating Planner-docs/Sub-Planing-Audit.md:
    find Planner-docs -maxdepth 4 -type f | sort
 
 3. Run:
-   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+   python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
 
 4. Run:
    rg -n "sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|DSA|EC|PRIVATE) KEY|xox[baprs]-[A-Za-z0-9-]{20,}" Planner-docs
 
 5. Run:
-   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+   python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
 
 6. Run:
    git diff -- Planner-docs/Sub-Planing-Audit.md

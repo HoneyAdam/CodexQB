@@ -25,8 +25,8 @@ Prefer commands like:
 pwd
 git status --short --branch
 git branch --show-current
-find . -maxdepth 2 -type f | sort | head -120
-find . -maxdepth 2 -type d | sort | head -80
+find . -maxdepth 2 \( -path './.git' -o -path './node_modules' -o -path './.venv' -o -path './dist' -o -path './build' -o -path './artifacts' \) -prune -o -type f -print | sort | head -120
+find . -maxdepth 2 \( -path './.git' -o -path './node_modules' -o -path './.venv' -o -path './dist' -o -path './build' -o -path './artifacts' \) -prune -o -type d -print | sort | head -80
 ls
 ```
 
@@ -47,7 +47,7 @@ Read likely evidence files when they exist:
 Use `rg` only for targeted discovery when useful:
 
 ```bash
-rg -n "architecture|roadmap|runbook|production|security|policy|workflow|worker|scheduler|gateway|adapter|dashboard|test|smoke|deploy|Kubernetes|Docker|Postgres|queue|approval|audit|artifact|observability" .
+rg -n "architecture|roadmap|runbook|production|security|policy|workflow|worker|scheduler|gateway|adapter|dashboard|test|smoke|deploy|Kubernetes|Docker|Postgres|queue|approval|audit|artifact|observability" . --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 ```
 
 Keep this pass brief. Its purpose is to make the intake questions smarter, not to replace the full repository analysis in `First-Planner.md`.

@@ -63,6 +63,27 @@ class SkillContentTests(unittest.TestCase):
         for heading in required_headings:
             self.assertIn(heading, autopsy)
 
+    def test_validator_guidance_does_not_assume_global_skill_path(self) -> None:
+        checked_files = [
+            SKILL_ROOT / "SKILL.md",
+            SKILL_ROOT / "references/workflow-quality.md",
+            SKILL_ROOT / "references/Second-Planner.md",
+            SKILL_ROOT / "references/Third-Planner.md",
+        ]
+        for path in checked_files:
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("~/.codex/skills/codexqb/scripts/validate_planner_docs.py", text, path.name)
+            self.assertIn("bundled validator", text, path.name)
+            self.assertIn("plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py", text, path.name)
+            self.assertIn("equivalent all-file validation", text, path.name)
+
+    def test_fourth_planner_external_skills_are_optional(self) -> None:
+        fourth = (SKILL_ROOT / "references/Fourth-Planner.md").read_text(encoding="utf-8")
+        self.assertIn("if installed/available", fourth)
+        self.assertIn("superpowers:executing-plans", fourth)
+        self.assertIn("codex-security", fourth)
+        self.assertIn("continue using the audit", fourth)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,7 +43,9 @@ references/workflow-quality.md
 
 You must not invent a new master plan.
 You must not replace the main plan.
-You must not change the phase order unless the main plan is internally inconsistent, and even then you must preserve the original order while documenting the inconsistency in the generated index.
+You must not modify Planner-docs/Main-Planing.md.
+You must not change the phase order.
+If Planner-docs/Main-Planing.md is inconsistent, incomplete, or impossible to decompose, create Planner-docs/Step2-Blocked.md and stop.
 
 Step 1 produced the high-level master plan.
 Step 1.5 may have produced an existing-project autopsy report.
@@ -110,17 +112,18 @@ Run only safe read-only commands such as:
 - git status --short --branch
 - git branch --show-current
 - git log --oneline -n 10
-- find Planner-docs -maxdepth 3 -type f | sort
+- if [ -d Planner-docs ]; then find Planner-docs -maxdepth 3 -type f | sort; fi
 - cat Planner-docs/Main-Planing.md
-- cat Planner-docs/Autopsy.md if present
+- if [ -f Planner-docs/Autopsy.md ]; then cat Planner-docs/Autopsy.md; fi
 - ls
-- find . -maxdepth 3 -type f | sort | head -300
+- find . -maxdepth 3 \( -path './.git' -o -path './node_modules' -o -path './.venv' -o -path './dist' -o -path './build' -o -path './artifacts' \) -prune -o -type f -print | sort | head -300
+- for d in Planner-docs docs configs scripts services packages tests infra .github; do [ -d "$d" ] && find "$d" -maxdepth 2 -type f | sort | head -80; done
 - cat README.md if present
 - cat AGENTS.md if present
 - inspect pyproject.toml, package.json, Makefile, docker-compose files, CI workflow files, docs indexes, architecture docs, runbooks, test files, config examples, service skeletons, package skeletons, and policy files if present
 
 You may use ripgrep/grep for discovery:
-- rg "Faz|Phase|Aşama|roadmap|plan|architecture|maturity|readiness|activation|production|security|policy|worker|scheduler|gateway|adapter|test|smoke|CI|API|database|Postgres|queue|artifact|approval|review|risk|acceptance|Linear|GitHub|Temporal|LangGraph|LiteLLM|Codex|OpenCode|Claude|Gemini" .
+- rg "Faz|Phase|Aşama|roadmap|plan|architecture|maturity|readiness|activation|production|security|policy|worker|scheduler|gateway|adapter|test|smoke|CI|API|database|Postgres|queue|artifact|approval|review|risk|acceptance|Linear|GitHub|Temporal|LangGraph|LiteLLM|Codex|OpenCode|Claude|Gemini" . --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 
 If Planner-docs/Main-Planing.md is missing:
 - Do not attempt full Step 2 decomposition.
@@ -140,6 +143,13 @@ If Main-Planing.md exists but does not contain clear phases:
 - Create Planner-docs/Step2-Blocked.md.
 - Explain that the main plan lacks a clear phase roadmap.
 - Include suggested corrections needed in Main-Planing.md.
+- Stop after creating that blocker document.
+
+If Main-Planing.md is internally inconsistent, incomplete, or impossible to decompose:
+- Do not repair Main-Planing.md in Step 2.
+- Create Planner-docs/Step2-Blocked.md.
+- Explain the inconsistency or missing decision that prevents safe decomposition.
+- Include the exact Step 1 repair needed.
 - Stop after creating that blocker document.
 
 Sub-planning strategy:
@@ -495,13 +505,10 @@ Operational validation requirements:
 5. Validate every generated sub-plan, not only a sample.
 6. Prefer the bundled read-only validator over ad hoc validation snippets:
 
-   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+   python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
 
-7. If the global skill path is unavailable but this prompt is running from a plugin checkout, use the equivalent local script path under:
-
-   plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py
-
-8. If the validator is unavailable, perform the equivalent checks manually for every file and state that fallback clearly.
+7. If an installed plugin exposes a different active skill script path, use that bundled validator path instead.
+8. If the validator is unavailable, perform equivalent all-file validation manually for every file and state that fallback clearly.
 9. Avoid large noisy inline generation scripts unless unavoidable. If used, keep stdout concise and validate all outputs afterward.
 10. Use length-bounded secret checks. Do not use one-character `sk-` prefix patterns, because they can false-positive on normal filenames like task-spec.yaml.
 
@@ -549,9 +556,9 @@ After generating all files:
    Planner-docs/Sub-Planing-Index.md
 
 4. Run the bundled validator if available:
-   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+   python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
 
-5. If the bundled validator is unavailable, manually check every generated sub-plan for:
+5. If the bundled validator is unavailable, perform equivalent all-file validation by manually checking every generated sub-plan for:
    - filename convention;
    - folder/file phase number match;
    - 13 required sections in the required order;
@@ -604,6 +611,6 @@ Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md ve Planner-docs/
 Remember:
 Only create or modify files under Planner-docs/.
 Do not modify source code.
-Do not modify Main-Planing.md unless absolutely necessary, and by default do not change it.
+Do not modify Main-Planing.md.
 Do not create implementation files.
 Do not commit, push, install, deploy, or open PRs.

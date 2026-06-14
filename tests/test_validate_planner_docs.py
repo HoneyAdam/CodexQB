@@ -278,6 +278,17 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("warning=step4_has_nonblocking_warnings=P2:1,P3:0", result.stdout)
 
+    def test_step4_pass_with_warnings_no_findings_text_does_not_count_as_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            write_audit(docs, "PASS_WITH_WARNINGS", ["P0/P1 bulgusu yok. P2/P3 bulgusu yok."])
+            result = run_validator(Path(temp_dir), "step4")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("p0_findings=0", result.stdout)
+            self.assertIn("p1_findings=0", result.stdout)
+            self.assertIn("p2_findings=0", result.stdout)
+            self.assertIn("p3_findings=0", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

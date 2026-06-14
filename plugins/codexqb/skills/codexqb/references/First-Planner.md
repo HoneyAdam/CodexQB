@@ -99,20 +99,16 @@ Run only read-only or safe local commands such as:
 - git status --short --branch
 - git branch --show-current
 - git log --oneline -n 10
-- find . -maxdepth 3 -type f | sort | head -200
+- find . -maxdepth 3 \( -path './.git' -o -path './node_modules' -o -path './.venv' -o -path './dist' -o -path './build' -o -path './artifacts' \) -prune -o -type f -print | sort | head -300
+- for d in Planner-docs docs configs scripts services packages tests infra .github; do [ -d "$d" ] && find "$d" -maxdepth 2 -type f | sort | head -80; done
 - ls
-- ls Planner-docs
-- ls configs
-- ls scripts
-- ls services
-- ls packages
-- ls tests
+- for d in Planner-docs configs scripts services packages tests; do [ -d "$d" ] && ls "$d"; done
 - cat README.md if present
 - cat AGENTS.md if present
 - inspect pyproject.toml, package.json, Makefile, docker-compose files, CI workflow files, docs indexes, architecture docs, runbooks, test files, and config examples if present
 
 You may use ripgrep/grep to discover important project markers:
-- rg "TODO|FIXME|Phase|phase|roadmap|architecture|runbook|readiness|activation|production|security|policy|worker|scheduler|gateway|adapter|test|smoke|CI|Linear|GitHub|Temporal|LangGraph|LiteLLM|Codex|OpenCode|Claude|Gemini|API|database|Postgres|queue|artifact|approval|review" .
+- rg "TODO|FIXME|Phase|phase|roadmap|architecture|runbook|readiness|activation|production|security|policy|worker|scheduler|gateway|adapter|test|smoke|CI|Linear|GitHub|Temporal|LangGraph|LiteLLM|Codex|OpenCode|Claude|Gemini|API|database|Postgres|queue|artifact|approval|review" . --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 
 If the repo is empty or almost empty:
 - Do not fail.

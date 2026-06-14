@@ -76,12 +76,40 @@ The `Planing` spelling is intentionally preserved because the bundled planner pr
 The skill includes a read-only validator:
 
 ```bash
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step2 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step4
 ```
 
-It checks required sections, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. P0/P1 audit findings block the implementation handoff.
+These commands are for manual validation from a CodexQB repository checkout. When running through an installed plugin, CodexQB should use the bundled validator path exposed by the active skill; if that path is unavailable, it should perform equivalent all-file validation and report the fallback clearly.
+
+The validator checks required sections, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. P0/P1 audit findings block the implementation handoff.
+
+Repository maintainers can run the dependency-free repo check with:
+
+```bash
+make check
+```
+
+`make check` validates plugin JSON, required package files, `agents/openai.yaml` minimum fields, stale invocation names, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
+
+## Release Validation
+
+Run this before sharing, committing, or pushing release changes:
+
+```bash
+make check
+```
+
+The repository also includes GitHub Actions at `.github/workflows/validate.yml`, which runs the same check on pushes to `main` and pull requests.
+
+For sanitized zip sharing, use the tracked-file archive target instead of Finder or generic directory compression:
+
+```bash
+make export-sanitized
+```
+
+This creates `CodexQB-sanitized.zip` from `git archive`, excluding `.git/`, ignored Python caches, local env files, runtime folders, and other untracked local clutter.
 
 ## Safety Model
 
@@ -100,6 +128,8 @@ Generated plans should distinguish documentation readiness, local readiness, liv
 
 ```text
 .agents/plugins/marketplace.json
+.github/workflows/validate.yml
+Makefile
 plugins/codexqb/
   .codex-plugin/plugin.json
   skills/codexqb/
@@ -119,6 +149,8 @@ docs/
   MAINTAINING.md
   USAGE.md
   assets/codexqb-workflow.png
+scripts/
+  validate.sh
 tests/
 LICENSE
 README.md
@@ -132,7 +164,7 @@ README.md
 
 ## Public Plugin Directory Status
 
-CodexQB is packaged as a Codex plugin repository and repo marketplace. The official public Codex Plugin Directory does not currently provide a documented self-serve publishing flow, so this repository is the distribution surface for now.
+CodexQB currently uses repository marketplace distribution. Public directory or workspace sharing distribution can be revisited separately; this release focuses on repo-marketplace installation and local/team validation.
 
 ## License
 

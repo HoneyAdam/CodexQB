@@ -66,13 +66,15 @@ Step 2 is allowed to modify only files under `Planner-docs/`.
 
 `Planner-docs/Main-Planing.md` remains the primary source of truth. `Planner-docs/Autopsy.md`, when present, is supporting feedback that should influence sub-plan evidence, work breakdowns, acceptance criteria, and risk sections.
 
-At the end of Step 2, CodexQB should run the bundled validator or an equivalent all-file check, summarize the result, and print the Step 3 Goal mode handoff block. Do not rely on sampled reads alone for Step 2 structure checks.
+At the end of Step 2, CodexQB should run the bundled validator or an equivalent all-file validation, summarize the result, and print the Step 3 Goal mode handoff block. Do not rely on sampled reads alone for Step 2 structure checks.
 
-The preferred validator command is:
+When manually validating from a CodexQB repository checkout, use:
 
 ```bash
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step2 --strict
 ```
+
+When running through an installed plugin, CodexQB should use the bundled validator path exposed by the active skill. If that path is unavailable, it should perform equivalent all-file validation and state that validator execution was unavailable.
 
 ## Step 3: Sub-Plan QA Audit
 
@@ -94,11 +96,13 @@ Planner-docs/Sub-Planing-Audit.md
 
 Step 3 is an audit step. It reports problems but does not fix the sub-plans.
 
-Step 3 should run the validator first and incorporate its findings into `Planner-docs/Sub-Planing-Audit.md`:
+Step 3 should run the bundled validator first and incorporate its findings into `Planner-docs/Sub-Planing-Audit.md`. When manually validating from a CodexQB repository checkout, use:
 
 ```bash
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3 --strict
 ```
+
+When running through an installed plugin, CodexQB should use the bundled validator path exposed by the active skill. If that path is unavailable, it should perform equivalent all-file validation and state that validator execution was unavailable.
 
 If the validator exits nonzero because it found structural issues, Step 3 should still write the audit unless required source files are missing.
 
@@ -112,11 +116,13 @@ CodexQB should print the Step 4 prompt only when:
 - the audit status is `PASS`, or `PASS_WITH_WARNINGS` with no P0/P1 findings;
 - the Step 4 validator passes.
 
-The preferred readiness check is:
+When manually checking readiness from a CodexQB repository checkout, use:
 
 ```bash
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step4
 ```
+
+When running through an installed plugin, CodexQB should use the bundled validator path exposed by the active skill. If that path is unavailable, it should perform equivalent all-file validation and state that validator execution was unavailable.
 
 If the audit is `BLOCKED` or contains P0/P1 findings, repair the planning package first. If only P2/P3 warnings remain, the implementation prompt may be used but the warnings should stay visible.
 

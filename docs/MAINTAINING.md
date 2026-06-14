@@ -1,32 +1,39 @@
 # Maintaining CodexQB
 
-This document covers local validation and release maintenance for CodexQB.
+This document covers validation and release maintenance for CodexQB.
 
-## Validate The Skill
+## Dependency-Free Repo Check
 
-Validate the local global skill:
+Run the default repository validation before every release:
 
 ```bash
-python3 /Users/alicankiraz/.codex/skills/.system/skill-creator/scripts/quick_validate.py /Users/alicankiraz/.codex/skills/codexqb
+make check
 ```
 
-Validate the plugin-bundled skill:
+This checks JSON manifests, required package files, `agents/openai.yaml` minimum fields, stale invocation names, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
+
+## Optional Codex Validator Checks
+
+The Codex skill/plugin validator scripts may require PyYAML in the active Python environment. Use them when available, but do not make them the only release gate.
 
 ```bash
-python3 /Users/alicankiraz/.codex/skills/.system/skill-creator/scripts/quick_validate.py plugins/codexqb/skills/codexqb
+CODEX_SKILL_VALIDATOR="${CODEX_SKILL_VALIDATOR:-$HOME/.codex/skills/.system/skill-creator/scripts/quick_validate.py}"
+CODEX_PLUGIN_VALIDATOR="${CODEX_PLUGIN_VALIDATOR:-$HOME/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py}"
+
+python3 "$CODEX_SKILL_VALIDATOR" plugins/codexqb/skills/codexqb
+python3 "$CODEX_PLUGIN_VALIDATOR" plugins/codexqb
 ```
 
-## Validate The Plugin
-
-Run:
+To validate an optional local global skill copy:
 
 ```bash
-python3 /Users/alicankiraz/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/codexqb
+CODEXQB_GLOBAL_SKILL="${CODEXQB_GLOBAL_SKILL:-$HOME/.codex/skills/codexqb}"
+python3 "$CODEX_SKILL_VALIDATOR" "$CODEXQB_GLOBAL_SKILL"
 ```
 
 ## Validate Planner Docs
 
-The skill ships a read-only validator for generated `Planner-docs/` outputs:
+The skill ships a read-only validator for generated `Planner-docs/` outputs. From a CodexQB repository checkout, run:
 
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step1
@@ -35,15 +42,17 @@ python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step4
 ```
 
+When running through an installed plugin, use the bundled validator path exposed by the active skill. If that path is unavailable, perform equivalent all-file validation and report the fallback clearly.
+
 When changing the validator, test at least:
 
 - a valid Step 2 fixture;
 - a missing-section fixture;
 - a normal filename containing `sk-` such as `task-spec.yaml`;
-- a fake long secret token that should be detected.
+- a fake long secret token that should be detected;
 - roadmap table extraction with historical phase references such as `Faz 0B-10` or `Phase 11`;
 - optional `Autopsy.md` validation when present, and no failure when it is absent;
-- Step 4 readiness gating for missing audit, `BLOCKED`, `PASS`, and `PASS_WITH_WARNINGS`.
+- Step 4 readiness gating for missing audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, and prose such as `P0/P1 bulgusu yok`.
 
 Run the tracked validator test suite:
 
@@ -65,35 +74,40 @@ When changing Step 1 behavior, verify that:
 - the intake reference still asks only the four stable fields;
 - `SKILL.md` references `references/Autopsy-Planner.md` for Step 1.5;
 - `Second-Planner.md` reads `Planner-docs/Autopsy.md` as an optional supporting source;
-- `First-Planner.md` still accepts the same four required placeholders;
-- the global skill copy is synced after edits.
+- `First-Planner.md` still accepts the same four required placeholders.
 
-## Check Skill Copy Parity
+## Optional Local Skill Copy Parity
 
-After syncing the repo skill to the local global skill, compare both copies:
+If you maintain a local global skill copy, compare it with the repo-bundled skill after syncing:
 
 ```bash
-diff -ru plugins/codexqb/skills/codexqb /Users/alicankiraz/.codex/skills/codexqb
+CODEXQB_GLOBAL_SKILL="${CODEXQB_GLOBAL_SKILL:-$HOME/.codex/skills/codexqb}"
+diff -ru plugins/codexqb/skills/codexqb "$CODEXQB_GLOBAL_SKILL"
 ```
+
+This is a local-only workflow check. It is not required for CI or repository marketplace releases.
 
 ## Check For Stale Invocation Names
 
-CodexQB should use `$codexqb` as the skill invocation name:
+CodexQB should use `$codexqb` as the skill invocation name. The default release check includes this scan:
 
 ```bash
-python3 - <<'PY'
-from pathlib import Path
-needles = ["project-" + "planner", "Project " + "Planner", "$" + "project-" + "planner"]
-for path in Path(".").rglob("*"):
-    if path.is_file() and ".git" not in path.parts:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        for needle in needles:
-            if needle in text:
-                print(f"{path}: contains stale invocation text")
-PY
+make check
 ```
 
 No public-facing stale references should remain.
+
+## Sanitized Export
+
+Do not create release zips with Finder or generic directory compression, because ignored files such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, or `tmp/` can be included.
+
+Use the tracked-file export target:
+
+```bash
+make export-sanitized
+```
+
+This writes `CodexQB-sanitized.zip` with `git archive`.
 
 ## Release Flow
 
@@ -103,21 +117,22 @@ No public-facing stale references should remain.
 4. Update `plugins/codexqb/skills/codexqb/references/Autopsy-Planner.md` if Step 1.5 autopsy behavior changes.
 5. Update `plugins/codexqb/skills/codexqb/references/Fourth-Planner.md` if implementation handoff behavior changes.
 6. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure or readiness gates change.
-7. Sync the repo skill to `/Users/alicankiraz/.codex/skills/codexqb` for local manual testing.
-8. Run the validation commands above.
-9. Commit with a focused message.
-10. Push to `main`.
-11. Reinstall the plugin in Codex:
+7. Run `make check`.
+8. Optionally run the Codex skill/plugin validator scripts if their Python dependencies are available.
+9. Optionally sync and compare the local global skill copy for manual testing.
+10. Commit with a focused message.
+11. Push to `main`.
+12. Reinstall the plugin in Codex:
 
    ```bash
    codex plugin add codexqb@codexqb
    ```
 
-12. Start a new Codex thread before testing.
+13. Start a new Codex thread before testing.
 
 ## Public Directory Status
 
-CodexQB is ready as a repository marketplace plugin. The official public Codex Plugin Directory does not currently expose a documented self-serve publishing flow, so public directory submission is not part of this release.
+CodexQB currently uses repository marketplace distribution. Public directory or workspace sharing distribution can be revisited separately; this release focuses on repo-marketplace installation and local/team validation.
 
 ## Contribution Guidelines
 

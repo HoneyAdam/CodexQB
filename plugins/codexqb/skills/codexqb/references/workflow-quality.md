@@ -28,16 +28,19 @@ prompt; they clarify reliability practices observed from first real use.
 
 ## Use The Bundled Validator
 
-Prefer the bundled validator over ad hoc validation snippets:
+Prefer the bundled validator over ad hoc validation snippets. When manually
+validating from a CodexQB repository checkout, use:
 
 ```bash
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
-python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
 ```
 
-If the skill is being executed from a plugin checkout instead of the global
-skill path, use the local script path under `skills/codexqb/scripts/`.
+If an installed plugin exposes a different active skill script path, use that
+bundled validator path instead. If no script path is accessible, perform
+equivalent all-file validation and state that validator execution was
+unavailable.
 
 The validator is read-only. It checks required sections, phase folders,
 filename conventions, index references, duplicate numbering, missing or

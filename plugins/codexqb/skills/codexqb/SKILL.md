@@ -1,6 +1,6 @@
 ---
 name: codexqb
-description: Run the CodexQB repo-aware Codex project planning workflow using bundled First-Planner, Autopsy-Planner, Second-Planner, and Third-Planner prompts, then provide a gated Step 4 implementation handoff prompt when the audit allows it. Use when the user asks to inspect a repository, create a main project plan, autopsy an existing project, decompose it into phase sub-plans, audit sub-plan coverage and quality, or use the planner workflow with Planner-docs/Main-Planing.md, Planner-docs/Autopsy.md, Planner-docs/Sub-Planing-Index.md, or Planner-docs/Sub-Planing-Audit.md.
+description: Repo-aware project planning workflow for Codex. Use to create Planner-docs/Main-Planing.md, run an existing-project autopsy, decompose phases into sub-plans, audit readiness, and print a gated Step 4 implementation handoff.
 ---
 
 # CodexQB
@@ -85,8 +85,9 @@ When executing Step 2 directly:
 2. Read `references/workflow-quality.md`.
 3. Read `Planner-docs/Autopsy.md` when it exists; do not block Step 2 when it is absent.
 4. Follow repository inspection, file-boundary, naming, all-file validation, and stopping rules exactly.
-5. Run the bundled validator after generation when available:
-   `python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict`
+5. Run the bundled validator after generation when available. When manually validating from a CodexQB repository checkout, use:
+   `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict`
+   If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
 6. Do not modify files outside `Planner-docs/`.
 7. After the Step 2 summary, print the Step 3 `Hedefi Takip Et` handoff block from this skill.
 
@@ -104,8 +105,9 @@ When executing Step 3 directly:
 
 1. Read `references/Third-Planner.md`.
 2. Read `references/workflow-quality.md`.
-3. Run the bundled validator first when available and incorporate its findings into the audit:
-   `python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict`
+3. Run the bundled validator first when available and incorporate its findings into the audit. When manually validating from a CodexQB repository checkout, use:
+   `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict`
+   If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
 4. Follow audit, file-boundary, validation, and stopping rules exactly.
 5. Modify only `Planner-docs/Sub-Planing-Audit.md`.
 6. After the Step 3 summary, print the Step 4 handoff prompt from `references/Fourth-Planner.md` only if the audit permits implementation.
@@ -117,8 +119,9 @@ Step 4 is not a CodexQB planning step and must not be executed automatically by 
 When Step 3 completes:
 
 1. Read `references/Fourth-Planner.md`.
-2. Run the bundled validator when available:
-   `python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4`
+2. Run the bundled validator when available. When manually validating from a CodexQB repository checkout, use:
+   `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4`
+   If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
 3. If validation passes, print the Step 4 `Hedefi Takip Et` copy block and remind the user to watch token use.
 4. If validation fails because the audit is `BLOCKED` or contains P0/P1 findings, do not print the Step 4 prompt; print the minimal repair or unblock prompt instead.
 5. If validation passes with non-blocking warnings, print the Step 4 prompt and state that the implementation run must keep P2/P3 warnings visible.

@@ -103,6 +103,10 @@ ROADMAP_TABLE_ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|", re.MULTILINE)
 ROADMAP_HEADING_PHASE_RE = re.compile(r"^#{3,6}\s*(?:Faz|Phase|Aşama)\s*-?\s*(\d+)\b", re.MULTILINE | re.IGNORECASE)
 H1_SUBPLAN_RE = re.compile(r"^# Faz\s+(\d+)\.(\d+)\s+[—-]\s+.+$", re.MULTILINE)
 SECTION_RE = re.compile(r"^(##\s+\d+\.\s+.+)$", re.MULTILINE)
+AUDIT_FIX_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?\|?\s*(AUDIT-FIX-\d+)\s*(?:\||:|\u2014|\u2013|-)\s*(P0|P1|P2|P3)\b",
+    re.MULTILINE,
+)
 
 SECRET_PATTERNS = [
     ("openai_api_key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
@@ -477,10 +481,9 @@ def extract_audit_status(text: str) -> str | None:
 
 def count_audit_severities(text: str) -> dict[str, int]:
     fix_section = markdown_section(text, "## 13. Öncelikli Düzeltme Listesi")
-    source = fix_section or text
     counts = {severity: 0 for severity in ("P0", "P1", "P2", "P3")}
-    for severity in counts:
-        counts[severity] = len(re.findall(rf"\b{severity}\b", source))
+    for _, severity in AUDIT_FIX_RE.findall(fix_section):
+        counts[severity] += 1
     return counts
 
 

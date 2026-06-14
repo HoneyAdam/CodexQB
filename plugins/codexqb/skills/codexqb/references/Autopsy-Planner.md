@@ -46,15 +46,16 @@ Run only read-only or safe local commands such as:
 - git status --short --branch
 - git branch --show-current
 - git log --oneline -n 10
-- find . -maxdepth 3 -type f | sort | head -300
-- find Planner-docs -maxdepth 3 -type f | sort
+- find . -maxdepth 3 \( -path './.git' -o -path './node_modules' -o -path './.venv' -o -path './dist' -o -path './build' -o -path './artifacts' \) -prune -o -type f -print | sort | head -300
+- for d in Planner-docs docs configs scripts services packages tests infra .github; do [ -d "$d" ] && find "$d" -maxdepth 2 -type f | sort | head -80; done
+- if [ -d Planner-docs ]; then find Planner-docs -maxdepth 3 -type f | sort; fi
 - cat Planner-docs/Main-Planing.md
 - cat README.md if present
 - cat AGENTS.md if present
 - inspect pyproject.toml, package.json, Cargo.toml, go.mod, Makefile, docker-compose files, CI workflow files, docs indexes, architecture docs, runbooks, tests, config examples, service skeletons, package skeletons, and policy files if present
 
 You may use ripgrep/grep for discovery:
-- rg "TODO|FIXME|TBD|placeholder|stub|mock|fake|skeleton|not implemented|NotImplemented|pass$|Phase|roadmap|architecture|runbook|readiness|activation|production|security|policy|worker|scheduler|gateway|adapter|test|smoke|CI|API|database|Postgres|queue|artifact|approval|review|secret|token|credential" .
+- rg "TODO|FIXME|TBD|placeholder|stub|mock|fake|skeleton|not implemented|NotImplemented|pass$|Phase|roadmap|architecture|runbook|readiness|activation|production|security|policy|worker|scheduler|gateway|adapter|test|smoke|CI|API|database|Postgres|queue|artifact|approval|review|secret|token|credential" . --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 
 Do not print or copy secret values. If a secret-like value is detected, report only the file path and line number with the value redacted.
 

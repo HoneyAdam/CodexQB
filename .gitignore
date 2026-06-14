@@ -1,5 +1,6 @@
 # macOS
 .DS_Store
+__MACOSX/
 
 # Python caches
 __pycache__/
@@ -11,9 +12,17 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.local
+*.local.*
 *.pem
 *.key
 
 # Build outputs
 build/
 dist/
+
+# Generated/runtime
+CodexQB-sanitized.zip
+artifacts/
+logs/
+tmp/
