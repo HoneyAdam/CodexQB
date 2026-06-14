@@ -81,6 +81,9 @@ INDEX_REF_RE = re.compile(
     r"(?:\./)?(?:Planner-docs/)?Faz-\d+-Plans/Faz\d+\.\d+-[a-z0-9]+(?:-[a-z0-9]+)*\.md"
 )
 MAIN_PHASE_RE = re.compile(r"\b(?:Faz|Phase|Aşama)\s*-?\s*(\d+)\b", re.IGNORECASE)
+ROADMAP_HEADING = "## 6. Fazlara Bölünmüş Ana Yol Haritası"
+ROADMAP_TABLE_ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|", re.MULTILINE)
+ROADMAP_HEADING_PHASE_RE = re.compile(r"^#{3,6}\s*(?:Faz|Phase|Aşama)\s*-?\s*(\d+)\b", re.MULTILINE | re.IGNORECASE)
 H1_SUBPLAN_RE = re.compile(r"^# Faz\s+(\d+)\.(\d+)\s+[—-]\s+.+$", re.MULTILINE)
 SECTION_RE = re.compile(r"^(##\s+\d+\.\s+.+)$", re.MULTILINE)
 
@@ -94,13 +97,29 @@ SECRET_PATTERNS = [
 ]
 
 PLACEHOLDER_PATTERNS = [
-    re.compile(r"\bTODO\b", re.IGNORECASE),
-    re.compile(r"\bTBD\b", re.IGNORECASE),
-    re.compile(r"\bFIXME\b", re.IGNORECASE),
-    re.compile(r"\blorem ipsum\b", re.IGNORECASE),
-    re.compile(r"\bdoldurulacak\b", re.IGNORECASE),
-    re.compile(r"\bplaceholder\b", re.IGNORECASE),
+    ("todo", re.compile(r"\bTODO\b", re.IGNORECASE)),
+    ("tbd", re.compile(r"\bTBD\b", re.IGNORECASE)),
+    ("fixme", re.compile(r"\bFIXME\b", re.IGNORECASE)),
+    ("lorem_ipsum", re.compile(r"\blorem ipsum\b", re.IGNORECASE)),
+    ("doldurulacak", re.compile(r"\bdoldurulacak\b", re.IGNORECASE)),
+    ("angle_placeholder", re.compile(r"<(?:TODO|TBD|PLACEHOLDER|DOLDURULACAK)[^>]*>", re.IGNORECASE)),
+    ("brace_placeholder", re.compile(r"\{\{[^{}]*(?:TODO|TBD|PLACEHOLDER|DOLDURULACAK)[^{}]*\}\}", re.IGNORECASE)),
 ]
+
+REPEATED_SENTENCE_MIN_COUNT = 5
+REPEATED_SENTENCE_MIN_LENGTH = 80
+ALLOWED_REPEATED_SENTENCE_FRAGMENTS = (
+    "secret",
+    "token",
+    "credential",
+    "private key",
+    "local env",
+    "source code",
+    "config, test",
+    "plan dosyasında",
+    "plan dosyalarına",
+    "gerçek secret",
+)
 
 
 @dataclass
@@ -154,9 +173,30 @@ def validate_heading_order(text: str, headings: list[str], path: Path, state: Va
         last_pos = pos
 
 
+def markdown_section(text: str, heading: str) -> str:
+    start = text.find(heading)
+    if start == -1:
+        return ""
+    body_start = start + len(heading)
+    next_match = re.search(r"^##\s+\d+\.\s+", text[body_start:], flags=re.MULTILINE)
+    body_end = body_start + next_match.start() if next_match else len(text)
+    return text[body_start:body_end].strip()
+
+
 def extract_main_phase_numbers(text: str) -> list[int]:
-    numbers = sorted({int(match.group(1)) for match in MAIN_PHASE_RE.finditer(text)})
-    return numbers
+    roadmap = markdown_section(text, ROADMAP_HEADING)
+    if roadmap:
+        table_numbers = sorted({int(match.group(1)) for match in ROADMAP_TABLE_ROW_RE.finditer(roadmap)})
+        if table_numbers:
+            return table_numbers
+
+        heading_numbers = sorted({int(match.group(1)) for match in ROADMAP_HEADING_PHASE_RE.finditer(roadmap)})
+        if heading_numbers:
+            return heading_numbers
+
+        return sorted({int(match.group(1)) for match in MAIN_PHASE_RE.finditer(roadmap)})
+
+    return []
 
 
 def collect_phase_folders(state: ValidationState) -> dict[int, Path]:
@@ -203,17 +243,35 @@ def collect_subplans(state: ValidationState) -> list[tuple[int | None, int | Non
 
 
 def section_body(text: str, heading: str) -> str:
-    start = text.find(heading)
-    if start == -1:
-        return ""
-    body_start = start + len(heading)
-    next_match = re.search(r"^##\s+\d+\.\s+", text[body_start:], flags=re.MULTILINE)
-    body_end = body_start + next_match.start() if next_match else len(text)
-    return text[body_start:body_end].strip()
+    return markdown_section(text, heading)
 
 
 def normalized_body(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip()).lower()
+
+
+def split_sentences(text: str) -> list[str]:
+    compact = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
+    return [item.strip() for item in re.split(r"(?<=[.!?])\s+", compact) if item.strip()]
+
+
+def is_allowed_repeated_sentence(sentence: str) -> bool:
+    lowered = sentence.lower()
+    return any(fragment in lowered for fragment in ALLOWED_REPEATED_SENTENCE_FRAGMENTS)
+
+
+def add_repeated_sentence_candidates(
+    state: ValidationState,
+    path: Path,
+    text: str,
+    repeated_sentences: dict[str, list[str]],
+) -> None:
+    for sentence in split_sentences(text):
+        if len(sentence) < REPEATED_SENTENCE_MIN_LENGTH:
+            continue
+        if is_allowed_repeated_sentence(sentence):
+            continue
+        repeated_sentences[sentence].append(state.rel(path))
 
 
 def validate_step1(state: ValidationState) -> list[int]:
@@ -257,6 +315,7 @@ def validate_subplan_structure(
     subphase: int | None,
     path: Path,
     repeated_bodies: dict[str, list[str]],
+    repeated_sentences: dict[str, list[str]],
 ) -> None:
     text = read_text(path, state)
     if text is None:
@@ -283,13 +342,17 @@ def validate_subplan_structure(
         body = section_body(text, required)
         if required in text and len(body) < 20:
             state.error(f"empty_or_too_short_section={state.rel(path)}::{required}")
-        if any(pattern.search(body) for pattern in PLACEHOLDER_PATTERNS):
-            state.warning(f"placeholder_text={state.rel(path)}::{required}")
+        for pattern_name, pattern in PLACEHOLDER_PATTERNS:
+            if pattern.search(body):
+                state.warning(f"placeholder_text={state.rel(path)}::{required}::pattern={pattern_name}")
 
     for heading in ("## 3. Açıklama", "## 7. Planlanan İş Kırılımı"):
         body = normalized_body(section_body(text, heading))
         if len(body) >= 160:
             repeated_bodies[f"{heading}:{body}"].append(state.rel(path))
+
+    for heading in ("## 3. Açıklama", "## 6. Mevcut Repo Kanıtı", "## 8. Kabul Kriterleri", "## 11. Riskler ve Önlemler"):
+        add_repeated_sentence_candidates(state, path, section_body(text, heading), repeated_sentences)
 
 
 def validate_step2(state: ValidationState) -> None:
@@ -318,6 +381,7 @@ def validate_step2(state: ValidationState) -> None:
     seen: set[tuple[int, int]] = set()
     per_phase: dict[int, list[int]] = defaultdict(list)
     repeated_bodies: dict[str, list[str]] = defaultdict(list)
+    repeated_sentences: dict[str, list[str]] = defaultdict(list)
 
     for phase, subphase, path in subplans:
         if phase is None or subphase is None:
@@ -327,7 +391,7 @@ def validate_step2(state: ValidationState) -> None:
             state.error(f"duplicate_subplan_number=Faz{phase}.{subphase}")
         seen.add(key)
         per_phase[phase].append(subphase)
-        validate_subplan_structure(state, phase, subphase, path, repeated_bodies)
+        validate_subplan_structure(state, phase, subphase, path, repeated_bodies, repeated_sentences)
 
     for phase, folder in sorted(folders.items()):
         numbers = sorted(per_phase.get(phase, []))
@@ -344,6 +408,12 @@ def validate_step2(state: ValidationState) -> None:
             joined = ",".join(paths)
             state.warning(f"repeated_section_body={heading}::files={joined}")
 
+    for sentence, paths in sorted(repeated_sentences.items()):
+        if len(paths) >= REPEATED_SENTENCE_MIN_COUNT:
+            preview = sentence[:120].replace("=", "-")
+            joined = ",".join(paths[:10])
+            state.warning(f"repeated_boilerplate_sentence=count:{len(paths)}::text={preview}::files={joined}")
+
 
 def validate_step3_preflight(state: ValidationState) -> None:
     validate_step2(state)
@@ -355,6 +425,60 @@ def validate_step3_preflight(state: ValidationState) -> None:
         text = read_text(audit_path, state)
         if text is not None:
             validate_heading_order(text, AUDIT_HEADINGS, audit_path, state)
+
+
+def extract_audit_status(text: str) -> str | None:
+    status_pattern = re.compile(
+        r"(?:overall audit status|audit status|final status|status|denetim durumu|nihai durum)"
+        r"\s*[:：-]\s*(PASS_WITH_WARNINGS|BLOCKED|PASS)\b",
+        re.IGNORECASE,
+    )
+    match = status_pattern.search(text)
+    if match:
+        return match.group(1).upper()
+
+    for line in text.splitlines():
+        stripped = line.strip(" -*`|:")
+        if stripped in {"PASS", "PASS_WITH_WARNINGS", "BLOCKED"}:
+            return stripped
+    return None
+
+
+def count_audit_severities(text: str) -> dict[str, int]:
+    fix_section = markdown_section(text, "## 13. Öncelikli Düzeltme Listesi")
+    source = fix_section or text
+    counts = {severity: 0 for severity in ("P0", "P1", "P2", "P3")}
+    for severity in counts:
+        counts[severity] = len(re.findall(rf"\b{severity}\b", source))
+    return counts
+
+
+def validate_step4_readiness(state: ValidationState) -> None:
+    validate_step3_preflight(state)
+    audit_path = state.planner_docs / "Sub-Planing-Audit.md"
+    text = read_text(audit_path, state)
+    if text is None:
+        state.metrics["audit_status"] = "missing"
+        return
+
+    status = extract_audit_status(text)
+    state.metrics["audit_status"] = status or "unknown"
+    if status is None:
+        state.error("audit_status_missing=Planner-docs/Sub-Planing-Audit.md")
+    elif status == "BLOCKED":
+        state.error("step4_blocked_by_audit_status=BLOCKED")
+
+    severity_counts = count_audit_severities(text)
+    for severity, count in severity_counts.items():
+        state.metrics[f"{severity.lower()}_findings"] = count
+    if severity_counts["P0"] or severity_counts["P1"]:
+        state.error(
+            f"step4_blocked_by_high_severity_findings=P0:{severity_counts['P0']},P1:{severity_counts['P1']}"
+        )
+    if status == "PASS_WITH_WARNINGS" and (severity_counts["P2"] or severity_counts["P3"]):
+        state.warning(
+            f"step4_has_nonblocking_warnings=P2:{severity_counts['P2']},P3:{severity_counts['P3']}"
+        )
 
 
 def scan_secrets(state: ValidationState) -> None:
@@ -401,7 +525,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--root", default=".", help="Project root containing Planner-docs/; default: current directory.")
     parser.add_argument(
         "--mode",
-        choices=("step1", "step2", "step3", "all"),
+        choices=("step1", "step2", "step3", "step4", "all"),
         default="all",
         help="Validation scope.",
     )
@@ -419,6 +543,8 @@ def main(argv: list[str]) -> int:
         validate_step2(state)
     elif state.mode in {"step3", "all"}:
         validate_step3_preflight(state)
+    elif state.mode == "step4":
+        validate_step4_readiness(state)
     else:
         state.error(f"unknown_mode={state.mode}")
 

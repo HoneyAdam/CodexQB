@@ -69,4 +69,4 @@ If `$codexqb` is not recognized:
 - confirm the repository or local clone is accessible;
 - if installed from a private repository, confirm Codex has GitHub access to that repository.
 
-If Step 2 or Step 3 does not run automatically, that is expected. CodexQB prints text-only Goal mode prompts so you can explicitly launch the long-running decomposition or audit step.
+If Step 2, Step 3, or the gated Step 4 implementation handoff does not run automatically, that is expected. CodexQB prints text-only Goal mode prompts so you can explicitly launch long-running decomposition, audit, or implementation runs.

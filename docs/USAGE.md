@@ -82,6 +82,26 @@ python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode
 
 If the validator exits nonzero because it found structural issues, Step 3 should still write the audit unless required source files are missing.
 
+## Step 4: Gated Implementation Handoff
+
+After Step 3, CodexQB may print a Step 4 Goal mode prompt. This prompt is for a separate implementation run; CodexQB itself does not implement product changes during Steps 1-3.
+
+CodexQB should print the Step 4 prompt only when:
+
+- `Planner-docs/Sub-Planing-Audit.md` exists;
+- the audit status is `PASS`, or `PASS_WITH_WARNINGS` with no P0/P1 findings;
+- the Step 4 validator passes.
+
+The preferred readiness check is:
+
+```bash
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+```
+
+If the audit is `BLOCKED` or contains P0/P1 findings, repair the planning package first. If only P2/P3 warnings remain, the implementation prompt may be used but the warnings should stay visible.
+
+The implementation handoff tells Codex to use relevant skills/plugins by scope, work on one small reversible slice at a time, test before or with code changes, report exact blockers, avoid secrets, and limit token use by reading the audit/index first and only the selected sub-plan afterward.
+
 ## Direct Step Invocation
 
 You can invoke Step 2 or Step 3 directly:
@@ -96,6 +116,12 @@ Use $codexqb to run Step 3 and audit the existing sub-plans.
 
 CodexQB skips the Step 1 intake when the requested step is explicit.
 
+You can also ask for the Step 4 prompt text after a completed audit:
+
+```text
+Use $codexqb to print the Step 4 implementation handoff prompt if the audit allows it.
+```
+
 ## Validator Output
 
 The validator prints deterministic summary lines such as:
@@ -109,7 +135,7 @@ warning_count=0
 error_count=0
 ```
 
-It exits nonzero on structural failures. With `--strict`, repeated or generic section warnings are treated as failures. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged.
+It exits nonzero on structural failures. With `--strict`, repeated or generic section warnings are treated as failures. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, P0/P1 audit findings block implementation readiness while P2/P3 findings are warnings.
 
 ## Safety Expectations
 

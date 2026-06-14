@@ -57,6 +57,11 @@ If available, read the CodexQB support note before auditing:
 
 references/workflow-quality.md
 
+Implementation handoff reference:
+If available, read this only after the audit is written and Step 4 readiness is known:
+
+references/Fourth-Planner.md
+
 Language:
 Write Planner-docs/Sub-Planing-Audit.md in Turkish.
 
@@ -453,15 +458,19 @@ Do not modify affected files. Only report fixes.
 Provide a concise recommendation for the next Codex prompt.
 
 If audit PASS:
-- Recommend Step 4 implementation-task decomposition prompt.
+- Recommend the Step 4 implementation Goal handoff prompt from references/Fourth-Planner.md.
 - Name the first phase/sub-plan to decompose.
+- Print the copy-ready Step 4 prompt for `Hedefi Takip Et`.
+- Remind the user to watch token use and avoid loading all sub-plans at once.
 
 If PASS_WITH_WARNINGS:
-- Recommend a Step 3.1 repair prompt targeting only the identified files.
-- Include the highest-priority repair scope.
+- If any P0/P1 finding or structural repair is present, recommend a Step 3.1 repair prompt targeting only the identified files.
+- Do not print the Step 4 prompt while P0/P1 findings exist.
+- If only P2/P3 findings remain, print the Step 4 prompt and state that those warnings must remain visible during implementation.
 
 If BLOCKED:
 - Recommend the minimal prompt needed to unblock Step 2/3.
+- Do not print the Step 4 prompt.
 
 Do not actually run the next prompt.
 
@@ -490,14 +499,17 @@ After creating/updating Planner-docs/Sub-Planing-Audit.md:
    rg -n "sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|DSA|EC|PRIVATE) KEY|xox[baprs]-[A-Za-z0-9-]{20,}" Planner-docs
 
 5. Run:
-   git diff -- Planner-docs/Sub-Planing-Audit.md
+   python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
 
 6. Run:
+   git diff -- Planner-docs/Sub-Planing-Audit.md
+
+7. Run:
    git status --short
 
-7. Confirm whether only Planner-docs/Sub-Planing-Audit.md changed.
+8. Confirm whether only Planner-docs/Sub-Planing-Audit.md changed.
 
-8. If any file outside Planner-docs/Sub-Planing-Audit.md changed, report it as unexpected and do not attempt to fix unless explicitly asked.
+9. If any file outside Planner-docs/Sub-Planing-Audit.md changed, report it as unexpected and do not attempt to fix unless explicitly asked.
 
 Goal-following behavior:
 
@@ -546,6 +558,8 @@ Include:
 - whether Step 4 can begin;
 - the most important fix, if any;
 - the recommended next Codex prompt direction;
+- the Step 4 `Hedefi Takip Et` prompt if and only if Step 4 is allowed by the audit and validator;
+- a token-use reminder when printing the Step 4 prompt;
 - confirmation that only Planner-docs/Sub-Planing-Audit.md was modified, or list unexpected modifications.
 
 Remember:

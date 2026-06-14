@@ -1,19 +1,20 @@
 ---
 name: codexqb
-description: Run the CodexQB three-step Codex project planning workflow using bundled First-Planner, Second-Planner, and Third-Planner prompts. Use when the user asks to create a main project plan, decompose it into phase sub-plans, audit sub-plan coverage and quality, or use the planner workflow with Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, or Planner-docs/Sub-Planing-Audit.md.
+description: Run the CodexQB three-step Codex project planning workflow using bundled First-Planner, Second-Planner, and Third-Planner prompts, then provide a gated Step 4 implementation handoff prompt when the audit allows it. Use when the user asks to create a main project plan, decompose it into phase sub-plans, audit sub-plan coverage and quality, or use the planner workflow with Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, or Planner-docs/Sub-Planing-Audit.md.
 ---
 
 # CodexQB
 
 ## Overview
 
-Run the bundled three-step planning workflow for a project repository. Keep Step 1 conversational and local to the current thread; hand off Step 2 and Step 3 as text-only Goal mode prompts unless the user explicitly asks for a different flow.
+Run the bundled three-step planning workflow for a project repository. Keep Step 1 conversational and local to the current thread; hand off Step 2 and Step 3 as text-only Goal mode prompts unless the user explicitly asks for a different flow. After Step 3, provide a gated Step 4 implementation handoff prompt only when the audit says implementation can begin.
 
 The bundled prompts are:
 
 - `references/First-Planner.md` for Step 1 main planning.
 - `references/Second-Planner.md` for Step 2 phase sub-planning.
 - `references/Third-Planner.md` for Step 3 sub-plan QA and coverage audit.
+- `references/Fourth-Planner.md` for the Step 4 implementation Goal handoff prompt template.
 
 Bundled support files:
 
@@ -25,7 +26,7 @@ Bundled support files:
 1. If the user asks for normal planner startup, run Step 1.
 2. If the user directly asks for Step 2, read `references/Second-Planner.md` and execute it.
 3. If the user directly asks for Step 3, read `references/Third-Planner.md` and execute it.
-4. If the user asks only for the Goal mode prompt text, print the matching Step 2 or Step 3 copy block without modifying files.
+4. If the user asks only for the Goal mode prompt text, print the matching Step 2, Step 3, or gated Step 4 copy block without modifying files.
 
 Do not run `migrate-to-codex` for this workflow. This is a native Codex skill workflow, not a Claude migration.
 
@@ -85,11 +86,25 @@ When executing Step 3 directly:
    `python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict`
 4. Follow audit, file-boundary, validation, and stopping rules exactly.
 5. Modify only `Planner-docs/Sub-Planing-Audit.md`.
+6. After the Step 3 summary, print the Step 4 handoff prompt from `references/Fourth-Planner.md` only if the audit permits implementation.
+
+## Step 4 Handoff
+
+Step 4 is not a CodexQB planning step and must not be executed automatically by this skill.
+
+When Step 3 completes:
+
+1. Read `references/Fourth-Planner.md`.
+2. Run the bundled validator when available:
+   `python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4`
+3. If validation passes, print the Step 4 `Hedefi Takip Et` copy block and remind the user to watch token use.
+4. If validation fails because the audit is `BLOCKED` or contains P0/P1 findings, do not print the Step 4 prompt; print the minimal repair or unblock prompt instead.
+5. If validation passes with non-blocking warnings, print the Step 4 prompt and state that the implementation run must keep P2/P3 warnings visible.
 
 ## Quality and Validation
 
 - Prefer `scripts/validate_planner_docs.py` over ad hoc validation scripts.
-- Use `--mode step1`, `--mode step2`, or `--mode step3` for the active workflow step.
+- Use `--mode step1`, `--mode step2`, `--mode step3`, or `--mode step4` for the active workflow step.
 - Use `--strict` in Goal mode so generic or repeated section warnings become failures.
 - Do not report section counts from memory; report counts only after reading the active prompt or running validation.
 - For untracked `Planner-docs/`, use `find Planner-docs -maxdepth 4 -type f | sort`, `git status --short -- Planner-docs`, and `git diff -- Planner-docs` together.

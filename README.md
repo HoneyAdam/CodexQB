@@ -1,12 +1,13 @@
 # CodexQB
 
-CodexQB is a Codex plugin that packages a three-step project planning workflow as a reusable skill.
+CodexQB is a Codex plugin that packages a three-step project planning workflow as a reusable skill, then prepares a gated implementation handoff prompt when the audit says the plan is ready.
 
 It helps Codex:
 
 - create a high-level master plan at `Planner-docs/Main-Planing.md`;
 - decompose that master plan into phase sub-plans under `Planner-docs/Faz-*-Plans/`;
-- audit the generated sub-plans for coverage, ordering, readiness, quality, and governance.
+- audit the generated sub-plans for coverage, ordering, readiness, quality, and governance;
+- print a copy-ready Step 4 Goal mode implementation handoff only when the audit allows implementation.
 
 The plugin is designed for planning-heavy software, AI, infrastructure, and automation projects where durable Markdown plans and clear phase gates matter.
 
@@ -17,10 +18,11 @@ CodexQB installs the `$codexqb` skill. The skill contains three bundled planner 
 - `First-Planner.md`: Step 1 master project plan.
 - `Second-Planner.md`: Step 2 phase and sub-plan generation.
 - `Third-Planner.md`: Step 3 sub-plan QA and coverage audit.
+- `Fourth-Planner.md`: Step 4 implementation handoff prompt template.
 
-Step 1 runs in the current Codex thread. Step 2 and Step 3 are handed off as text-only Goal mode prompts so the user stays in control of long-running planning jobs. Step 2 is expected to finish by printing the Step 3 Goal handoff block.
+Step 1 runs in the current Codex thread. Step 2 and Step 3 are handed off as text-only Goal mode prompts so the user stays in control of long-running planning jobs. Step 2 is expected to finish by printing the Step 3 Goal handoff block. Step 3 may print a Step 4 Goal handoff only after audit gating passes.
 
-CodexQB also includes a read-only validator at `scripts/validate_planner_docs.py` inside the skill. It checks required sections, phase folders, filename conventions, index references, duplicate numbering, unindexed files, and length-bounded secret patterns.
+CodexQB also includes a read-only validator at `scripts/validate_planner_docs.py` inside the skill. It checks required sections, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 implementation readiness.
 
 ## Quick Install
 
@@ -59,6 +61,7 @@ See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed setup and troubles
 4. Review `Planner-docs/Main-Planing.md`.
 5. If you want the detailed phase decomposition, copy the Step 2 prompt that CodexQB prints and send it with Goal mode.
 6. After Step 2 finishes, review the validator result in the final summary, then copy the Step 3 audit prompt that CodexQB prints and send it with Goal mode.
+7. After Step 3 finishes, copy the Step 4 implementation handoff prompt only if CodexQB prints it. If the audit is blocked or has P0/P1 findings, repair the plans first.
 
 See [docs/USAGE.md](docs/USAGE.md) for the full workflow.
 
@@ -81,7 +84,7 @@ The file names intentionally preserve the existing `Planing` spelling required b
 
 ## Safety Model
 
-CodexQB is planning-only.
+CodexQB is planning-first. Steps 1-3 are planning and audit work only. Step 4 is a user-controlled Goal mode handoff prompt for a separate implementation run.
 
 The bundled prompts instruct Codex not to:
 
@@ -109,6 +112,7 @@ plugins/codexqb/
       First-Planner.md
       Second-Planner.md
       Third-Planner.md
+      Fourth-Planner.md
       workflow-quality.md
 docs/
 LICENSE

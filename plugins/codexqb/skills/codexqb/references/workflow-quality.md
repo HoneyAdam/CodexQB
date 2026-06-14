@@ -17,6 +17,7 @@ Prefer the bundled validator over ad hoc validation snippets:
 ```bash
 python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
 python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
 ```
 
 If the skill is being executed from a plugin checkout instead of the global
@@ -70,3 +71,13 @@ When comparing an untracked generated file to another file, use
 - Step 1 must hand off Step 2 as text for `Hedefi Takip Et`.
 - Step 2 must finish by handing off Step 3 as text for `Hedefi Takip Et`.
 - Step 3 must write only `Planner-docs/Sub-Planing-Audit.md`.
+- Step 3 may hand off Step 4 only after `--mode step4` validation passes.
+- Step 4 is implementation work in a new Goal run, not a planning-file generation step.
+
+## Step 4 Token Discipline
+
+- Do not load all phase sub-plans at once.
+- Read `Sub-Planing-Audit.md` and `Sub-Planing-Index.md` first.
+- Select one READY or READY_WITH_WARNINGS sub-plan.
+- Load only the selected sub-plan and the repo files needed for that slice.
+- Stop before implementation if audit contains P0/P1 findings.
