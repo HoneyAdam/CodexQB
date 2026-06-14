@@ -42,6 +42,7 @@ When changing the validator, test at least:
 - a normal filename containing `sk-` such as `task-spec.yaml`;
 - a fake long secret token that should be detected.
 - roadmap table extraction with historical phase references such as `Faz 0B-10` or `Phase 11`;
+- optional `Autopsy.md` validation when present, and no failure when it is absent;
 - Step 4 readiness gating for missing audit, `BLOCKED`, `PASS`, and `PASS_WITH_WARNINGS`.
 
 Run the tracked validator test suite:
@@ -62,6 +63,8 @@ When changing Step 1 behavior, verify that:
 
 - `SKILL.md` references `references/repo-aware-intake.md`;
 - the intake reference still asks only the four stable fields;
+- `SKILL.md` references `references/Autopsy-Planner.md` for Step 1.5;
+- `Second-Planner.md` reads `Planner-docs/Autopsy.md` as an optional supporting source;
 - `First-Planner.md` still accepts the same four required placeholders;
 - the global skill copy is synced after edits.
 
@@ -97,19 +100,20 @@ No public-facing stale references should remain.
 1. Update `plugins/codexqb/.codex-plugin/plugin.json`.
 2. Update `plugins/codexqb/skills/codexqb/SKILL.md` and references as needed.
 3. Update `plugins/codexqb/skills/codexqb/references/repo-aware-intake.md` if Step 1 intake behavior changes.
-4. Update `plugins/codexqb/skills/codexqb/references/Fourth-Planner.md` if implementation handoff behavior changes.
-5. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure or readiness gates change.
-6. Sync the repo skill to `/Users/alicankiraz/.codex/skills/codexqb` for local manual testing.
-7. Run the validation commands above.
-8. Commit with a focused message.
-9. Push to `main`.
-10. Reinstall the plugin in Codex:
+4. Update `plugins/codexqb/skills/codexqb/references/Autopsy-Planner.md` if Step 1.5 autopsy behavior changes.
+5. Update `plugins/codexqb/skills/codexqb/references/Fourth-Planner.md` if implementation handoff behavior changes.
+6. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure or readiness gates change.
+7. Sync the repo skill to `/Users/alicankiraz/.codex/skills/codexqb` for local manual testing.
+8. Run the validation commands above.
+9. Commit with a focused message.
+10. Push to `main`.
+11. Reinstall the plugin in Codex:
 
    ```bash
    codex plugin add codexqb@codexqb
    ```
 
-11. Start a new Codex thread before testing.
+12. Start a new Codex thread before testing.
 
 ## Public Directory Status
 

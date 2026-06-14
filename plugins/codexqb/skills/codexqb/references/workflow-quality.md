@@ -18,6 +18,14 @@ prompt; they clarify reliability practices observed from first real use.
 - If the repository is empty or evidence is weak, say so and fall back to concise generic questions.
 - Do not let the pre-intake scan replace the full Step 1 inspection required by `First-Planner.md`.
 
+## Step 1.5 Autopsy
+
+- Run Step 1.5 only for existing or partially built projects with meaningful repo evidence.
+- Use `references/Autopsy-Planner.md` and write only `Planner-docs/Autopsy.md`.
+- Treat `Autopsy.md` as Step 2 feedback, not as a replacement for `Main-Planing.md`.
+- Skip Autopsy for new or nearly empty repositories; do not create a speculative autopsy file.
+- Step 2 must read `Autopsy.md` when it exists and must not block when it is absent.
+
 ## Use The Bundled Validator
 
 Prefer the bundled validator over ad hoc validation snippets:
@@ -77,6 +85,7 @@ When comparing an untracked generated file to another file, use
 ## Required Step Handoffs
 
 - Step 1 must hand off Step 2 as text for `Hedefi Takip Et`.
+- Step 1.5 may create `Planner-docs/Autopsy.md` before Step 2 for existing projects.
 - Step 2 must finish by handing off Step 3 as text for `Hedefi Takip Et`.
 - Step 3 must write only `Planner-docs/Sub-Planing-Audit.md`.
 - Step 3 may hand off Step 4 only after `--mode step4` validation passes.

@@ -34,6 +34,35 @@ class SkillContentTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("INTAKE_EVIDENCE_SUMMARY:", first_planner)
 
+    def test_autopsy_planner_is_wired_into_skill_and_step2(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        second = (SKILL_ROOT / "references/Second-Planner.md").read_text(encoding="utf-8")
+        autopsy = (SKILL_ROOT / "references/Autopsy-Planner.md").read_text(encoding="utf-8")
+
+        self.assertIn("references/Autopsy-Planner.md", skill)
+        self.assertIn("Step 1.5", skill)
+        self.assertIn("Planner-docs/Autopsy.md", second)
+        self.assertIn("Autopsy.md is not a replacement for Main-Planing.md", second)
+
+        required_headings = [
+            "# Project Autopsy",
+            "## 1. Yönetici Özeti",
+            "## 2. İncelenen Kaynaklar",
+            "## 3. Proje Bölümleri ve Sorumluluk Alanları",
+            "## 4. Feature Envanteri",
+            "## 5. Placeholder, Stub ve Skeleton Analizi",
+            "## 6. Teknik Borç ve Bakım Riskleri",
+            "## 7. Hatalı veya Eksik Entegrasyonlar",
+            "## 8. Test, CI ve Doğrulama Açıkları",
+            "## 9. Güvenlik, Secret ve Governance Bulguları",
+            "## 10. Operasyonel Readiness ve Gözlemlenebilirlik",
+            "## 11. Ana Planla Uyumluluk Analizi",
+            "## 12. Step 2 İçin Autopsy Feedbackleri",
+            "## 13. Öncelikli Düzeltme ve Planlama Sinyalleri",
+        ]
+        for heading in required_headings:
+            self.assertIn(heading, autopsy)
+
 
 if __name__ == "__main__":
     unittest.main()

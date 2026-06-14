@@ -29,6 +29,23 @@ STEP1_HEADINGS = [
     "## 10. Repo İnceleme Notları",
 ]
 
+AUTOPSY_HEADINGS = [
+    "# Project Autopsy",
+    "## 1. Yönetici Özeti",
+    "## 2. İncelenen Kaynaklar",
+    "## 3. Proje Bölümleri ve Sorumluluk Alanları",
+    "## 4. Feature Envanteri",
+    "## 5. Placeholder, Stub ve Skeleton Analizi",
+    "## 6. Teknik Borç ve Bakım Riskleri",
+    "## 7. Hatalı veya Eksik Entegrasyonlar",
+    "## 8. Test, CI ve Doğrulama Açıkları",
+    "## 9. Güvenlik, Secret ve Governance Bulguları",
+    "## 10. Operasyonel Readiness ve Gözlemlenebilirlik",
+    "## 11. Ana Planla Uyumluluk Analizi",
+    "## 12. Step 2 İçin Autopsy Feedbackleri",
+    "## 13. Öncelikli Düzeltme ve Planlama Sinyalleri",
+]
+
 INDEX_HEADINGS = [
     "# Sub-Planing Index",
     "## 1. Amaç",
@@ -289,6 +306,19 @@ def validate_step1(state: ValidationState) -> list[int]:
     return phases
 
 
+def validate_autopsy_optional(state: ValidationState) -> None:
+    autopsy_path = state.planner_docs / "Autopsy.md"
+    state.metrics["autopsy_exists"] = "true" if autopsy_path.exists() else "false"
+    if not autopsy_path.exists():
+        return
+
+    text = read_text(autopsy_path, state)
+    if text is None:
+        return
+
+    validate_heading_order(text, AUTOPSY_HEADINGS, autopsy_path, state)
+
+
 def validate_index(state: ValidationState) -> set[str]:
     index_path = state.planner_docs / "Sub-Planing-Index.md"
     text = read_text(index_path, state)
@@ -357,6 +387,7 @@ def validate_subplan_structure(
 
 def validate_step2(state: ValidationState) -> None:
     main_phases = validate_step1(state)
+    validate_autopsy_optional(state)
     index_refs = validate_index(state)
     folders = collect_phase_folders(state)
     subplans = collect_subplans(state)

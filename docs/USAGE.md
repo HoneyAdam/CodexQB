@@ -1,6 +1,6 @@
 # Usage
 
-CodexQB runs a repo-aware three-step planning workflow.
+CodexQB runs a repo-aware planning workflow with an optional Step 1.5 Autopsy for existing projects.
 
 ## Step 1: Main Plan
 
@@ -29,6 +29,20 @@ Planner-docs/Main-Planing.md
 
 Step 1 is allowed to modify only that file.
 
+## Step 1.5: Existing Project Autopsy
+
+When the target repository is an existing or partially built project, CodexQB runs `Autopsy-Planner.md` after Step 1.
+
+Expected output:
+
+```text
+Planner-docs/Autopsy.md
+```
+
+The Autopsy report analyzes project sections, feature inventory, placeholders/stubs/skeletons, technical debt, missing or broken integrations, test and CI gaps, security/governance issues, operational readiness, and alignment with `Planner-docs/Main-Planing.md`.
+
+Step 1.5 is skipped for empty or nearly empty repositories. In that case, `Autopsy.md` is not required and Step 2 should continue without it.
+
 ## Step 2: Phase Sub-Plans
 
 After Step 1, CodexQB prints a text block for Goal mode. Copy it, click `Hedefi Takip Et`, and send it.
@@ -38,7 +52,7 @@ The prompt is:
 ```text
 Use $codexqb. Step 2'yi references/Second-Planner.md talimatlarına göre yürüt.
 
-Planner-docs/Main-Planing.md dosyasındaki tüm ana fazları okuyup, her faz için Planner-docs altında Faz-<n>-Plans klasörleri ve Faz<n>.<m>-*.md detaylı alt plan dosyaları oluştur. Tüm fazlar kapsanmadan durma. Sadece Planner-docs altında değişiklik yap.
+Planner-docs/Main-Planing.md dosyasındaki tüm ana fazları oku. Planner-docs/Autopsy.md varsa onu da destekleyici feedback kaynağı olarak tamamen oku ve alt faz planlarında dikkate al. Her faz için Planner-docs altında Faz-<n>-Plans klasörleri ve Faz<n>.<m>-*.md detaylı alt plan dosyaları oluştur. Tüm fazlar kapsanmadan durma. Sadece Planner-docs altında değişiklik yap.
 ```
 
 Expected outputs:
@@ -49,6 +63,8 @@ Planner-docs/Faz-<n>-Plans/Faz<n>.<m>-*.md
 ```
 
 Step 2 is allowed to modify only files under `Planner-docs/`.
+
+`Planner-docs/Main-Planing.md` remains the primary source of truth. `Planner-docs/Autopsy.md`, when present, is supporting feedback that should influence sub-plan evidence, work breakdowns, acceptance criteria, and risk sections.
 
 At the end of Step 2, CodexQB should run the bundled validator or an equivalent all-file check, summarize the result, and print the Step 3 Goal mode handoff block. Do not rely on sampled reads alone for Step 2 structure checks.
 
@@ -120,6 +136,12 @@ Use $codexqb to run Step 3 and audit the existing sub-plans.
 
 CodexQB skips the Step 1 repo-aware intake when the requested step is explicit.
 
+You can also invoke Step 1.5 directly when a main plan already exists:
+
+```text
+Use $codexqb to run Step 1.5 Autopsy for this existing project.
+```
+
 You can also ask for the Step 4 prompt text after a completed audit:
 
 ```text
@@ -140,6 +162,8 @@ error_count=0
 ```
 
 It exits nonzero on structural failures. With `--strict`, repeated or generic section warnings are treated as failures. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, P0/P1 audit findings block implementation readiness while P2/P3 findings are warnings.
+
+If `Planner-docs/Autopsy.md` exists, the validator checks its required heading order during Step 2/3 validation. If it does not exist, Step 2/3 validation continues without treating Autopsy as required.
 
 ## Safety Expectations
 

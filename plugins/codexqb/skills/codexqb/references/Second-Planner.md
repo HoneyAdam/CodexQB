@@ -29,6 +29,13 @@ The primary source of truth for this step is:
 
 Planner-docs/Main-Planing.md
 
+Optional supporting source:
+If it exists, read this file fully before generating sub-plans:
+
+Planner-docs/Autopsy.md
+
+Autopsy.md is not a replacement for Main-Planing.md. It is a supporting feedback source from Step 1.5. Use it to enrich sub-plans with concrete repo feedback, technical debt, placeholder/stub findings, broken integration risks, test gaps, security/governance gaps, and readiness blockers.
+
 Supporting operational reference:
 If available, read the CodexQB support note before generating:
 
@@ -39,12 +46,14 @@ You must not replace the main plan.
 You must not change the phase order unless the main plan is internally inconsistent, and even then you must preserve the original order while documenting the inconsistency in the generated index.
 
 Step 1 produced the high-level master plan.
-Step 2 must now decompose that master plan into detailed sub-plans.
+Step 1.5 may have produced an existing-project autopsy report.
+Step 2 must now decompose the master plan into detailed sub-plans, incorporating Autopsy.md feedback when that file exists.
 
 Expected output structure:
 
 Planner-docs/
   Main-Planing.md
+  Autopsy.md
   Sub-Planing-Index.md
   Faz-0-Plans/
     Faz0.1-<short-slug>.md
@@ -103,6 +112,7 @@ Run only safe read-only commands such as:
 - git log --oneline -n 10
 - find Planner-docs -maxdepth 3 -type f | sort
 - cat Planner-docs/Main-Planing.md
+- cat Planner-docs/Autopsy.md if present
 - ls
 - find . -maxdepth 3 -type f | sort | head -300
 - cat README.md if present
@@ -119,6 +129,11 @@ If Planner-docs/Main-Planing.md is missing:
 - Include the exact missing file path.
 - Include what should be done next.
 - Stop after creating that blocker document.
+
+If Planner-docs/Autopsy.md is missing:
+- Do not block Step 2.
+- Continue using Planner-docs/Main-Planing.md as the primary source of truth.
+- State in Planner-docs/Sub-Planing-Index.md that no Autopsy source was available.
 
 If Main-Planing.md exists but does not contain clear phases:
 - Do not invent a detailed phase tree blindly.
@@ -141,10 +156,18 @@ Sub-planning strategy:
    - phase maturity levels if present;
    - major risks;
    - Step 2 notes if present.
-3. Preserve the main phase order.
-4. For each main phase, create a folder:
+3. If Autopsy.md exists, read it fully and identify:
+   - project modules and responsibility boundaries;
+   - feature inventory;
+   - placeholder, stub, and skeleton findings;
+   - technical debt and maintenance risks;
+   - broken or missing integrations;
+   - test, CI, validation, security, governance, and operational readiness gaps;
+   - Step 2 feedback and priority signals.
+4. Preserve the main phase order.
+5. For each main phase, create a folder:
    Planner-docs/Faz-<number>-Plans/
-5. For each main phase, create a reasonable number of sub-phase plan documents.
+6. For each main phase, create a reasonable number of sub-phase plan documents.
 
 Sub-phase sizing rules:
 - Prefer 3-7 sub-phases per major phase.
@@ -245,6 +268,7 @@ Include:
 - docs/runbooks already present;
 - skeletons or missing implementations;
 - contradictions or stale assumptions.
+- relevant Autopsy.md findings when available.
 
 If no evidence exists, say:
 “Bu alt faz için mevcut repo kanıtı sınırlı.”
@@ -268,6 +292,12 @@ Example:
 
 Do not create implementation code.
 
+When Autopsy.md exists, include relevant Autopsy feedback in the work breakdown. Examples:
+- remediate placeholder/stub/skeleton findings in the correct phase;
+- add validation coverage for features that are only partially evidenced;
+- plan integration contract repair before live activation;
+- prioritize security/governance gaps before risky automation.
+
 ## 8. Kabul Kriterleri
 
 Define concrete acceptance criteria.
@@ -279,6 +309,7 @@ Examples:
 - “API implementation yoksa bu açıkça belirtilir.”
 - “Local readiness ve live readiness ayrı değerlendirilir.”
 - “Secret değerleri plan dosyalarına yazılmaz.”
+- “Autopsy bulgusu ilgiliyse kabul kriteri, bu bulgunun kapatıldığını veya bilinçli ertelendiğini doğrular.”
 
 ## 9. Doğrulama ve Test Yaklaşımı
 
@@ -323,6 +354,8 @@ For each:
 - impact;
 - mitigation.
 
+When Autopsy.md exists, include Autopsy P0/P1/P2 signals that materially affect this sub-phase.
+
 Be direct.
 
 ## 12. Varmak İstenen Nokta
@@ -364,6 +397,10 @@ Include:
 - detected phase count;
 - detected phase names;
 - any ambiguity or inconsistency found.
+
+Also include an "Autopsy Kaynağı" note:
+- If Planner-docs/Autopsy.md exists, state that it was read and summarize the most important Step 2 feedback categories.
+- If it does not exist, state that Step 2 continued without Autopsy input.
 
 ## 3. Faz ve Alt Plan Haritası
 
@@ -417,6 +454,7 @@ Quality requirements:
 
 The generated sub-plans must be:
 - grounded in Main-Planing.md;
+- informed by Autopsy.md when available;
 - grounded in repository evidence where available;
 - sequential and realistic;
 - detailed enough for Step 3 implementation-task decomposition;
@@ -452,19 +490,20 @@ Operational validation requirements:
 
 1. Do not report phase counts, sub-plan counts, or section counts from memory.
 2. Report counts only after reading Planner-docs/Main-Planing.md and validating generated files.
-3. Every generated sub-plan must contain the full 13-section structure listed above.
-4. Validate every generated sub-plan, not only a sample.
-5. Prefer the bundled read-only validator over ad hoc validation snippets:
+3. If Planner-docs/Autopsy.md exists, read it before reporting Step 2 source coverage.
+4. Every generated sub-plan must contain the full 13-section structure listed above.
+5. Validate every generated sub-plan, not only a sample.
+6. Prefer the bundled read-only validator over ad hoc validation snippets:
 
    python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
 
-6. If the global skill path is unavailable but this prompt is running from a plugin checkout, use the equivalent local script path under:
+7. If the global skill path is unavailable but this prompt is running from a plugin checkout, use the equivalent local script path under:
 
    plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py
 
-7. If the validator is unavailable, perform the equivalent checks manually for every file and state that fallback clearly.
-8. Avoid large noisy inline generation scripts unless unavoidable. If used, keep stdout concise and validate all outputs afterward.
-9. Use length-bounded secret checks. Do not use one-character `sk-` prefix patterns, because they can false-positive on normal filenames like task-spec.yaml.
+8. If the validator is unavailable, perform the equivalent checks manually for every file and state that fallback clearly.
+9. Avoid large noisy inline generation scripts unless unavoidable. If used, keep stdout concise and validate all outputs afterward.
+10. Use length-bounded secret checks. Do not use one-character `sk-` prefix patterns, because they can false-positive on normal filenames like task-spec.yaml.
 
 Goal-following behavior:
 
@@ -550,6 +589,7 @@ Include:
 - how many sub-plan files were created or updated;
 - which folders were created;
 - where the index file is;
+- whether Planner-docs/Autopsy.md was found and used;
 - the recommended first sub-plan to execute next;
 - any blockers, ambiguities, or assumptions;
 - confirmation that only Planner-docs/ was modified, or explicitly list any unexpected modifications.

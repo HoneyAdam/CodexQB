@@ -1,6 +1,6 @@
 # CodexQB
 
-**Repo-aware planning for Codex.** CodexQB turns a project repository into a durable planning package: main plan, phase sub-plans, QA audit, and a gated implementation handoff.
+**Repo-aware planning for Codex.** CodexQB turns a project repository into a durable planning package: main plan, existing-project autopsy, phase sub-plans, QA audit, and a gated implementation handoff.
 
 ![CodexQB workflow](docs/assets/codexqb-workflow.png)
 
@@ -10,7 +10,8 @@ CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for so
 
 - **Repo-aware intake:** CodexQB inspects the current repository before asking questions, then proposes evidence-backed defaults for project name, intent, target end state, and constraints.
 - **Durable planning docs:** Output is written under `Planner-docs/` so long planning work survives context changes and can be reviewed like normal project documentation.
-- **Full phase decomposition:** The main plan can be expanded into ordered phase folders and detailed sub-plan files.
+- **Project Autopsy:** Existing projects get a focused `Autopsy.md` report covering modules, features, placeholders, technical debt, integration gaps, validation gaps, and readiness risks.
+- **Full phase decomposition:** The main plan can be expanded into ordered phase folders and detailed sub-plan files, using Autopsy feedback when available.
 - **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, security/governance, and implementation preparedness.
 - **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin.
 
@@ -19,6 +20,7 @@ CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for so
 | Step | What CodexQB Does | Output |
 | --- | --- | --- |
 | 1. Repo Scan + Main Plan | Reads the repository, asks four enriched intake questions, and creates the master plan. | `Planner-docs/Main-Planing.md` |
+| 1.5 Autopsy | For existing projects, audits current project structure, features, placeholders, technical debt, integrations, validation, security, and readiness. | `Planner-docs/Autopsy.md` |
 | 2. Phase Sub-Plans | Expands every main phase into detailed implementation-ready sub-plans. | `Planner-docs/Sub-Planing-Index.md`, `Planner-docs/Faz-*-Plans/*.md` |
 | 3. QA Audit | Audits coverage, structure, quality, readiness, and governance without repairing files. | `Planner-docs/Sub-Planing-Audit.md` |
 | 4. Gated Handoff | Prints a copy-ready implementation Goal prompt when Step 3 passes. | Text-only Goal mode prompt |
@@ -58,6 +60,7 @@ CodexQB writes planning artifacts under the target project's `Planner-docs/` dir
 ```text
 Planner-docs/
   Main-Planing.md
+  Autopsy.md
   Sub-Planing-Index.md
   Sub-Planing-Audit.md
   Faz-0-Plans/
@@ -105,6 +108,7 @@ plugins/codexqb/
     scripts/validate_planner_docs.py
     references/
       First-Planner.md
+      Autopsy-Planner.md
       Second-Planner.md
       Third-Planner.md
       Fourth-Planner.md
