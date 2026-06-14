@@ -1,34 +1,33 @@
 # CodexQB
 
-CodexQB is a Codex plugin that packages a repo-aware three-step project planning workflow as a reusable skill, then prepares a gated implementation handoff prompt when the audit says the plan is ready.
+**Repo-aware planning for Codex.** CodexQB turns a project repository into a durable planning package: main plan, phase sub-plans, QA audit, and a gated implementation handoff.
 
-It helps Codex:
+![CodexQB workflow](docs/assets/codexqb-workflow.png)
 
-- inspect the current repository and ask evidence-backed intake questions;
-- create a high-level master plan at `Planner-docs/Main-Planing.md`;
-- decompose that master plan into phase sub-plans under `Planner-docs/Faz-*-Plans/`;
-- audit the generated sub-plans for coverage, ordering, readiness, quality, and governance;
-- print a copy-ready Step 4 Goal mode implementation handoff only when the audit allows implementation.
+CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, and ready for step-by-step execution.
 
-The plugin is designed for planning-heavy software, AI, infrastructure, and automation projects where durable Markdown plans and clear phase gates matter.
+## Why CodexQB
 
-## What It Provides
+- **Repo-aware intake:** CodexQB inspects the current repository before asking questions, then proposes evidence-backed defaults for project name, intent, target end state, and constraints.
+- **Durable planning docs:** Output is written under `Planner-docs/` so long planning work survives context changes and can be reviewed like normal project documentation.
+- **Full phase decomposition:** The main plan can be expanded into ordered phase folders and detailed sub-plan files.
+- **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, security/governance, and implementation preparedness.
+- **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin.
 
-CodexQB installs the `$codexqb` skill. The skill contains bundled planner references:
+## Workflow
 
-- `First-Planner.md`: Step 1 master project plan.
-- `Second-Planner.md`: Step 2 phase and sub-plan generation.
-- `Third-Planner.md`: Step 3 sub-plan QA and coverage audit.
-- `Fourth-Planner.md`: Step 4 implementation handoff prompt template.
-- `repo-aware-intake.md`: Step 1 evidence-backed intake question protocol.
+| Step | What CodexQB Does | Output |
+| --- | --- | --- |
+| 1. Repo Scan + Main Plan | Reads the repository, asks four enriched intake questions, and creates the master plan. | `Planner-docs/Main-Planing.md` |
+| 2. Phase Sub-Plans | Expands every main phase into detailed implementation-ready sub-plans. | `Planner-docs/Sub-Planing-Index.md`, `Planner-docs/Faz-*-Plans/*.md` |
+| 3. QA Audit | Audits coverage, structure, quality, readiness, and governance without repairing files. | `Planner-docs/Sub-Planing-Audit.md` |
+| 4. Gated Handoff | Prints a copy-ready implementation Goal prompt when Step 3 passes. | Text-only Goal mode prompt |
 
-Step 1 runs in the current Codex thread. It first performs a bounded read-only repository scan, then asks the same four required fields with inferred defaults or draft summaries where evidence exists. Step 2 and Step 3 are handed off as text-only Goal mode prompts so the user stays in control of long-running planning jobs. Step 2 is expected to finish by printing the Step 3 Goal handoff block. Step 3 may print a Step 4 Goal handoff only after audit gating passes.
+Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only `Hedefi Takip Et` / Goal mode prompts so the user stays in control of long-running work.
 
-CodexQB also includes a read-only validator at `scripts/validate_planner_docs.py` inside the skill. It checks required sections, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 implementation readiness.
+## Quick Start
 
-## Quick Install
-
-From Codex, add this repository as a plugin marketplace:
+Add this repository as a Codex plugin marketplace:
 
 ```bash
 codex plugin marketplace add alicankiraz1/CodexQB --ref main
@@ -37,41 +36,24 @@ codex plugin add codexqb@codexqb
 
 If the repository is private, your Codex/GitHub environment must have access to `alicankiraz1/CodexQB`.
 
-After installation, start a new Codex thread and invoke:
+Start a new Codex thread in the project you want to plan, then ask:
 
 ```text
-Use $codexqb to plan this project.
+Use $codexqb to inspect this repo and plan this project.
 ```
 
-See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed setup and troubleshooting.
+CodexQB will inspect the repository briefly, then ask for:
 
-## Basic Usage
+- `PROJECT_NAME`
+- `PROJECT_INTENT`
+- `TARGET_END_STATE`
+- `KNOWN_CONSTRAINTS`
 
-1. Open the project repository you want to plan.
-2. Ask Codex:
+For existing repositories, the questions include repo-derived suggestions. For empty or minimal repositories, CodexQB falls back to concise generic questions and marks repository evidence as limited.
 
-   ```text
-   Use $codexqb to create a main plan for this project.
-   ```
+## Generated Artifacts
 
-3. Let CodexQB inspect the repository briefly, then answer the four intake questions:
-   - `PROJECT_NAME`
-   - `PROJECT_INTENT`
-   - `TARGET_END_STATE`
-   - `KNOWN_CONSTRAINTS`
-
-   For existing repositories, CodexQB should propose repo-derived defaults and ask you to confirm or correct them. For empty or minimal repositories, it falls back to concise generic questions.
-
-4. Review `Planner-docs/Main-Planing.md`.
-5. If you want the detailed phase decomposition, copy the Step 2 prompt that CodexQB prints and send it with Goal mode.
-6. After Step 2 finishes, review the validator result in the final summary, then copy the Step 3 audit prompt that CodexQB prints and send it with Goal mode.
-7. After Step 3 finishes, copy the Step 4 implementation handoff prompt only if CodexQB prints it. If the audit is blocked or has P0/P1 findings, repair the plans first.
-
-See [docs/USAGE.md](docs/USAGE.md) for the full workflow.
-
-## Output Files
-
-CodexQB writes planning artifacts under `Planner-docs/` in the target project:
+CodexQB writes planning artifacts under the target project's `Planner-docs/` directory:
 
 ```text
 Planner-docs/
@@ -84,13 +66,23 @@ Planner-docs/
     Faz1.1-*.md
 ```
 
-The file names intentionally preserve the existing `Planing` spelling required by the bundled prompts.
+The `Planing` spelling is intentionally preserved because the bundled planner prompts and validators use these exact filenames.
+
+## Validator
+
+The skill includes a read-only validator:
+
+```bash
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+python3 ~/.codex/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+```
+
+It checks required sections, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. P0/P1 audit findings block the implementation handoff.
 
 ## Safety Model
 
-CodexQB is planning-first. Steps 1-3 are planning and audit work only. Step 4 is a user-controlled Goal mode handoff prompt for a separate implementation run.
-
-The bundled prompts instruct Codex not to:
+CodexQB is planning-first. Steps 1-3 should not:
 
 - implement product features;
 - refactor source code;
@@ -99,7 +91,7 @@ The bundled prompts instruct Codex not to:
 - commit, push, deploy, or open pull requests;
 - write secrets, tokens, credentials, private keys, or local sensitive environment values into planning files.
 
-The generated plans should distinguish documentation, local readiness, live readiness, production readiness, and operational evidence.
+Generated plans should distinguish documentation readiness, local readiness, live readiness, production readiness, and operational evidence.
 
 ## Repository Layout
 
@@ -110,8 +102,7 @@ plugins/codexqb/
   skills/codexqb/
     SKILL.md
     agents/openai.yaml
-    scripts/
-      validate_planner_docs.py
+    scripts/validate_planner_docs.py
     references/
       First-Planner.md
       Second-Planner.md
@@ -120,13 +111,20 @@ plugins/codexqb/
       repo-aware-intake.md
       workflow-quality.md
 docs/
+  INSTALLATION.md
+  MAINTAINING.md
+  USAGE.md
+  assets/codexqb-workflow.png
+tests/
 LICENSE
 README.md
 ```
 
-## Maintenance
+## Documentation
 
-Validation commands and release notes are in [docs/MAINTAINING.md](docs/MAINTAINING.md).
+- [Installation](docs/INSTALLATION.md)
+- [Usage](docs/USAGE.md)
+- [Maintaining CodexQB](docs/MAINTAINING.md)
 
 ## Public Plugin Directory Status
 
