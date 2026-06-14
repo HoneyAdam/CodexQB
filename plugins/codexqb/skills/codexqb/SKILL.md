@@ -71,12 +71,12 @@ When Step 1.5 applies:
 
 ## Step 2 Handoff
 
-After Step 1 feedback is handled, ask whether the user wants to continue to Step 2. If yes, tell the user to copy the following text, click `Hedefi Takip Et`, and send it:
+After Step 1 feedback is handled, ask whether the user wants to continue to Step 2. If yes, tell the user to copy the following text, open Goal mode, and send it:
 
 ```text
-Use $codexqb. Step 2'yi references/Second-Planner.md talimatlarına göre yürüt.
+Use $codexqb. Run Step 2 according to references/Second-Planner.md.
 
-Planner-docs/Main-Planing.md dosyasındaki tüm ana fazları oku. Planner-docs/Autopsy.md varsa onu da destekleyici feedback kaynağı olarak tamamen oku ve alt faz planlarında dikkate al. Her faz için Planner-docs altında Faz-<n>-Plans klasörleri ve Faz<n>.<m>-*.md detaylı alt plan dosyaları oluştur. Tüm fazlar kapsanmadan durma. Sadece Planner-docs altında değişiklik yap.
+Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md exists, read it fully as a supporting feedback source and account for it in the sub-phase plans. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
 ```
 
 When executing Step 2 directly:
@@ -89,16 +89,16 @@ When executing Step 2 directly:
    `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict`
    If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
 6. Do not modify files outside `Planner-docs/`.
-7. After the Step 2 summary, print the Step 3 `Hedefi Takip Et` handoff block from this skill.
+7. After the Step 2 summary, print the Step 3 Goal mode handoff block from this skill.
 
 ## Step 3 Handoff
 
-After Step 2 is complete, ask whether the user wants to continue to Step 3. If yes, tell the user to copy the following text, click `Hedefi Takip Et`, and send it:
+After Step 2 is complete, ask whether the user wants to continue to Step 3. If yes, tell the user to copy the following text, open Goal mode, and send it:
 
 ```text
-Use $codexqb. Step 3'ü references/Third-Planner.md talimatlarına göre yürüt.
+Use $codexqb. Run Step 3 according to references/Third-Planner.md.
 
-Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md ve Planner-docs/Faz-*-Plans/*.md dosyalarını denetle. Ana faz coverage, dosya isimlendirme, sıralama, zorunlu bölüm yapısı, index tutarlılığı, içerik kalitesi, scope drift, readiness gerçekçiliği, güvenlik/governance ve Step 4 hazırlığını analiz et. Hiçbir plan dosyasını düzeltme; yalnızca Planner-docs/Sub-Planing-Audit.md raporunu üret. Tüm fazlar ve alt planlar incelenmeden durma.
+Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, and Planner-docs/Faz-*-Plans/*.md. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, security/governance, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
 ```
 
 When executing Step 3 directly:
@@ -122,7 +122,7 @@ When Step 3 completes:
 2. Run the bundled validator when available. When manually validating from a CodexQB repository checkout, use:
    `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4`
    If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
-3. If validation passes, print the Step 4 `Hedefi Takip Et` copy block and remind the user to watch token use.
+3. If validation passes, print the Step 4 Goal mode copy block and remind the user to watch token use.
 4. If validation fails because the audit is `BLOCKED` or contains P0/P1 findings, do not print the Step 4 prompt; print the minimal repair or unblock prompt instead.
 5. If validation passes with non-blocking warnings, print the Step 4 prompt and state that the implementation run must keep P2/P3 warnings visible.
 

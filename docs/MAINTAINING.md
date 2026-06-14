@@ -52,7 +52,7 @@ When changing the validator, test at least:
 - a fake long secret token that should be detected;
 - roadmap table extraction with historical phase references such as `Faz 0B-10` or `Phase 11`;
 - optional `Autopsy.md` validation when present, and no failure when it is absent;
-- Step 4 readiness gating for missing audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, and prose such as `P0/P1 bulgusu yok`.
+- Step 4 readiness gating for missing audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, and prose such as `no P0/P1 findings`.
 
 Run the tracked validator test suite:
 

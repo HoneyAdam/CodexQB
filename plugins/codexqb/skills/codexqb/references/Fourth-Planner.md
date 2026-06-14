@@ -2,7 +2,7 @@
 
 This reference is not an auto-executed CodexQB planning step.
 
-Use it only after Step 3 writes `Planner-docs/Sub-Planing-Audit.md` and the audit says Step 4 can begin. Print the copy block below for the user to paste into `Hedefi Takip Et`.
+Use it only after Step 3 writes `Planner-docs/Sub-Planing-Audit.md` and the audit says Step 4 can begin. Print the copy block below for the user to paste into Goal mode.
 
 If the audit status is `BLOCKED`, do not print this prompt. Print the minimal unblock prompt from the audit instead.
 
@@ -13,11 +13,11 @@ If the audit status is `PASS_WITH_WARNINGS` with only P2/P3 findings, this promp
 ## Copy Block
 
 ```text
-Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Sub-Planing-Audit.md ve Planner-docs/Faz-*-Plans/*.md dosyalarını kaynak kabul et. Audit içindeki ilk READY veya READY_WITH_WARNINGS alt planı seç; P0/P1 audit bulgusu varsa uygulamaya geçmeden dur ve onarım promptu öner.
+Treat Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Sub-Planing-Audit.md, and Planner-docs/Faz-*-Plans/*.md as source material. Select the first READY or READY_WITH_WARNINGS sub-plan from the audit. If the audit contains P0/P1 findings, stop before implementation and propose a repair prompt.
 
-if installed/available, use relevant Codex skills/plugins by scope: implementation için superpowers:executing-plans veya superpowers:subagent-driven-development, kod değişikliklerinde superpowers:test-driven-development, bitirmeden önce superpowers:verification-before-completion, güvenlik/policy/secret/command execution işleri için codex-security. Bu beceriler/eklentiler yüklü değilse durma; continue using the audit, seçilen alt plan, repo talimatları ve mevcut doğrulama komutlarıyla aynı prensipleri uygula. GitHub publish/PR işleri sadece açıkça istendiğinde kullan.
+If installed/available, use relevant Codex skills/plugins by scope: use superpowers:executing-plans or superpowers:subagent-driven-development for implementation, superpowers:test-driven-development for code changes, superpowers:verification-before-completion before finishing, and codex-security for security, policy, secret, or command-execution work. If these skills/plugins are not installed, do not stop; continue using the audit, the selected sub-plan, repo instructions, and existing validation commands with the same principles. Use GitHub publish/PR workflows only when explicitly requested.
 
-Tek seferde bir küçük, geri alınabilir, testlenebilir geliştirme dilimi uygula. Önce git status, README.md, AGENTS.md, Makefile, audit ve seçilen alt planı oku. Testi veya doğrulama komutunu önce belirle; minimal değişikliği yap; odaklı testleri ve ilgili make smoke/check hedefini çalıştır; sonucu exact blocker/success olarak raporla. Secret, token, private key veya local credential yazma. Token kullanımına dikkat et: tüm alt planları context’e yükleme, index/audit ile yön bul, sadece seçilen alt planı ve gerekli dosyaları oku.
+Implement one small, reversible, testable improvement slice at a time. First read git status, README.md, AGENTS.md, Makefile, the audit, and the selected sub-plan. Identify the test or validation command before editing; make the minimal change; run focused tests and the relevant make smoke/check target; report the result as an exact blocker or success. Do not write secrets, tokens, private keys, or local credentials. Watch token use: do not load every sub-plan into context; use the index/audit to navigate, then read only the selected sub-plan and required files.
 ```
 
 ## Operator Notes

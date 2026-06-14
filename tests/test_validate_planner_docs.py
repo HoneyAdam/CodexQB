@@ -11,85 +11,85 @@ VALIDATOR = REPO_ROOT / "plugins/codexqb/skills/codexqb/scripts/validate_planner
 
 STEP1_HEADINGS = [
     "# Main Planing",
-    "## 1. Yönetici Özeti",
-    "## 2. Proje Vizyonu",
-    "## 3. Mevcut Durum Analizi",
-    "## 4. Hedef Son Durum",
-    "## 5. Mimari Yön ve Ana Kararlar",
-    "## 6. Fazlara Bölünmüş Ana Yol Haritası",
-    "## 7. Kritik Riskler ve Açıklar",
-    "## 8. Önceliklendirilmiş Sonraki Adımlar",
-    "## 9. Step 2 İçin Hazırlık Notları",
-    "## 10. Repo İnceleme Notları",
+    "## 1. Executive Summary",
+    "## 2. Project Vision",
+    "## 3. Current State Analysis",
+    "## 4. Target End State",
+    "## 5. Architecture Direction and Key Decisions",
+    "## 6. Phase-Based Master Roadmap",
+    "## 7. Critical Risks and Gaps",
+    "## 8. Prioritized Next Steps",
+    "## 9. Step 2 Preparation Notes",
+    "## 10. Repository Review Notes",
 ]
 
 AUTOPSY_HEADINGS = [
     "# Project Autopsy",
-    "## 1. Yönetici Özeti",
-    "## 2. İncelenen Kaynaklar",
-    "## 3. Proje Bölümleri ve Sorumluluk Alanları",
-    "## 4. Feature Envanteri",
-    "## 5. Placeholder, Stub ve Skeleton Analizi",
-    "## 6. Teknik Borç ve Bakım Riskleri",
-    "## 7. Hatalı veya Eksik Entegrasyonlar",
-    "## 8. Test, CI ve Doğrulama Açıkları",
-    "## 9. Güvenlik, Secret ve Governance Bulguları",
-    "## 10. Operasyonel Readiness ve Gözlemlenebilirlik",
-    "## 11. Ana Planla Uyumluluk Analizi",
-    "## 12. Step 2 İçin Autopsy Feedbackleri",
-    "## 13. Öncelikli Düzeltme ve Planlama Sinyalleri",
+    "## 1. Executive Summary",
+    "## 2. Reviewed Sources",
+    "## 3. Project Areas and Ownership Boundaries",
+    "## 4. Feature Inventory",
+    "## 5. Placeholder, Stub, and Skeleton Analysis",
+    "## 6. Technical Debt and Maintenance Risks",
+    "## 7. Broken or Missing Integrations",
+    "## 8. Test, CI, and Validation Gaps",
+    "## 9. Security, Secret, and Governance Findings",
+    "## 10. Operational Readiness and Observability",
+    "## 11. Alignment Analysis with the Main Plan",
+    "## 12. Autopsy Feedback for Step 2",
+    "## 13. Priority Fix and Planning Signals",
 ]
 
 INDEX_HEADINGS = [
     "# Sub-Planing Index",
-    "## 1. Amaç",
-    "## 2. Kaynak Ana Plan",
-    "## 3. Faz ve Alt Plan Haritası",
-    "## 4. Öncelikli Detaylandırma Sırası",
-    "## 5. Kapsam Dışı Bırakılan veya Ertelenen Konular",
-    "## 6. Coverage Kontrolü",
-    "## 7. Repo İnceleme Notları",
+    "## 1. Purpose",
+    "## 2. Source Main Plan",
+    "## 3. Phase and Sub-Plan Map",
+    "## 4. Priority Detailing Order",
+    "## 5. Out-of-Scope or Deferred Topics",
+    "## 6. Coverage Check",
+    "## 7. Repository Review Notes",
 ]
 
 SUBPLAN_HEADINGS = [
-    "## 1. Bağlam",
-    "## 2. Hedef",
-    "## 3. Açıklama",
-    "## 4. Kapsam",
-    "## 5. Kapsam Dışı",
-    "## 6. Mevcut Repo Kanıtı",
-    "## 7. Planlanan İş Kırılımı",
-    "## 8. Kabul Kriterleri",
-    "## 9. Doğrulama ve Test Yaklaşımı",
-    "## 10. Bağımlılıklar ve Sıralama",
-    "## 11. Riskler ve Önlemler",
-    "## 12. Varmak İstenen Nokta",
-    "## 13. Sonraki Alt Faza Geçiş Kriteri",
+    "## 1. Context",
+    "## 2. Goal",
+    "## 3. Description",
+    "## 4. Scope",
+    "## 5. Out of Scope",
+    "## 6. Current Repository Evidence",
+    "## 7. Planned Work Breakdown",
+    "## 8. Acceptance Criteria",
+    "## 9. Validation and Test Approach",
+    "## 10. Dependencies and Sequencing",
+    "## 11. Risks and Mitigations",
+    "## 12. Desired End State",
+    "## 13. Next Sub-Phase Transition Criteria",
 ]
 
 AUDIT_HEADINGS = [
     "# Sub-Planing Audit",
-    "## 1. Denetim Özeti",
-    "## 2. İncelenen Kaynaklar",
-    "## 3. Ana Faz Kapsama Analizi",
-    "## 4. Alt Plan Dosya Envanteri",
-    "## 5. Naming ve Sıralama Kontrolü",
-    "## 6. Index Tutarlılık Kontrolü",
-    "## 7. Zorunlu Bölüm Yapısı Kontrolü",
-    "## 8. İçerik Kalitesi ve Uygulanabilirlik Analizi",
-    "## 9. Scope Drift ve Mimari Tutarlılık Analizi",
-    "## 10. Readiness Gerçekçiliği",
-    "## 11. Güvenlik ve Governance Bulguları",
-    "## 12. Step 4 Hazırlık Değerlendirmesi",
-    "## 13. Öncelikli Düzeltme Listesi",
-    "## 14. Önerilen Sonraki Komut / Prompt",
-    "## 15. Denetim Sonucu",
+    "## 1. Audit Summary",
+    "## 2. Reviewed Sources",
+    "## 3. Main Phase Coverage Analysis",
+    "## 4. Sub-Plan File Inventory",
+    "## 5. Naming and Sequencing Check",
+    "## 6. Index Consistency Check",
+    "## 7. Required Section Structure Check",
+    "## 8. Content Quality and Implementability Analysis",
+    "## 9. Scope Drift and Architectural Consistency Analysis",
+    "## 10. Readiness Realism",
+    "## 11. Security and Governance Findings",
+    "## 12. Step 4 Readiness Assessment",
+    "## 13. Priority Fix List",
+    "## 14. Recommended Next Command / Prompt",
+    "## 15. Audit Result",
 ]
 
 
 def body(label: str) -> str:
     clean_label = label.lstrip("# ").replace("|", " ").strip()
-    return f"{clean_label} bölümü için yeterli uzunlukta, doğrulanabilir ve Türkçe fixture açıklaması."
+    return f"{clean_label} section has enough length, verifiable detail, and English fixture content."
 
 
 def run_validator(root: Path, mode: str, strict: bool = False) -> subprocess.CompletedProcess[str]:
@@ -103,14 +103,14 @@ def write_main_plan(docs: Path) -> None:
     lines: list[str] = []
     for heading in STEP1_HEADINGS:
         lines += [heading, "", body(heading), ""]
-        if heading == "## 6. Fazlara Bölünmüş Ana Yol Haritası":
+        if heading == "## 6. Phase-Based Master Roadmap":
             lines += [
-                "Mevcut repo Faz 0B-10 tarihsel planlarını ve Phase 11 güvenlik notlarını içerir.",
+                "The existing repo includes historical Faz 0B-10 plans and Phase 11 security notes.",
                 "",
-                "| Faz | Faz adı | Hedef | Yaklaşık olgunluk | Ana kabul sinyalleri |",
+                "| Phase | Phase name | Goal | Approximate maturity | Main acceptance signals |",
                 "|---|---|---|---|---|",
-                "| 1 | Local Contract Stabilizasyonu | Baseline netleştirme | M3 | make check |",
-                "| 2 | Live Gateway Aktivasyonu | ready_live kanıtı | M4 | make smoke |",
+                "| 1 | Local Contract Stabilization | Clarify baseline | M3 | make check |",
+                "| 2 | Live Gateway Activation | ready_live evidence | M4 | make smoke |",
                 "",
             ]
     (docs / "Main-Planing.md").write_text("\n".join(lines), encoding="utf-8")
@@ -124,13 +124,13 @@ def write_autopsy(docs: Path, headings: list[str] | None = None) -> None:
 
 
 def write_subplan(path: Path, phase: int, subphase: int) -> None:
-    lines = [f"# Faz {phase}.{subphase} — Test Alt Plan", ""]
+    lines = [f"# Faz {phase}.{subphase} — Test Sub-Plan", ""]
     for heading in SUBPLAN_HEADINGS:
         text = body(heading)
-        if heading == "## 6. Mevcut Repo Kanıtı":
-            text += " `configs/example.placeholder` normal bir örnek dosya adıdır."
-        if heading == "## 11. Riskler ve Önlemler":
-            text += " placeholder-safe komut anlatımı gerçek placeholder değildir."
+        if heading == "## 6. Current Repository Evidence":
+            text += " `configs/example.placeholder` is a normal example filename."
+        if heading == "## 11. Risks and Mitigations":
+            text += " placeholder-safe command wording is not a real placeholder."
         lines += [heading, "", text, ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -147,7 +147,7 @@ def write_index(docs: Path, relative_refs: bool = False) -> None:
     lines: list[str] = []
     for heading in INDEX_HEADINGS:
         lines += [heading, "", body(heading), ""]
-        if heading == "## 3. Faz ve Alt Plan Haritası":
+        if heading == "## 3. Phase and Sub-Plan Map":
             lines += [f"- {ref}" for ref in refs] + [""]
     (docs / "Sub-Planing-Index.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -156,13 +156,13 @@ def write_audit(docs: Path, status: str, fixes: list[str] | None = None) -> None
     lines: list[str] = []
     for heading in AUDIT_HEADINGS:
         lines += [heading, "", body(heading), ""]
-        if heading == "## 1. Denetim Özeti":
-            lines += [f"Denetim durumu: {status}", ""]
-        if heading == "## 13. Öncelikli Düzeltme Listesi":
+        if heading == "## 1. Audit Summary":
+            lines += [f"Audit status: {status}", ""]
+        if heading == "## 13. Priority Fix List":
             for fix in fixes or []:
                 lines += [fix, ""]
-        if heading == "## 15. Denetim Sonucu":
-            lines += [f"Nihai durum: {status}", ""]
+        if heading == "## 15. Audit Result":
+            lines += [f"Final status: {status}", ""]
     (docs / "Sub-Planing-Audit.md").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -281,7 +281,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
     def test_step4_pass_with_warnings_no_findings_text_does_not_count_as_findings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             docs = write_valid_step2_fixture(Path(temp_dir))
-            write_audit(docs, "PASS_WITH_WARNINGS", ["P0/P1 bulgusu yok. P2/P3 bulgusu yok."])
+            write_audit(docs, "PASS_WITH_WARNINGS", ["No P0/P1 findings. No P2/P3 findings."])
             result = run_validator(Path(temp_dir), "step4")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("p0_findings=0", result.stdout)

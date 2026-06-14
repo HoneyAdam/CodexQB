@@ -45,14 +45,14 @@ Step 1.5 is skipped for empty or nearly empty repositories. In that case, `Autop
 
 ## Step 2: Phase Sub-Plans
 
-After Step 1, CodexQB prints a text block for Goal mode. Copy it, click `Hedefi Takip Et`, and send it.
+After Step 1, CodexQB prints a text block for Goal mode. Copy it, open Goal mode, and send it.
 
 The prompt is:
 
 ```text
-Use $codexqb. Step 2'yi references/Second-Planner.md talimatlarına göre yürüt.
+Use $codexqb. Run Step 2 according to references/Second-Planner.md.
 
-Planner-docs/Main-Planing.md dosyasındaki tüm ana fazları oku. Planner-docs/Autopsy.md varsa onu da destekleyici feedback kaynağı olarak tamamen oku ve alt faz planlarında dikkate al. Her faz için Planner-docs altında Faz-<n>-Plans klasörleri ve Faz<n>.<m>-*.md detaylı alt plan dosyaları oluştur. Tüm fazlar kapsanmadan durma. Sadece Planner-docs altında değişiklik yap.
+Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md exists, read it fully as a supporting feedback source and account for it in the sub-phase plans. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
 ```
 
 Expected outputs:
@@ -78,14 +78,14 @@ When running through an installed plugin, CodexQB should use the bundled validat
 
 ## Step 3: Sub-Plan QA Audit
 
-After Step 2, CodexQB prints another text block for Goal mode. Copy it, click `Hedefi Takip Et`, and send it.
+After Step 2, CodexQB prints another text block for Goal mode. Copy it, open Goal mode, and send it.
 
 The prompt is:
 
 ```text
-Use $codexqb. Step 3'ü references/Third-Planner.md talimatlarına göre yürüt.
+Use $codexqb. Run Step 3 according to references/Third-Planner.md.
 
-Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md ve Planner-docs/Faz-*-Plans/*.md dosyalarını denetle. Ana faz coverage, dosya isimlendirme, sıralama, zorunlu bölüm yapısı, index tutarlılığı, içerik kalitesi, scope drift, readiness gerçekçiliği, güvenlik/governance ve Step 4 hazırlığını analiz et. Hiçbir plan dosyasını düzeltme; yalnızca Planner-docs/Sub-Planing-Audit.md raporunu üret. Tüm fazlar ve alt planlar incelenmeden durma.
+Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, and Planner-docs/Faz-*-Plans/*.md. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, security/governance, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
 ```
 
 Expected output:

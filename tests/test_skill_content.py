@@ -20,7 +20,7 @@ class SkillContentTests(unittest.TestCase):
         for field in ["PROJECT_NAME", "PROJECT_INTENT", "TARGET_END_STATE", "KNOWN_CONSTRAINTS"]:
             self.assertIn(field, intake)
         for number in range(1, 5):
-            self.assertIn(f"Soru {number} / 4", intake)
+            self.assertIn(f"Question {number} / 4", intake)
         self.assertIn("Use plain text only", intake)
         self.assertIn("Pre-Intake Scan", intake)
 
@@ -46,19 +46,19 @@ class SkillContentTests(unittest.TestCase):
 
         required_headings = [
             "# Project Autopsy",
-            "## 1. Yönetici Özeti",
-            "## 2. İncelenen Kaynaklar",
-            "## 3. Proje Bölümleri ve Sorumluluk Alanları",
-            "## 4. Feature Envanteri",
-            "## 5. Placeholder, Stub ve Skeleton Analizi",
-            "## 6. Teknik Borç ve Bakım Riskleri",
-            "## 7. Hatalı veya Eksik Entegrasyonlar",
-            "## 8. Test, CI ve Doğrulama Açıkları",
-            "## 9. Güvenlik, Secret ve Governance Bulguları",
-            "## 10. Operasyonel Readiness ve Gözlemlenebilirlik",
-            "## 11. Ana Planla Uyumluluk Analizi",
-            "## 12. Step 2 İçin Autopsy Feedbackleri",
-            "## 13. Öncelikli Düzeltme ve Planlama Sinyalleri",
+            "## 1. Executive Summary",
+            "## 2. Reviewed Sources",
+            "## 3. Project Areas and Ownership Boundaries",
+            "## 4. Feature Inventory",
+            "## 5. Placeholder, Stub, and Skeleton Analysis",
+            "## 6. Technical Debt and Maintenance Risks",
+            "## 7. Broken or Missing Integrations",
+            "## 8. Test, CI, and Validation Gaps",
+            "## 9. Security, Secret, and Governance Findings",
+            "## 10. Operational Readiness and Observability",
+            "## 11. Alignment Analysis with the Main Plan",
+            "## 12. Autopsy Feedback for Step 2",
+            "## 13. Priority Fix and Planning Signals",
         ]
         for heading in required_headings:
             self.assertIn(heading, autopsy)
@@ -79,7 +79,7 @@ class SkillContentTests(unittest.TestCase):
 
     def test_fourth_planner_external_skills_are_optional(self) -> None:
         fourth = (SKILL_ROOT / "references/Fourth-Planner.md").read_text(encoding="utf-8")
-        self.assertIn("if installed/available", fourth)
+        self.assertIn("if installed/available", fourth.lower())
         self.assertIn("superpowers:executing-plans", fourth)
         self.assertIn("codex-security", fourth)
         self.assertIn("continue using the audit", fourth)

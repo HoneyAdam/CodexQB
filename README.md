@@ -29,7 +29,7 @@ The current release is hardened for repository marketplace distribution: depende
 | 3. QA Audit | Audits coverage, structure, quality, readiness, and governance without repairing files. | `Planner-docs/Sub-Planing-Audit.md` |
 | 4. Gated Handoff | Prints a copy-ready implementation Goal prompt when Step 3 passes. | Text-only Goal mode prompt |
 
-Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only `Hedefi Takip Et` / Goal mode prompts so the user stays in control of long-running work.
+Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only Goal mode prompts so the user stays in control of long-running work.
 
 ## Quick Start
 
