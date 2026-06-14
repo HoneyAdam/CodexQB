@@ -1,6 +1,6 @@
 ---
 name: codexqb
-description: Repo-aware project planning workflow for Codex. Use to create Planner-docs/Main-Planing.md, run an existing-project autopsy, decompose phases into sub-plans, audit readiness, and print a gated Step 4 implementation handoff.
+description: Repo-aware Codex planning with autopsy, phase sub-plans, QA audit, and gated handoff.
 ---
 
 # CodexQB
@@ -43,6 +43,8 @@ Before asking `PROJECT_NAME`, do a bounded, read-only repository scan so the int
 2. `PROJECT_INTENT`: what the project is for and what it should become, with a repo-derived draft when possible.
 3. `TARGET_END_STATE`: what done looks like from product, engineering, operations, security, and user-value perspectives, with a five-part draft when possible.
 4. `KNOWN_CONSTRAINTS`: team size, infrastructure, budget, timeline, preferred stack, compliance boundaries, must-use tools, and must-not-use tools, with detected constraints and unknowns when possible.
+
+CodexQB asks intake questions in the user's language when practical. Generated Planner-docs artifacts are English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
 
 After all four values are available:
 

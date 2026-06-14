@@ -131,7 +131,7 @@ Create or update:
 
 Planner-docs/Main-Planing.md
 
-The document must be written in English.
+The document body is English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
 
 Use clear headings and a professional engineering-planning tone.
 
@@ -325,7 +325,7 @@ Validation after writing:
 After creating/updating Planner-docs/Main-Planing.md:
 1. Read the file back.
 2. Check that all required top-level sections exist.
-3. Check that the document is in English.
+3. Check that the document follows the language contract: English by default unless the user explicitly requests another body language, with required headings in English.
 4. Check that it does not contain secrets.
 5. Run git diff -- Planner-docs/Main-Planing.md and review the diff.
 6. Provide a final concise summary of:

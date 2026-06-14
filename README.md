@@ -55,6 +55,8 @@ CodexQB will inspect the repository briefly, then ask for:
 - `TARGET_END_STATE`
 - `KNOWN_CONSTRAINTS`
 
+CodexQB asks intake questions in the user's language when practical. Generated Planner-docs artifacts are English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
+
 For existing repositories, the questions include repo-derived suggestions. For empty or minimal repositories, CodexQB falls back to concise generic questions and marks repository evidence as limited.
 
 ## Generated Artifacts
@@ -95,7 +97,7 @@ Repository maintainers can run the dependency-free repo check with:
 make check
 ```
 
-`make check` validates plugin JSON, required package files, `agents/openai.yaml` minimum fields, stale invocation names, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
+`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
 
 ## Release Validation
 
@@ -113,7 +115,7 @@ For sanitized zip sharing, use the tracked-file archive target instead of Finder
 make export-sanitized
 ```
 
-This creates `CodexQB-sanitized.zip` from `git archive`, excluding `.git/`, ignored Python caches, local env files, runtime folders, and other untracked local clutter.
+This creates `CodexQB-sanitized.zip` from `git archive`, excluding `.git/`, ignored Python caches, local env files, runtime folders, and other untracked local clutter. The default validation gate also checks that forbidden tracked archive entries are not present.
 
 ## Safety Model
 

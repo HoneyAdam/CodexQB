@@ -109,7 +109,17 @@ AUDIT_FIX_RE = re.compile(
 )
 
 SECRET_PATTERNS = [
-    ("openai_api_key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    (
+        "openrouter_api_key",
+        re.compile(
+            r"\bsk-or-v1-[A-Za-z0-9_-]{20,}\b"
+            r"|OPENROUTER_API_KEY\s*=\s*"
+            r"(?!(?:['\"]?(?:\$OPENROUTER_API_KEY|<redacted>|your_openrouter_api_key)['\"]?)(?:\s|$))"
+            r"[^\s#]+",
+            re.IGNORECASE,
+        ),
+    ),
+    ("openai_api_key", re.compile(r"\bsk-(?!or-v1-)[A-Za-z0-9_-]{20,}\b")),
     ("github_pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     ("github_legacy_pat", re.compile(r"\bghp_[A-Za-z0-9]{20,}\b")),
     ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
@@ -572,23 +582,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str]) -> int:
-    args = parse_args(argv)
-    state = ValidationState(root=Path(args.root).resolve(), mode=args.mode, strict=args.strict)
+def run_validation(root: Path, mode: str, strict: bool = False) -> int:
+    state = ValidationState(root=root.resolve(), mode=mode, strict=strict)
 
-    if state.mode == "step1":
+    if mode == "step1":
         validate_step1(state)
-    elif state.mode == "step2":
+    elif mode == "step2":
         validate_step2(state)
-    elif state.mode in {"step3", "all"}:
+    elif mode in {"step3", "all"}:
         validate_step3_preflight(state)
-    elif state.mode == "step4":
+    elif mode == "step4":
         validate_step4_readiness(state)
     else:
-        state.error(f"unknown_mode={state.mode}")
+        state.error(f"unknown_mode={mode}")
 
     scan_secrets(state)
     return finalize(state)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    return run_validation(Path(args.root), args.mode, args.strict)
 
 
 if __name__ == "__main__":

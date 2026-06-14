@@ -63,7 +63,7 @@ If available, read this only after the audit is written and Step 4 readiness is 
 references/Fourth-Planner.md
 
 Language:
-Write Planner-docs/Sub-Planing-Audit.md in English.
+Write Planner-docs/Sub-Planing-Audit.md in English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
 
 Repository inspection requirements:
 
@@ -548,7 +548,7 @@ If blocked:
 
 Final response requirements:
 
-After completion, provide a concise final summary in English.
+After completion, provide a concise final summary using the same language contract: English by default unless the user explicitly requests another body language, with required artifact headings kept in English.
 
 Include:
 - audit status;

@@ -1,13 +1,48 @@
 from __future__ import annotations
 
+import contextlib
+import importlib.util
+import io
+import re
 import subprocess
+import sys
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = REPO_ROOT / "plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py"
+CLI_TIMEOUT_SECONDS = 30
+
+
+@dataclass
+class ValidatorResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+def load_validator_module():
+    spec = importlib.util.spec_from_file_location("codexqb_validate_planner_docs", VALIDATOR)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load validator module from {VALIDATOR}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+VALIDATOR_MODULE = load_validator_module()
+
+SECRET_OUTPUT_RE = re.compile(
+    r"sk-or-v1-[A-Za-z0-9_-]+"
+    r"|sk-[A-Za-z0-9_-]{20,}"
+    r"|github_pat_[A-Za-z0-9_]{20,}"
+    r"|ghp_[A-Za-z0-9]{20,}"
+)
 
 STEP1_HEADINGS = [
     "# Main Planing",
@@ -92,11 +127,52 @@ def body(label: str) -> str:
     return f"{clean_label} section has enough length, verifiable detail, and English fixture content."
 
 
-def run_validator(root: Path, mode: str, strict: bool = False) -> subprocess.CompletedProcess[str]:
-    command = ["python3", str(VALIDATOR), "--root", str(root), "--mode", mode]
+def normalize_output(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def redact_output(value: str) -> str:
+    return SECRET_OUTPUT_RE.sub("<redacted>", value)
+
+
+def run_validator(root: Path, mode: str, strict: bool = False) -> ValidatorResult:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            code = VALIDATOR_MODULE.run_validation(root, mode, strict)
+        except SystemExit as exc:
+            code = int(exc.code or 0) if isinstance(exc.code, int) else 1
+    return ValidatorResult(code, stdout.getvalue(), stderr.getvalue())
+
+
+def run_validator_cli(
+    root: Path,
+    mode: str,
+    strict: bool = False,
+    timeout: int = CLI_TIMEOUT_SECONDS,
+) -> ValidatorResult:
+    command = [sys.executable, str(VALIDATOR), "--root", str(root), "--mode", mode]
     if strict:
         command.append("--strict")
-    return subprocess.run(command, text=True, capture_output=True, check=False)
+    try:
+        completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        stdout = redact_output(normalize_output(exc.stdout))
+        stderr = redact_output(normalize_output(exc.stderr))
+        raise AssertionError(
+            f"validator timed out after {timeout}s\n"
+            f"mode={mode}\n"
+            f"root={root}\n"
+            f"command={' '.join(command)}\n"
+            f"stdout={stdout}\n"
+            f"stderr={stderr}"
+        ) from exc
+    return ValidatorResult(completed.returncode, completed.stdout, completed.stderr)
 
 
 def write_main_plan(docs: Path) -> None:
@@ -185,6 +261,42 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("autopsy_exists=false", result.stdout)
 
+    def test_cli_step2_success_smoke_uses_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_valid_step2_fixture(Path(temp_dir))
+            result = run_validator_cli(Path(temp_dir), "step2", strict=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("planner_docs_validation=passed", result.stdout)
+
+    def test_cli_step4_gate_smoke_uses_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            write_audit(docs, "PASS_WITH_WARNINGS", ["- AUDIT-FIX-01 | P1 | repair before implementation"])
+            result = run_validator_cli(Path(temp_dir), "step4")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("step4_blocked_by_high_severity_findings=P0:0,P1:1", result.stdout)
+
+    def test_cli_timeout_failure_is_readable_and_redacted(self) -> None:
+        fake_key = "sk-or-v1-" + "A" * 64
+        timeout = subprocess.TimeoutExpired(
+            cmd=["validator"],
+            timeout=1,
+            output=f"partial stdout {fake_key}".encode("utf-8"),
+            stderr=None,
+        )
+        with mock.patch("subprocess.run", side_effect=timeout):
+            with self.assertRaises(AssertionError) as raised:
+                run_validator_cli(Path("/tmp/example-root"), "step2", timeout=1)
+
+        message = str(raised.exception)
+        self.assertIn("validator timed out after 1s", message)
+        self.assertIn("mode=step2", message)
+        self.assertIn("root=/tmp/example-root", message)
+        self.assertIn("command=", message)
+        self.assertIn("stdout=partial stdout <redacted>", message)
+        self.assertIn("stderr=", message)
+        self.assertNotIn(fake_key, message)
+
     def test_step2_validates_optional_autopsy_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             docs = write_valid_step2_fixture(Path(temp_dir))
@@ -238,6 +350,31 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             long_result = run_validator(Path(temp_dir), "step2")
             self.assertNotEqual(long_result.returncode, 0, long_result.stdout + long_result.stderr)
             self.assertIn("secret_pattern=openai_api_key", long_result.stdout)
+            self.assertNotIn("A" * 24, long_result.stdout)
+
+    def test_openrouter_secret_is_detected_but_placeholders_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            env_name = "OPENROUTER" + "_API_KEY"
+            (docs / "safe-env.md").write_text(
+                "\n".join(
+                    [
+                        f"{env_name}=your_openrouter_api_key",
+                        f"{env_name}=<redacted>",
+                        f"{env_name}=${env_name}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            placeholder_result = run_validator(Path(temp_dir), "step2")
+            self.assertEqual(placeholder_result.returncode, 0, placeholder_result.stdout + placeholder_result.stderr)
+
+            fake_key = "sk-or-v1-" + "B" * 64
+            (docs / "leak.md").write_text(f"{env_name}={fake_key}\n", encoding="utf-8")
+            leak_result = run_validator(Path(temp_dir), "step2")
+            self.assertNotEqual(leak_result.returncode, 0, leak_result.stdout + leak_result.stderr)
+            self.assertIn("secret_pattern=openrouter_api_key", leak_result.stdout)
+            self.assertNotIn(fake_key, leak_result.stdout)
 
     def test_step4_missing_audit_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

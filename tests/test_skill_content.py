@@ -9,11 +9,68 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = REPO_ROOT / "plugins/codexqb/skills/codexqb"
 
 
+def read_simple_yaml_scalar(text: str, key: str) -> str | None:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(f"{key}:"):
+            continue
+        value = stripped.split(":", 1)[1].strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value
+    return None
+
+
 class SkillContentTests(unittest.TestCase):
     def test_skill_references_repo_aware_intake(self) -> None:
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("references/repo-aware-intake.md", skill)
         self.assertIn("repo-aware", skill.lower())
+
+    def test_openai_yaml_semantics_are_concise_and_quote_tolerant(self) -> None:
+        yaml_text = (SKILL_ROOT / "agents/openai.yaml").read_text(encoding="utf-8")
+        display_name = read_simple_yaml_scalar(yaml_text, "display_name")
+        short_description = read_simple_yaml_scalar(yaml_text, "short_description")
+        default_prompt = read_simple_yaml_scalar(yaml_text, "default_prompt")
+
+        self.assertEqual(display_name, "CodexQB")
+        self.assertIsNotNone(short_description)
+        self.assertLessEqual(len(short_description or ""), 80)
+        self.assertIsNotNone(default_prompt)
+        self.assertIn("$codexqb", default_prompt or "")
+        self.assertLessEqual(len(default_prompt or ""), 220)
+
+        for sample in [
+            "display_name: CodexQB",
+            'display_name: "CodexQB"',
+            "display_name: 'CodexQB'",
+        ]:
+            self.assertEqual(read_simple_yaml_scalar(sample, "display_name"), "CodexQB")
+
+    def test_language_contract_is_documented(self) -> None:
+        required_phrases = [
+            "CodexQB asks intake questions in the user's language when practical.",
+            "Generated Planner-docs artifacts are English by default unless the user explicitly requests another body language.",
+            "Required document headings remain English for validator stability.",
+        ]
+        checked_files = [
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "docs/USAGE.md",
+            SKILL_ROOT / "SKILL.md",
+        ]
+        for path in checked_files:
+            text = path.read_text(encoding="utf-8")
+            for phrase in required_phrases:
+                self.assertIn(phrase, text, path.name)
+
+        for path in [
+            SKILL_ROOT / "references/First-Planner.md",
+            SKILL_ROOT / "references/Second-Planner.md",
+            SKILL_ROOT / "references/Third-Planner.md",
+        ]:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("English by default unless the user explicitly requests another body language", text, path.name)
+            self.assertIn("Required document headings remain English", text, path.name)
 
     def test_repo_aware_intake_keeps_stable_four_fields(self) -> None:
         intake = (SKILL_ROOT / "references/repo-aware-intake.md").read_text(encoding="utf-8")
@@ -91,6 +148,64 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("instead of stopping", fourth)
         self.assertIn("Stop only when one of these stop gates is hit", fourth)
         self.assertIn("token/context budget too low to continue safely", fourth)
+
+    def test_fourth_planner_has_mechanical_per_slice_loop(self) -> None:
+        fourth = (SKILL_ROOT / "references/Fourth-Planner.md").read_text(encoding="utf-8")
+        for phrase in [
+            "For each implementation slice:",
+            "Name the active phase/sub-plan",
+            "Read AGENTS.md",
+            "Run git status",
+            "Inspect relevant files before editing",
+            "focused failing test",
+            "smallest change",
+            "Run targeted validation",
+            "Run the repo-level gate",
+            "Summarize:",
+            "scope would exceed the selected sub-plan",
+        ]:
+            self.assertIn(phrase, fourth)
+
+    def test_validate_script_covers_archive_and_secret_hygiene(self) -> None:
+        validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
+        for phrase in [
+            "tracked_secret_hygiene_failed",
+            "openrouter_api_key",
+            "OPENROUTER_API_KEY",
+            "git\", \"archive\"",
+            "archive_hygiene_failed",
+            "__MACOSX",
+            ".local",
+        ]:
+            self.assertIn(phrase, validate_script)
+
+    def test_archive_hygiene_pattern_matches_forbidden_paths(self) -> None:
+        pattern = re.compile(
+            r"(^|/)(\.git|__pycache__|\.env|artifacts|logs|tmp|__MACOSX)(/|$)"
+            r"|\.pyc$|\.pem$|\.key$|\.local($|\.)"
+        )
+        forbidden = [
+            ".git/config",
+            "pkg/__pycache__/module.pyc",
+            ".env",
+            "artifacts/build.log",
+            "logs/run.txt",
+            "tmp/cache.txt",
+            "__MACOSX/file",
+            "keys/prod.pem",
+            "keys/prod.key",
+            "settings.local",
+            "settings.local.json",
+        ]
+        allowed = [
+            "README.md",
+            "docs/MAINTAINING.md",
+            "plugins/codexqb/skills/codexqb/SKILL.md",
+        ]
+        for path in forbidden:
+            self.assertRegex(path, pattern)
+        for path in allowed:
+            self.assertNotRegex(path, pattern)
 
 
 if __name__ == "__main__":

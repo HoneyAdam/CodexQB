@@ -17,9 +17,24 @@ Treat Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-d
 
 If installed/available, use relevant Codex skills/plugins by scope: use superpowers:executing-plans or superpowers:subagent-driven-development for implementation, superpowers:test-driven-development for code changes, superpowers:verification-before-completion before finishing, and codex-security for security, policy, secret, or command-execution work. If these skills/plugins are not installed, do not stop; continue using the audit, the active sub-plan, repo instructions, and existing validation commands with the same principles. Use GitHub publish/PR workflows only when explicitly requested.
 
-Execute the queue continuously in this Goal run. For each active sub-plan, implement one small, reversible, testable improvement slice at a time. First read git status, README.md, AGENTS.md, Makefile, the audit, the index, and only the active sub-plan plus required repo files. Identify the test or validation command before editing; make the minimal change; run focused tests and the relevant make smoke/check target; report the result as an exact blocker or success. After a slice passes, continue to the next acceptance criterion or the next READY/READY_WITH_WARNINGS sub-plan instead of stopping.
+Execute the queue continuously in this Goal run. For each implementation slice:
+1. Name the active phase/sub-plan and the specific acceptance criterion being targeted.
+2. Read AGENTS.md, README.md, Makefile, repo instructions, the audit, the index, and only the active sub-plan plus required repo files.
+3. Run git status and stop if unrelated dirty changes or conflicts exist.
+4. Inspect relevant files before editing.
+5. Prefer adding or adjusting a focused failing test first when practical.
+6. Implement the smallest change that can satisfy the selected acceptance criterion.
+7. Run targeted validation first.
+8. Run the repo-level gate when targeted validation passes.
+9. Summarize:
+   - files changed;
+   - acceptance criterion addressed;
+   - tests/commands run;
+   - evidence produced;
+   - remaining risks.
+10. Continue to the next acceptance criterion or the next READY/READY_WITH_WARNINGS sub-plan instead of stopping.
 
-Stop only when one of these stop gates is hit: P0/P1 or safety/security finding; failing test or unresolved regression; missing required source file; unclear contradiction between plan, audit, and repo reality; credential/live-environment/human-approval requirement; destructive external mutation requirement; unrelated dirty worktree or merge conflict; validation command unavailable with no equivalent fallback; token/context budget too low to continue safely; or the user explicitly asks to stop. When stopping, write a concise handoff summary with completed slices, changed files, verification commands, blocker text, and the next queue item.
+Stop only when one of these stop gates is hit: P0/P1 or safety/security finding; failing test or unresolved regression; missing required source file; unclear contradiction between plan, audit, and repo reality; credential/live-environment/human-approval requirement; destructive external mutation requirement; unrelated dirty worktree or merge conflict; validation command unavailable with no equivalent fallback; scope would exceed the selected sub-plan; token/context budget too low to continue safely; or the user explicitly asks to stop. When stopping, write a concise handoff summary with completed slices, changed files, verification commands, blocker text, and the next queue item.
 
 Do not write secrets, tokens, private keys, or local credentials. Watch token use: do not load every sub-plan into context; use the index/audit to navigate, read only the active sub-plan, and refresh queue status from the audit/index between slices. If context compaction or budget pressure is likely, summarize progress and continue only when the next slice can still be executed safely.
 ```

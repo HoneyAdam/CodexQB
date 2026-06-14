@@ -94,7 +94,7 @@ Filename rules:
 - If rerunning this prompt, update existing matching files instead of creating duplicates.
 
 Language:
-All generated planning documents must be written in English.
+Generated planning documents are English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
 
 Planning depth:
 This step should be more detailed than Main-Planing.md, but it is still a planning task.
@@ -448,7 +448,7 @@ Include a checklist proving:
 - every main phase from Main-Planing.md has a folder;
 - every main phase has at least one sub-plan;
 - sub-plan filenames follow the naming convention;
-- generated docs are in English;
+- generated docs follow the language contract;
 - no source code files were modified;
 - no secrets were written.
 
@@ -528,7 +528,7 @@ A. Success:
 - every phase has at least one FazX.Y-*.md sub-plan;
 - every sub-plan uses the required section structure;
 - the bundled validator passes, or equivalent all-file validation has been completed and reported;
-- all generated content is English;
+- all generated content follows the language contract;
 - no files outside Planner-docs/ were modified;
 - git diff confirms only Planner-docs/ changes.
 
@@ -588,7 +588,7 @@ After generating all files:
 
 Final response requirements:
 
-After completion, provide a concise final summary in English.
+After completion, provide a concise final summary using the same language contract: English by default unless the user explicitly requests another body language, with required artifact headings kept in English.
 
 Include:
 - whether Step 2 succeeded or was blocked;
