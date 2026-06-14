@@ -1,10 +1,14 @@
 # CodexQB
 
+[![validate](https://github.com/alicankiraz1/CodexQB/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/alicankiraz1/CodexQB/actions/workflows/validate.yml)
+
 **Repo-aware planning for Codex.** CodexQB turns a project repository into a durable planning package: main plan, existing-project autopsy, phase sub-plans, QA audit, and a gated implementation handoff.
 
-![CodexQB workflow](docs/assets/codexqb-workflow.png)
+![CodexQB workflow and release validation](docs/assets/codexqb-workflow.png)
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, and ready for step-by-step execution.
+
+The current release is hardened for repository marketplace distribution: dependency-free `make check`, GitHub Actions validation, and tracked-file sanitized exports through `make export-sanitized`.
 
 ## Why CodexQB
 
