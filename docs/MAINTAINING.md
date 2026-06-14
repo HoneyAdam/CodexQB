@@ -50,6 +50,21 @@ Run the tracked validator test suite:
 python3 -m unittest discover -s tests -v
 ```
 
+## Validate Skill Prompt Content
+
+The test suite also checks that the Step 1 repo-aware intake contract remains wired into the skill:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+When changing Step 1 behavior, verify that:
+
+- `SKILL.md` references `references/repo-aware-intake.md`;
+- the intake reference still asks only the four stable fields;
+- `First-Planner.md` still accepts the same four required placeholders;
+- the global skill copy is synced after edits.
+
 ## Check Skill Copy Parity
 
 After syncing the repo skill to the local global skill, compare both copies:
@@ -81,19 +96,20 @@ No public-facing stale references should remain.
 
 1. Update `plugins/codexqb/.codex-plugin/plugin.json`.
 2. Update `plugins/codexqb/skills/codexqb/SKILL.md` and references as needed.
-3. Update `plugins/codexqb/skills/codexqb/references/Fourth-Planner.md` if implementation handoff behavior changes.
-4. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure or readiness gates change.
-5. Sync the repo skill to `/Users/alicankiraz/.codex/skills/codexqb` for local manual testing.
-6. Run the validation commands above.
-7. Commit with a focused message.
-8. Push to `main`.
-9. Reinstall the plugin in Codex:
+3. Update `plugins/codexqb/skills/codexqb/references/repo-aware-intake.md` if Step 1 intake behavior changes.
+4. Update `plugins/codexqb/skills/codexqb/references/Fourth-Planner.md` if implementation handoff behavior changes.
+5. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure or readiness gates change.
+6. Sync the repo skill to `/Users/alicankiraz/.codex/skills/codexqb` for local manual testing.
+7. Run the validation commands above.
+8. Commit with a focused message.
+9. Push to `main`.
+10. Reinstall the plugin in Codex:
 
    ```bash
    codex plugin add codexqb@codexqb
    ```
 
-10. Start a new Codex thread before testing.
+11. Start a new Codex thread before testing.
 
 ## Public Directory Status
 

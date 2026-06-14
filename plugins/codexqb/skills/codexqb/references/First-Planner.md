@@ -33,6 +33,8 @@ TARGET_END_STATE:
 KNOWN_CONSTRAINTS:
 <WRITE_CONSTRAINTS_HERE: team size, infrastructure, local machines, cloud dependencies, budget, security boundaries, timeline assumptions, preferred languages/frameworks, must-use tools, must-not-use tools, regulatory/compliance boundaries, etc.>
 
+The four context fields may come from a repo-aware intake pass with inferred drafts and user corrections. Treat the final user-confirmed field values as the source of truth. Treat any inferred intake evidence as supporting context only, and still perform the full repository inspection below before writing the plan.
+
 IMPORTANT_FEEDBACK_AND_ARCHITECTURAL_PRINCIPLES:
 Use the following principles while planning:
 

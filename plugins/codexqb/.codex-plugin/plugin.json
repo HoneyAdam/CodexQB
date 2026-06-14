@@ -1,7 +1,7 @@
 {
   "name": "codexqb",
-  "version": "0.1.2",
-  "description": "CodexQB packages a three-step Codex planning workflow with a gated implementation handoff prompt.",
+  "version": "0.1.3",
+  "description": "CodexQB packages a repo-aware Codex planning workflow with a gated implementation handoff prompt.",
   "author": {
     "name": "Alican Kiraz",
     "email": "167613664+alicankiraz1@users.noreply.github.com",
@@ -20,8 +20,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "CodexQB",
-    "shortDescription": "Run planning, audit, and handoff.",
-    "longDescription": "CodexQB helps Codex create a master project plan, decompose it into phase-level sub-plans, audit the resulting planning package for coverage, ordering, readiness, and governance, then print a gated Goal-mode implementation handoff when the audit allows it.",
+    "shortDescription": "Run repo-aware planning, audit, and handoff.",
+    "longDescription": "CodexQB helps Codex inspect a repository, ask repo-aware intake questions, create a master project plan, decompose it into phase-level sub-plans, audit the resulting planning package for coverage, ordering, readiness, and governance, then print a gated Goal-mode implementation handoff when the audit allows it.",
     "developerName": "Alican Kiraz",
     "category": "Productivity",
     "capabilities": [
@@ -30,7 +30,7 @@
     ],
     "websiteURL": "https://github.com/alicankiraz1/CodexQB",
     "defaultPrompt": [
-      "Use $codexqb to plan this project.",
+      "Use $codexqb to inspect this repo and plan this project.",
       "Use $codexqb to create phase sub-plans.",
       "Use $codexqb to audit the planning docs and prepare the implementation handoff."
     ],

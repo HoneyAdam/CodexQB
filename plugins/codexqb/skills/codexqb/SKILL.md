@@ -1,13 +1,13 @@
 ---
 name: codexqb
-description: Run the CodexQB three-step Codex project planning workflow using bundled First-Planner, Second-Planner, and Third-Planner prompts, then provide a gated Step 4 implementation handoff prompt when the audit allows it. Use when the user asks to create a main project plan, decompose it into phase sub-plans, audit sub-plan coverage and quality, or use the planner workflow with Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, or Planner-docs/Sub-Planing-Audit.md.
+description: Run the CodexQB repo-aware Codex project planning workflow using bundled First-Planner, Second-Planner, and Third-Planner prompts, then provide a gated Step 4 implementation handoff prompt when the audit allows it. Use when the user asks to inspect a repository, create a main project plan, decompose it into phase sub-plans, audit sub-plan coverage and quality, or use the planner workflow with Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, or Planner-docs/Sub-Planing-Audit.md.
 ---
 
 # CodexQB
 
 ## Overview
 
-Run the bundled three-step planning workflow for a project repository. Keep Step 1 conversational and local to the current thread; hand off Step 2 and Step 3 as text-only Goal mode prompts unless the user explicitly asks for a different flow. After Step 3, provide a gated Step 4 implementation handoff prompt only when the audit says implementation can begin.
+Run the bundled three-step planning workflow for a project repository. Keep Step 1 conversational, repo-aware, and local to the current thread; hand off Step 2 and Step 3 as text-only Goal mode prompts unless the user explicitly asks for a different flow. After Step 3, provide a gated Step 4 implementation handoff prompt only when the audit says implementation can begin.
 
 The bundled prompts are:
 
@@ -19,6 +19,7 @@ The bundled prompts are:
 Bundled support files:
 
 - `scripts/validate_planner_docs.py` for read-only structural validation of `Planner-docs/`.
+- `references/repo-aware-intake.md` for evidence-backed Step 1 intake questions.
 - `references/workflow-quality.md` for Goal mode reliability, validation, token discipline, and handoff practices.
 
 ## Workflow Selection
@@ -32,12 +33,14 @@ Do not run `migrate-to-codex` for this workflow. This is a native Codex skill wo
 
 ## Step 1 Intake
 
-Ask these four questions one at a time in the user's language. Use plain text questions, not pop-ups or multiple-choice UI.
+Read `references/repo-aware-intake.md` before asking questions.
 
-1. Ask for `PROJECT_NAME`.
-2. Ask for `PROJECT_INTENT`: what the project is for and what it should become.
-3. Ask for `TARGET_END_STATE`: what done looks like from product, engineering, operations, security, and user-value perspectives.
-4. Ask for `KNOWN_CONSTRAINTS`: team size, infrastructure, budget, timeline, preferred stack, compliance boundaries, must-use tools, and must-not-use tools.
+Before asking `PROJECT_NAME`, do a bounded, read-only repository scan so the intake can suggest evidence-backed defaults. Then ask these four fields one at a time in the user's language, using plain text questions only:
+
+1. `PROJECT_NAME`: project name, with an inferred default when possible.
+2. `PROJECT_INTENT`: what the project is for and what it should become, with a repo-derived draft when possible.
+3. `TARGET_END_STATE`: what done looks like from product, engineering, operations, security, and user-value perspectives, with a five-part draft when possible.
+4. `KNOWN_CONSTRAINTS`: team size, infrastructure, budget, timeline, preferred stack, compliance boundaries, must-use tools, and must-not-use tools, with detected constraints and unknowns when possible.
 
 After all four values are available:
 

@@ -1,6 +1,6 @@
 # Usage
 
-CodexQB runs a three-step planning workflow.
+CodexQB runs a repo-aware three-step planning workflow.
 
 ## Step 1: Main Plan
 
@@ -10,12 +10,16 @@ Open the project repository you want Codex to analyze and ask:
 Use $codexqb to create a main plan for this project.
 ```
 
-CodexQB asks four intake questions, one at a time:
+CodexQB first performs a bounded read-only scan of the current repository. It may inspect files such as `README.md`, `AGENTS.md`, manifests, CI workflows, docs indexes, deployment files, tests, and top-level service directories.
+
+Then it asks four intake questions, one at a time:
 
 - `PROJECT_NAME`: the project name.
 - `PROJECT_INTENT`: what the project is for and what it should become.
 - `TARGET_END_STATE`: what done looks like across product, engineering, operations, security, and user value.
 - `KNOWN_CONSTRAINTS`: team, infrastructure, budget, timeline, stack, compliance, must-use tools, and must-not-use tools.
+
+For existing repositories, the questions should include repo-derived defaults or draft summaries. For example, CodexQB may say that the README and package manifests suggest a specific project name, then ask whether to use that name or a different official name. For empty or minimal repositories, CodexQB should clearly say repository evidence is limited and ask the concise generic version of each question.
 
 After the answers are collected, CodexQB loads `First-Planner.md`, substitutes the values, inspects the repository, and creates or updates:
 
@@ -114,7 +118,7 @@ Use $codexqb to run Step 2 on the existing Planner-docs/Main-Planing.md.
 Use $codexqb to run Step 3 and audit the existing sub-plans.
 ```
 
-CodexQB skips the Step 1 intake when the requested step is explicit.
+CodexQB skips the Step 1 repo-aware intake when the requested step is explicit.
 
 You can also ask for the Step 4 prompt text after a completed audit:
 

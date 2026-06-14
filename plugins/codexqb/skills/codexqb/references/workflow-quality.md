@@ -10,6 +10,14 @@ prompt; they clarify reliability practices observed from first real use.
 - Report section counts only after reading the prompt or running validation.
 - Step 2 sub-plan files require 13 top-level `##` sections after the H1.
 
+## Step 1 Repo-Aware Intake
+
+- Run a bounded read-only repository scan before asking the four Step 1 fields.
+- Use `references/repo-aware-intake.md` to infer helpful defaults, but do not treat inferred values as final until the user confirms or edits them.
+- Keep the intake conversational and sequential: one plain-text question at a time.
+- If the repository is empty or evidence is weak, say so and fall back to concise generic questions.
+- Do not let the pre-intake scan replace the full Step 1 inspection required by `First-Planner.md`.
+
 ## Use The Bundled Validator
 
 Prefer the bundled validator over ad hoc validation snippets:

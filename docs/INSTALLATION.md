@@ -53,11 +53,12 @@ Use $codexqb to create a main plan for this project.
 
 Expected behavior:
 
-1. CodexQB asks for `PROJECT_NAME`.
-2. It then asks for `PROJECT_INTENT`.
-3. It then asks for `TARGET_END_STATE`.
-4. It then asks for `KNOWN_CONSTRAINTS`.
-5. It uses those values to create or update `Planner-docs/Main-Planing.md`.
+1. CodexQB performs a bounded read-only scan of the current repository.
+2. It asks for `PROJECT_NAME`, ideally with a repo-derived default.
+3. It asks for `PROJECT_INTENT`, ideally with a repo-derived draft.
+4. It asks for `TARGET_END_STATE`, ideally across product, engineering, operations, security, and user value.
+5. It asks for `KNOWN_CONSTRAINTS`, including detected stack, infra, validation, security, and unknown constraints.
+6. It uses the confirmed values to create or update `Planner-docs/Main-Planing.md`.
 
 ## Troubleshooting
 
