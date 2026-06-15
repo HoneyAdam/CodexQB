@@ -1,6 +1,22 @@
 # Usage
 
-CodexQB runs a repo-aware planning workflow with an optional Step 1.5 Autopsy for existing projects.
+CodexQB runs a vibecoding-first, repo-aware planning workflow with an optional Step 1.5 Autopsy and ontology pass for existing projects.
+
+
+## Vibecoding, Subagents, and Durable Memory
+
+CodexQB plans for coding agents, not for static slideware. Plans should identify the next useful verified moves, preserve room for discovery, and keep work in small reversible slices with fast validation signals. Vibecoding does not relax safety, secret handling, approval, validation, or file-boundary rules.
+
+When the repo is large or ambiguous, CodexQB may ask Codex Goal mode to use bounded subagents for read-only repo exploration, readiness/security review, ontology mapping, phase drafting, Step 3 audit, or Step 4 implementation/review separation. Subagents should gather evidence or review; the parent CodexQB agent owns official artifact writes.
+
+CodexQB may use these optional durable artifacts when they exist:
+
+```text
+Planner-docs/Project-Ontology.md
+Planner-docs/Planing-Ledger.md
+```
+
+`Project-Ontology.md` helps future planning understand vocabulary, entities, workflows, boundaries, integrations, and invariants. `Planing-Ledger.md` records planning runs, implementation summaries, current state snapshots, and replanning inputs so future CodexQB runs can understand what was planned and what was actually applied.
 
 ## Step 1: Main Plan
 
@@ -17,9 +33,9 @@ Then it asks four intake questions, one at a time:
 - `PROJECT_NAME`: the project name.
 - `PROJECT_INTENT`: what the project is for and what it should become.
 - `TARGET_END_STATE`: what done looks like across product, engineering, operations, security, and user value.
-- `KNOWN_CONSTRAINTS`: team, infrastructure, budget, timeline, stack, compliance, must-use tools, and must-not-use tools.
+- `KNOWN_CONSTRAINTS`: team, infrastructure, budget, timeline, stack, compliance, must-use tools, must-not-use tools, desired autonomy, human review cadence, and any token/usage budget.
 
-CodexQB asks intake questions in the user's language when practical. Generated Planner-docs artifacts are English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
+CodexQB asks intake questions in the user's language when practical. Generated Planner-docs artifacts are English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability. If the user provides a weekly/monthly token or usage budget, CodexQB can estimate whether the planned Goal run is likely to be low, medium, or high relative usage; it should not invent exact token spend without a baseline.
 
 For existing repositories, the questions should include repo-derived defaults or draft summaries. For example, CodexQB may say that the README and package manifests suggest a specific project name, then ask whether to use that name or a different official name. For empty or minimal repositories, CodexQB should clearly say repository evidence is limited and ask the concise generic version of each question.
 
@@ -39,9 +55,10 @@ Expected output:
 
 ```text
 Planner-docs/Autopsy.md
+Planner-docs/Project-Ontology.md   # optional when enough evidence exists
 ```
 
-The Autopsy report analyzes project sections, feature inventory, placeholders/stubs/skeletons, technical debt, missing or broken integrations, test and CI gaps, security/governance issues, operational readiness, and alignment with `Planner-docs/Main-Planing.md`.
+The Autopsy report analyzes project sections, feature inventory, placeholders/stubs/skeletons, technical debt, missing or broken integrations, test and CI gaps, security/governance issues, operational readiness, and alignment with `Planner-docs/Main-Planing.md`. The optional ontology captures domain vocabulary, entities, workflows, boundaries, integrations, invariants, and open concept questions.
 
 Step 1.5 is skipped for empty or nearly empty repositories. In that case, `Autopsy.md` is not required and Step 2 should continue without it.
 
@@ -54,7 +71,7 @@ The prompt is:
 ```text
 Use $codexqb. Run Step 2 according to references/Second-Planner.md.
 
-Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md exists, read it fully as a supporting feedback source and account for it in the sub-phase plans. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
+Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, or Planner-docs/Planing-Ledger.md exists, read it fully as supporting evidence and account for it in the sub-phase plans. Plan in a vibecoding-first style: small reversible slices, fast validation signals, explicit deferrals, secure engineering boundaries, and Goal-mode readiness. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
 ```
 
 Expected outputs:
@@ -66,7 +83,7 @@ Planner-docs/Faz-<n>-Plans/Faz<n>.<m>-*.md
 
 Step 2 is allowed to modify only files under `Planner-docs/`.
 
-`Planner-docs/Main-Planing.md` remains the primary source of truth. `Planner-docs/Autopsy.md`, when present, is supporting feedback that should influence sub-plan evidence, work breakdowns, acceptance criteria, and risk sections.
+`Planner-docs/Main-Planing.md` remains the primary source of truth. `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, and `Planner-docs/Planing-Ledger.md`, when present, are supporting evidence that should influence sub-plan evidence, work breakdowns, acceptance criteria, risks, ontology consistency, and replanning continuity.
 
 At the end of Step 2, CodexQB should run the bundled validator or an equivalent all-file validation, summarize the result, and print the Step 3 Goal mode handoff block. Do not rely on sampled reads alone for Step 2 structure checks.
 
@@ -87,7 +104,7 @@ The prompt is:
 ```text
 Use $codexqb. Run Step 3 according to references/Third-Planner.md.
 
-Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, and Planner-docs/Faz-*-Plans/*.md. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, security/governance, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
+Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Faz-*-Plans/*.md, and any supporting Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, or Planner-docs/Planing-Ledger.md. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, ontology consistency, planning-history continuity, security/governance, vibecoding slice quality, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
 ```
 
 Expected output:
@@ -128,7 +145,7 @@ When running through an installed plugin, CodexQB should use the bundled validat
 
 If the audit is `BLOCKED` or contains P0/P1 findings, repair the planning package first. If only P2/P3 warnings remain, the implementation prompt may be used but the warnings should stay visible.
 
-The implementation handoff tells Codex to use relevant skills/plugins by scope, execute the READY/READY_WITH_WARNINGS queue continuously in small reversible slices, test before or with code changes, report exact blockers, avoid secrets, and limit token use by reading the audit/index first and only the active sub-plan afterward.
+The implementation handoff tells Codex to use relevant skills/plugins or subagents by scope, execute the READY/READY_WITH_WARNINGS queue continuously in small reversible slices, test before or with code changes, report exact blockers, avoid secrets, update `Planner-docs/Planing-Ledger.md` with concise implementation summaries, and limit token use by reading the audit/index first and only the active sub-plan afterward.
 
 Step 4 should not stop after the first successful slice. It should continue to the next acceptance criterion or next eligible sub-plan until the queue is complete or a stop gate is hit, such as a P0/P1 finding, failing test, missing source file, required credential/live approval, unsafe external mutation, unrelated dirty worktree, or token/context budget pressure.
 
@@ -173,7 +190,7 @@ error_count=0
 
 It exits nonzero on structural failures. With `--strict`, repeated or generic section warnings are treated as failures. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, P0/P1 audit findings block implementation readiness while P2/P3 findings are warnings.
 
-If `Planner-docs/Autopsy.md` exists, the validator checks its required heading order during Step 2/3 validation. If it does not exist, Step 2/3 validation continues without treating Autopsy as required.
+If `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, or `Planner-docs/Planing-Ledger.md` exists, the validator checks its required heading order during Step 2/3 validation. If these optional continuity docs do not exist, Step 2/3 validation continues without treating them as required. Use `--mode autopsy --strict` after Step 1.5 when `Autopsy.md` should be required.
 
 ## Safety Expectations
 

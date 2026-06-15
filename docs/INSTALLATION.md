@@ -57,9 +57,33 @@ Expected behavior:
 2. It asks for `PROJECT_NAME`, ideally with a repo-derived default.
 3. It asks for `PROJECT_INTENT`, ideally with a repo-derived draft.
 4. It asks for `TARGET_END_STATE`, ideally across product, engineering, operations, security, and user value.
-5. It asks for `KNOWN_CONSTRAINTS`, including detected stack, infra, validation, security, and unknown constraints.
+5. It asks for `KNOWN_CONSTRAINTS`, including detected stack, infra, validation, security, autonomy level, review cadence, budget/context assumptions, and unknown constraints.
 6. It uses the confirmed values to create or update `Planner-docs/Main-Planing.md`.
 7. For existing or partially built repositories, it may create or update `Planner-docs/Autopsy.md` as Step 1.5.
+8. When enough evidence exists, it may create or update `Planner-docs/Project-Ontology.md`.
+9. Later Goal-mode implementation handoffs may update `Planner-docs/Planing-Ledger.md` with concise verified-slice summaries.
+
+## Update An Existing Local Install
+
+After pulling repository changes or switching to a newer local clone, refresh the plugin and start a new Codex thread:
+
+```bash
+codex plugin add codexqb@codexqb
+```
+
+If Codex reports stale marketplace metadata, refresh marketplaces first:
+
+```bash
+codex plugin marketplace upgrade
+codex plugin add codexqb@codexqb
+```
+
+For a manually maintained global skill copy, sync and verify parity from the repository root:
+
+```bash
+rsync -a --delete plugins/codexqb/skills/codexqb/ "$HOME/.codex/skills/codexqb/"
+diff -ru plugins/codexqb/skills/codexqb "$HOME/.codex/skills/codexqb"
+```
 
 ## Troubleshooting
 
