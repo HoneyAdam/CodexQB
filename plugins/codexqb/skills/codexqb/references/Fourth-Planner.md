@@ -27,16 +27,18 @@ For each implementation slice:
 5. Prefer adding or adjusting a focused failing test first when practical.
 6. Implement the smallest change that can satisfy the selected acceptance criterion.
 7. Run targeted validation first.
-8. Run the repo-level gate when targeted validation passes.
-9. Append or update `Planner-docs/Planing-Ledger.md` with a concise implementation summary for the verified slice or stop event. If the ledger does not exist, create it using the structure from CodexQB planning-ledger guidance.
-10. Summarize:
+8. If targeted validation fails and the source is unclear, stop and summarize the exact failure before editing more files.
+9. Run the repo-level gate when targeted validation passes.
+10. Do not batch unrelated sub-plans in one diff; continue to the next queue item only after the active slice is verified or blocked.
+11. Append or update `Planner-docs/Planing-Ledger.md` with a concise implementation summary for the verified slice or stop event. If the ledger does not exist, create it using the structure from CodexQB planning-ledger guidance.
+12. Summarize:
    - files changed;
    - acceptance criterion addressed;
    - tests/commands run;
    - evidence produced;
    - remaining risks;
    - ledger entry added or updated.
-11. Continue to the next acceptance criterion or the next READY/READY_WITH_WARNINGS sub-plan instead of stopping.
+13. Continue to the next acceptance criterion or the next READY/READY_WITH_WARNINGS sub-plan instead of stopping.
 
 Stop only when one of these stop gates is hit: P0/P1 or safety/security finding; failing test or unresolved regression; missing required source file; unclear contradiction between plan, audit, and repo reality; credential/live-environment/human-approval requirement; destructive external mutation requirement; unrelated dirty worktree or merge conflict; validation command unavailable with no equivalent fallback; scope would exceed the selected sub-plan; token/context budget too low to continue safely; or the user explicitly asks to stop. When stopping, write a concise handoff summary with completed slices, changed files, verification commands, blocker text, and the next queue item.
 
@@ -46,6 +48,8 @@ Do not write secrets, tokens, private keys, or local credentials. Do not paste f
 ## Operator Notes
 
 - Keep each implementation slice small and reversible, but continue through the ordered queue after each verified slice.
+- Do not batch unrelated sub-plans in one diff.
+- If targeted validation fails and the source is unclear, stop before widening the edit.
 - Do not load every sub-plan into context unless the active slice requires cross-plan repair.
 - Prefer existing repo validation commands over invented commands.
 - Report exact blocker strings and separate code-delivery status from external config or credential blockers.

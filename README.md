@@ -62,7 +62,9 @@ CodexQB will inspect the repository briefly, then ask for:
 - `TARGET_END_STATE`
 - `KNOWN_CONSTRAINTS`
 
-CodexQB asks intake questions in the user's language when practical. Generated Planner-docs artifacts are English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability. Intake should also surface desired autonomy, human review cadence, and any token/usage budget so CodexQB can describe rough Goal-mode cost/context risk without pretending to know exact spend.
+CodexQB asks intake questions in the user's language when practical. Generated Planner-docs artifacts are English by default unless the user explicitly requests another content language. Required document headings remain English for validator stability. Intake should also surface desired autonomy, human review cadence, and any token/usage budget so CodexQB can describe rough Goal-mode cost/context risk without pretending to know exact spend.
+
+Future language-mode work should add an explicit `PLANNER_DOC_LANGUAGE` or intake-level language setting. Until then, headings stay English and only body content should vary when the user requests another language.
 
 For existing repositories, the questions include repo-derived suggestions. For empty or minimal repositories, CodexQB falls back to concise generic questions and marks repository evidence as limited.
 
@@ -108,6 +110,8 @@ make check
 ```
 
 `make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
+
+On a normal local development machine, `make check` is expected to finish well under 30 seconds. A timeout or hang in validator tests is a release blocker, not a warning to ignore.
 
 ## Release Validation
 

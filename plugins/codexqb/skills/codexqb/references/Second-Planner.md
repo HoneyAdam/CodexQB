@@ -104,7 +104,7 @@ Filename rules:
 - If rerunning this prompt, update existing matching files instead of creating duplicates.
 
 Language:
-Generated planning documents are English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
+Generated planning documents are English by default unless the user explicitly requests another content language. Required document headings remain English for validator stability.
 
 Planning depth:
 This step should be more detailed than Main-Planing.md, but it is still a planning task.
@@ -635,7 +635,7 @@ After generating all files:
 
 Final response requirements:
 
-After completion, provide a concise final summary using the same language contract: English by default unless the user explicitly requests another body language, with required artifact headings kept in English.
+After completion, provide a concise final summary using the same language contract: English by default unless the user explicitly requests another content language, with required artifact headings kept in English.
 
 Include:
 - whether Step 2 succeeded or was blocked;

@@ -1,6 +1,6 @@
 {
   "name": "codexqb",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "CodexQB packages a repo-aware Codex planning workflow with an existing-project autopsy and gated implementation handoff prompt.",
   "author": {
     "name": "Alican Kiraz",

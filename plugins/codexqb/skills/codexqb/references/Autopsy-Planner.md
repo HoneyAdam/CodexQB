@@ -93,7 +93,7 @@ Optionally create or update when enough evidence exists:
 
 Planner-docs/Project-Ontology.md
 
-The document body is English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
+The document body is English by default unless the user explicitly requests another content language. Required document headings remain English for validator stability.
 
 Use clear headings and a professional engineering-audit tone.
 
@@ -301,7 +301,7 @@ After creating/updating Planner-docs/Autopsy.md and optional Planner-docs/Projec
 
 Final response requirements:
 
-After completion, provide a concise final summary using the same language contract: English by default unless the user explicitly requests another body language, with required artifact headings kept in English.
+After completion, provide a concise final summary using the same language contract: English by default unless the user explicitly requests another content language, with required artifact headings kept in English.
 
 Include:
 - whether Step 1.5 succeeded, was skipped, or was blocked;

@@ -14,6 +14,8 @@ This checks JSON manifests, required package files, `agents/openai.yaml` semanti
 
 On a normal local development machine, `make check` is expected to complete well under 30 seconds. Validator CLI smoke tests have a 30-second timeout, and any timeout or hang is a release blocker. CI pins Python 3.12 with `actions/setup-python`.
 
+Keep the language contract stable: required Planner-docs headings stay English for validator stability, while body content may use another language only when the user explicitly asks. If a future release adds language selection, document and test a `PLANNER_DOC_LANGUAGE` or equivalent intake-level setting before changing prompt behavior.
+
 If a real key is exposed in chat, logs, docs, examples, or commits, treat it as compromised and rotate it outside the repository before release. Validation output must identify only the file, line, and pattern name; it must not print the matched secret value.
 
 When run inside a Git checkout, `make check` uses `git ls-files` for tracked-file secret hygiene and `git archive` for archive hygiene. When run from an extracted source package without `.git/`, it falls back to clearly labeled filesystem checks: package secret hygiene and package path hygiene. The package fallback is useful for validating shared archives, but it does not claim tracked-file or `git archive` coverage.

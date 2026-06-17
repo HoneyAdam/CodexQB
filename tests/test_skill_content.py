@@ -55,7 +55,7 @@ class SkillContentTests(unittest.TestCase):
     def test_language_contract_is_documented(self) -> None:
         required_phrases = [
             "CodexQB asks intake questions in the user's language when practical.",
-            "Generated Planner-docs artifacts are English by default unless the user explicitly requests another body language.",
+            "Generated Planner-docs artifacts are English by default unless the user explicitly requests another content language.",
             "Required document headings remain English for validator stability.",
         ]
         checked_files = [
@@ -74,8 +74,12 @@ class SkillContentTests(unittest.TestCase):
             SKILL_ROOT / "references/Third-Planner.md",
         ]:
             text = path.read_text(encoding="utf-8")
-            self.assertIn("English by default unless the user explicitly requests another body language", text, path.name)
+            self.assertIn("English by default unless the user explicitly requests another content language", text, path.name)
             self.assertIn("Required document headings remain English", text, path.name)
+
+        for path in [REPO_ROOT / "README.md", REPO_ROOT / "docs/USAGE.md", REPO_ROOT / "docs/MAINTAINING.md"]:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("PLANNER_DOC_LANGUAGE", text, path.name)
 
     def test_repo_aware_intake_keeps_stable_four_fields(self) -> None:
         intake = (SKILL_ROOT / "references/repo-aware-intake.md").read_text(encoding="utf-8")
@@ -165,7 +169,9 @@ class SkillContentTests(unittest.TestCase):
             "focused failing test",
             "smallest change",
             "Run targeted validation",
+            "If targeted validation fails and the source is unclear, stop",
             "Run the repo-level gate",
+            "Do not batch unrelated sub-plans in one diff",
             "Summarize:",
             "scope would exceed the selected sub-plan",
         ]:

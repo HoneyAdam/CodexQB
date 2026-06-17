@@ -144,7 +144,7 @@ Create or update:
 
 Planner-docs/Main-Planing.md
 
-The document body is English by default unless the user explicitly requests another body language. Required document headings remain English for validator stability.
+The document body is English by default unless the user explicitly requests another content language. Required document headings remain English for validator stability.
 
 Use clear headings and a professional engineering-planning tone.
 
@@ -346,7 +346,7 @@ Validation after writing:
 After creating/updating Planner-docs/Main-Planing.md:
 1. Read the file back.
 2. Check that all required top-level sections exist.
-3. Check that the document follows the language contract: English by default unless the user explicitly requests another body language, with required headings in English.
+3. Check that the document follows the language contract: English by default unless the user explicitly requests another content language, with required headings in English.
 4. Check that it does not contain secrets.
 5. If `Planner-docs/Planing-Ledger.md` or `Planner-docs/Project-Ontology.md` exists, confirm the plan used them as supporting evidence.
 6. Run git diff -- Planner-docs/Main-Planing.md and review the diff.
