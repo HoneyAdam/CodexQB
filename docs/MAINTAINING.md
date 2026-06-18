@@ -10,7 +10,7 @@ Run the default repository validation before every release:
 make check
 ```
 
-This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology prompt wiring, tracked-file secret hygiene, archive hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
+This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology/comprehension prompt wiring, deterministic fixture eval inputs, tracked-file secret hygiene, archive hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
 
 On a normal local development machine, `make check` is expected to complete well under 30 seconds. Validator CLI smoke tests have a 30-second timeout, and any timeout or hang is a release blocker. CI pins Python 3.12 with `actions/setup-python`.
 
@@ -61,6 +61,9 @@ When changing the validator, test at least:
 - a fake long secret token that should be detected;
 - roadmap table extraction with historical phase references such as `Faz 0B-10` or `Phase 11`;
 - optional `Autopsy.md`, `Project-Ontology.md`, and `Planing-Ledger.md` validation when present, and no failure when they are absent;
+- optional `Project-Comprehension.md` validation when present, including evidence types, confidence values, architecture statuses, trace anchors, and open hypothesis probes;
+- fenced code block heading false positives and duplicate real headings;
+- Ledger v2 headings with `Plan Snapshot Registry` and `Sub-Plan Status Matrix`, while legacy v1 ledgers remain accepted;
 - Step 4 readiness gating for missing audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, and prose such as `no P0/P1 findings`.
 
 Run the tracked validator test suite:
@@ -83,6 +86,7 @@ When changing Step 1 behavior, verify that:
 - the intake reference still asks only the four stable fields;
 - `SKILL.md` references `references/Autopsy-Planner.md` for Step 1.5;
 - `Second-Planner.md` reads `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, and `Planner-docs/Planing-Ledger.md` as optional supporting sources;
+- Step 1.5, Step 2, Step 3, and Step 4 references mention `Planner-docs/Project-Comprehension.md` and `references/project-comprehension-methods.md`;
 - `First-Planner.md` still accepts the same four required placeholders;
 - `SKILL.md` references vibecoding, subagent, planning ledger, project ontology, assessment/budget, and engineering-principles guidance;
 - prompts do not contain `rg -n "sk-` scans that could print secret-bearing lines.
@@ -98,8 +102,19 @@ When changing Goal handoff behavior, verify that Step 2, Step 3, and Step 4 prom
 - token/context risk guidance;
 - subagent usage rules;
 - ledger update expectations for Step 4.
+- comprehension evidence expectations, especially that tentative claims must be verified before implementation.
 
-When changing replanning behavior, verify that `Planing-Ledger.md` and `Project-Ontology.md` are read as supporting evidence and never treated as stronger than current repository state or explicit user intent.
+When changing replanning behavior, verify that `Planing-Ledger.md`, `Project-Ontology.md`, and `Project-Comprehension.md` are read as supporting evidence and never treated as stronger than current repository state or explicit user intent.
+
+## Fixture Eval Checks
+
+CodexQB includes lightweight deterministic eval fixture checks. They do not run live `codex exec`; they keep the fixture repos and expected signals stable for future live skill evals.
+
+```bash
+python3 evals/run_fixture_checks.py
+```
+
+`make check` runs this command. Optional live skill evals may be added later with `codex exec --json` and structured rubric output, but they must not become required for dependency-free CI until the runtime is stable in CI.
 
 ## Optional Local Skill Copy Parity
 

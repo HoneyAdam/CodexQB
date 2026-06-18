@@ -53,6 +53,7 @@ Optional supporting sources:
 
 - Planner-docs/Autopsy.md
 - Planner-docs/Project-Ontology.md
+- Planner-docs/Project-Comprehension.md
 - Planner-docs/Planing-Ledger.md
 
 Main-Planing.md is the master plan.
@@ -62,6 +63,7 @@ Supporting operational reference:
 If available, read the CodexQB support note before auditing:
 
 references/workflow-quality.md
+references/project-comprehension-methods.md
 
 Implementation handoff reference:
 If available, read this only after the audit is written and Step 4 readiness is known:
@@ -70,6 +72,16 @@ references/Fourth-Planner.md
 
 Language:
 Write Planner-docs/Sub-Planing-Audit.md in English by default unless the user explicitly requests another content language. Required document headings remain English for validator stability.
+
+Goal Run Contract:
+- Outcome: audit every generated sub-plan and decide whether Step 4 can begin.
+- Inputs: Main-Planing, Sub-Planing-Index, Faz plans, optional Autopsy, Project-Ontology, Project-Comprehension, and Planing-Ledger files.
+- Boundaries: modify only Planner-docs/Sub-Planing-Audit.md.
+- Source precedence: Main-Planing and validator findings first; support artifacts as evidence, with tentative comprehension claims audited before use.
+- Validation gates: run the bundled Step 3 validator or equivalent all-file validation.
+- Stop gates: missing Main-Planing, missing Sub-Planing-Index, or no sub-plan files.
+- Context budget: inspect all plan files structurally, then quote only concise evidence.
+- Subagent policy: use subagents only for broad coverage/readiness/security review; parent writes the audit.
 
 Repository inspection requirements:
 
@@ -88,7 +100,8 @@ Run only safe read-only commands such as:
 
 Useful discovery commands:
 - rg "^#|^##|Faz|Phase|Stage|Maturity|Acceptance|Risk|Dependency|Validation|Test|Desired|Scope|Out of Scope|Current Repository Evidence|Planned Work Breakdown" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
-- rg "TODO|FIXME|TBD|unclear|missing|later|future|assumption|blocked|blocker|risk|secret|token|credential|production|live|local|readiness|ontology|ledger|vibecoding|Goal|subagent" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
+- rg "TODO|FIXME|TBD|unclear|missing|later|future|assumption|blocked|blocker|risk|production|live|local|readiness|ontology|ledger|comprehension|vibecoding|Goal|subagent" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
+- rg -l "secret|token|credential|api[_-]?key|password|private[_-]?key" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 - rg "docs/|Planner-docs/|Main-Planing|Sub-Planing|Faz-" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 
 Before writing the audit, run the bundled read-only validator if available:
@@ -259,7 +272,7 @@ Check whether sub-plans:
 - are suitable for Goal mode because they include outcome, validation, unchanged boundaries, and stop conditions.
 
 11. Ontology and planning-history audit
-If Project-Ontology.md exists, check whether sub-plans preserve vocabulary, entities, workflows, boundaries, integrations, and invariants. If Planing-Ledger.md exists, check whether sub-plans account for prior implementation summaries and do not duplicate already-completed work without verifying current repo state.
+If Project-Ontology.md exists, check whether sub-plans preserve vocabulary, entities, workflows, boundaries, integrations, invariants, and competency-question coverage. If Project-Comprehension.md exists, audit evidence quality, confidence calibration, trace coverage, architecture drift coverage, CQ/TRACE/ARC usage, and whether open hypotheses have next probes. If Planing-Ledger.md exists, check whether sub-plans account for prior implementation summaries and do not duplicate already-completed work without verifying current repo state.
 
 12. Step 4 readiness
 Evaluate whether the sub-plans are ready to be decomposed into implementation tasks.

@@ -195,6 +195,137 @@ class SkillContentTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, validate_script)
 
+    def test_plugin_metadata_reflects_020_comprehension_release(self) -> None:
+        plugin_text = (REPO_ROOT / "plugins/codexqb/.codex-plugin/plugin.json").read_text(encoding="utf-8")
+        self.assertIn('"version": "0.2.0"', plugin_text)
+        for phrase in [
+            "project comprehension",
+            "evidence",
+            "traceability",
+            "vibecoding",
+            "ontology",
+            "ledger",
+        ]:
+            self.assertIn(phrase, plugin_text.lower())
+
+        yaml_text = (SKILL_ROOT / "agents/openai.yaml").read_text(encoding="utf-8")
+        default_prompt = read_simple_yaml_scalar(yaml_text, "default_prompt") or ""
+        short_description = read_simple_yaml_scalar(yaml_text, "short_description") or ""
+        self.assertIn("$codexqb", default_prompt)
+        self.assertIn("comprehension", default_prompt.lower())
+        self.assertIn("evidence", default_prompt.lower())
+        self.assertLessEqual(len(short_description), 80)
+        self.assertLessEqual(len(default_prompt), 220)
+
+    def test_second_planner_keeps_security_and_ontology_out_of_scope_clean(self) -> None:
+        second = (SKILL_ROOT / "references/Second-Planner.md").read_text(encoding="utf-8")
+        scope = second.split("## 4. Scope", 1)[1].split("## 5. Out of Scope", 1)[0]
+        out_of_scope = second.split("## 5. Out of Scope", 1)[1].split("## 6. Current Repository Evidence", 1)[0]
+
+        self.assertIn("secure coding and secure-by-design expectations where relevant", scope)
+        self.assertIn("ontology, lifecycle, or invariant consistency where relevant", scope)
+        self.assertNotIn("secure coding and secure-by-design expectations where relevant", out_of_scope)
+        self.assertNotIn("ontology, lifecycle, or invariant consistency where relevant", out_of_scope)
+
+    def test_autopsy_sensitive_discovery_is_file_name_only(self) -> None:
+        autopsy = (SKILL_ROOT / "references/Autopsy-Planner.md").read_text(encoding="utf-8")
+        normal_scan = next(line for line in autopsy.splitlines() if line.strip().startswith("- rg \"TODO|FIXME"))
+        sensitive_scan = next(line for line in autopsy.splitlines() if "secret|token|credential" in line and "rg -l" in line)
+
+        self.assertNotIn("secret|token|credential", normal_scan)
+        self.assertIn("rg -l", sensitive_scan)
+        self.assertIn("file-name-only", autopsy)
+
+    def test_project_comprehension_reference_and_prompts_are_wired(self) -> None:
+        ref = SKILL_ROOT / "references/project-comprehension-methods.md"
+        self.assertTrue(ref.is_file())
+        ref_text = ref.read_text(encoding="utf-8")
+        for phrase in [
+            "question-driven comprehension",
+            "why/how/what hypotheses",
+            "Evidence Register",
+            "Domain-to-Code Trace Map",
+            "Architecture Reflexion",
+            "QAW/ATAM-lite",
+            "Goal/Question/Evidence",
+        ]:
+            self.assertIn(phrase, ref_text)
+
+        checked_files = [
+            SKILL_ROOT / "SKILL.md",
+            SKILL_ROOT / "references/Autopsy-Planner.md",
+            SKILL_ROOT / "references/Second-Planner.md",
+            SKILL_ROOT / "references/Third-Planner.md",
+            SKILL_ROOT / "references/Fourth-Planner.md",
+        ]
+        for path in checked_files:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("Project-Comprehension.md", text, path.name)
+            self.assertIn("project-comprehension-methods.md", text, path.name)
+
+    def test_goal_run_contract_is_wired_into_handoffs(self) -> None:
+        for path in [
+            SKILL_ROOT / "SKILL.md",
+            SKILL_ROOT / "references/Second-Planner.md",
+            SKILL_ROOT / "references/Third-Planner.md",
+            SKILL_ROOT / "references/Fourth-Planner.md",
+        ]:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("Goal Run Contract", text, path.name)
+            for phrase in ["Outcome", "Inputs", "Boundaries", "Source precedence", "Validation gates", "Stop gates", "Context budget", "Subagent policy"]:
+                self.assertIn(phrase, text, path.name)
+
+    def test_comprehension_validator_contract_is_documented(self) -> None:
+        validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")
+        for phrase in [
+            "COMPREHENSION_HEADINGS",
+            "Project-Comprehension.md",
+            "ALLOWED_EVIDENCE_TYPES",
+            "ALLOWED_CONFIDENCE_VALUES",
+            "ALLOWED_ARCHITECTURE_STATUSES",
+            "ALLOWED_ONTOLOGY_QUESTION_STATUSES",
+            "markdown_headings",
+            "validate_optional_comprehension_doc",
+        ]:
+            self.assertIn(phrase, validator)
+
+    def test_planning_ledger_v2_is_documented_and_legacy_remains_supported(self) -> None:
+        ledger_ref = (SKILL_ROOT / "references/planning-ledger.md").read_text(encoding="utf-8")
+        validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")
+        for phrase in ["Plan Snapshot Registry", "Sub-Plan Status Matrix", "Ledger v2", "legacy v1"]:
+            self.assertIn(phrase, ledger_ref)
+        self.assertIn("LEDGER_V2_HEADINGS", validator)
+        self.assertIn("LEDGER_LEGACY_HEADINGS", validator)
+
+    def test_ci_and_export_sanitized_are_hardened(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/validate.yml").read_text(encoding="utf-8")
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("push:", workflow)
+        self.assertIn("pull_request:", workflow)
+        self.assertNotIn("branches: [main]", workflow)
+        self.assertIn("git diff --quiet", makefile)
+        self.assertIn("git diff --cached --quiet", makefile)
+        self.assertIn("--prefix=CodexQB/", makefile)
+
+    def test_fixture_eval_infrastructure_is_present(self) -> None:
+        runner = REPO_ROOT / "evals/run_fixture_checks.py"
+        self.assertTrue(runner.is_file())
+        fixture_root = REPO_ROOT / "evals/fixtures"
+        for fixture in [
+            "clean-layered-service",
+            "drifted-architecture",
+            "distributed-domain-feature",
+            "hidden-coupling-signal",
+            "stale-ledger",
+            "runtime-only-behavior",
+            "security-boundary-risk",
+        ]:
+            self.assertTrue((fixture_root / fixture / "expected.json").is_file(), fixture)
+
+        validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
+        self.assertIn("python3 evals/run_fixture_checks.py", validate_script)
+
     def test_local_skill_sync_docs_exclude_python_caches(self) -> None:
         install = (REPO_ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
         maintaining = (REPO_ROOT / "docs/MAINTAINING.md").read_text(encoding="utf-8")

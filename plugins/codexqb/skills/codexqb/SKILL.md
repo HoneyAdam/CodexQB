@@ -1,6 +1,6 @@
 ---
 name: codexqb
-description: Vibecoding-first Codex planning with autopsy, ontology, ledger memory, subagent-aware QA, and gated handoff.
+description: Use when planning repo work with evidence-backed comprehension, autopsy, ontology, ledger continuity, QA audit, and gated handoff.
 ---
 
 # CodexQB
@@ -23,6 +23,7 @@ Planning behavior references:
 - `references/subagent-playbook.md` for safe subagent usage and role boundaries.
 - `references/planning-ledger.md` for durable plan/implementation history via `Planner-docs/Planing-Ledger.md`.
 - `references/project-ontology.md` for durable project vocabulary, entities, workflows, boundaries, and invariants.
+- `references/project-comprehension-methods.md` for evidence/confidence, hypothesis, traceability, architecture reflexion, and quality-scenario methods.
 - `references/assessment-and-budget.md` for autonomy, Goal mode, token/context, and budget assessment.
 - `references/engineering-principles.md` for domain-appropriate CS, architecture, validation, and secure engineering methods.
 
@@ -46,7 +47,7 @@ Do not run `migrate-to-codex` for this workflow. This is a native Codex skill wo
 
 Read `references/repo-aware-intake.md` before asking questions.
 
-Before asking `PROJECT_NAME`, do a bounded, read-only repository scan so the intake can suggest evidence-backed defaults. If `Planner-docs/Planing-Ledger.md` or `Planner-docs/Project-Ontology.md` exists, read it before asking intake questions and use it as supporting history, not as unquestioned truth. Then ask these four fields one at a time in the user's language, using plain text questions only:
+Before asking `PROJECT_NAME`, do a bounded, read-only repository scan so the intake can suggest evidence-backed defaults. If `Planner-docs/Planing-Ledger.md`, `Planner-docs/Project-Ontology.md`, or `Planner-docs/Project-Comprehension.md` exists, read it before asking intake questions and use it as supporting history, not as unquestioned truth. Then ask these four fields one at a time in the user's language, using plain text questions only:
 
 1. `PROJECT_NAME`: project name, with an inferred default when possible.
 2. `PROJECT_INTENT`: what the project is for and what it should become, with a repo-derived draft when possible.
@@ -59,11 +60,11 @@ CodexQB asks intake questions in the user's language when practical. Generated P
 
 CodexQB uses a vibecoding-first planning style: understand the repo, preserve a clear target, plan the next useful verified moves, and keep implementation slices small, reversible, and evidence-backed. Vibecoding does not relax safety, validation, secret, approval, or file-boundary rules.
 
-Before long planning runs, read `references/vibecoding-principles.md`, `references/assessment-and-budget.md`, and `references/engineering-principles.md`. For existing projects, also read `references/planning-ledger.md` and `references/project-ontology.md`; if `Planner-docs/Planing-Ledger.md` or `Planner-docs/Project-Ontology.md` exists in the target repo, read them as evidence before replanning.
+Before long planning runs, read `references/vibecoding-principles.md`, `references/assessment-and-budget.md`, and `references/engineering-principles.md`. For existing projects, also read `references/planning-ledger.md`, `references/project-ontology.md`, and `references/project-comprehension-methods.md`; if `Planner-docs/Planing-Ledger.md`, `Planner-docs/Project-Ontology.md`, or `Planner-docs/Project-Comprehension.md` exists in the target repo, read them as evidence before replanning.
 
 Use subagents only when they reduce context pollution or improve evidence quality: large repo exploration, Step 1.5 Autopsy, ontology mapping, multi-phase Step 2 drafting, Step 3 readiness/security audit, or Step 4 implementation/review separation. Read `references/subagent-playbook.md` before requesting subagents. Parent CodexQB owns final artifact writes; subagents should gather evidence, draft options, or review unless the user explicitly asks otherwise.
 
-Goal mode handoffs must include the outcome, unchanged boundaries, validation checkpoints, stop gates, token/context risk, and whether subagents are recommended.
+Goal mode handoffs must include a Goal Run Contract with: Outcome, Inputs, Boundaries, Source precedence, Validation gates, Stop gates, Context budget, and Subagent policy.
 
 After all four values are available:
 
@@ -86,9 +87,9 @@ When Step 1.5 applies:
 1. Read `references/Autopsy-Planner.md`.
 2. Read `Planner-docs/Main-Planing.md`.
 3. Inspect the repository with read-only commands.
-4. Create or update `Planner-docs/Autopsy.md`; when enough evidence exists, also create or update `Planner-docs/Project-Ontology.md`.
+4. Create or update `Planner-docs/Autopsy.md`; when enough evidence exists, also create or update `Planner-docs/Project-Ontology.md` and, for non-trivial existing projects, optional `Planner-docs/Project-Comprehension.md`.
 5. Do not modify source files, `Planner-docs/Main-Planing.md`, or any Step 2/3 files.
-6. Treat `Autopsy.md`, `Project-Ontology.md`, and any existing `Planing-Ledger.md` as Step 2 feedback, not as replacements for the main plan.
+6. Treat `Autopsy.md`, `Project-Ontology.md`, optional `Project-Comprehension.md`, and any existing `Planing-Ledger.md` as Step 2 feedback, not as replacements for the main plan.
 
 ## Step 2 Handoff
 
@@ -97,14 +98,24 @@ After Step 1 feedback is handled, ask whether the user wants to continue to Step
 ```text
 Use $codexqb. Run Step 2 according to references/Second-Planner.md.
 
-Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, or Planner-docs/Planing-Ledger.md exists, read it fully as supporting evidence and account for it in the sub-phase plans. Plan in a vibecoding-first style: small reversible slices, fast validation signals, explicit deferrals, security boundaries, and Goal-mode readiness. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
+Goal Run Contract:
+- Outcome: decompose every main phase into implementation-ready sub-plans.
+- Inputs: Planner-docs/Main-Planing.md plus any Autopsy, Project-Ontology, Project-Comprehension, or Planing-Ledger files.
+- Boundaries: modify only Planner-docs; do not implement product code.
+- Source precedence: user-confirmed intent and Main-Planing.md first; repo evidence and support artifacts second; tentative comprehension claims require validation work.
+- Validation gates: run the bundled Step 2 validator or equivalent all-file validation.
+- Stop gates: missing, inconsistent, incomplete, or undecomposable Main-Planing.md.
+- Context budget: read support files fully, then use index/sections to avoid loading unrelated source.
+- Subagent policy: use subagents only for large repo exploration or phase drafting; parent writes final artifacts.
+
+Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md exists, read it fully as supporting evidence and account for it in the sub-phase plans. Plan in a vibecoding-first style: small reversible slices, fast validation signals, explicit deferrals, security boundaries, evidence confidence, CQ/TRACE/ARC references, and Goal-mode readiness. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
 ```
 
 When executing Step 2 directly:
 
 1. Read `references/Second-Planner.md`.
 2. Read `references/workflow-quality.md`.
-3. Read `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, and `Planner-docs/Planing-Ledger.md` when they exist; do not block Step 2 when they are absent.
+3. Read `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, `Planner-docs/Project-Comprehension.md`, and `Planner-docs/Planing-Ledger.md` when they exist; do not block Step 2 when they are absent.
 4. Follow repository inspection, file-boundary, naming, all-file validation, and stopping rules exactly.
 5. Run the bundled validator after generation when available. When manually validating from a CodexQB repository checkout, use:
    `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict`
@@ -119,7 +130,17 @@ After Step 2 is complete, ask whether the user wants to continue to Step 3. If y
 ```text
 Use $codexqb. Run Step 3 according to references/Third-Planner.md.
 
-Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Faz-*-Plans/*.md, and any supporting Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, or Planner-docs/Planing-Ledger.md. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, ontology consistency, planning-history continuity, security/governance, vibecoding slice quality, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
+Goal Run Contract:
+- Outcome: audit every sub-plan and decide whether Step 4 can begin.
+- Inputs: Main-Planing, Sub-Planing-Index, Faz plans, and optional Autopsy, Project-Ontology, Project-Comprehension, and Planing-Ledger files.
+- Boundaries: modify only Planner-docs/Sub-Planing-Audit.md.
+- Source precedence: Main-Planing and validator findings first; support artifacts only as evidence.
+- Validation gates: run the bundled Step 3 validator or equivalent all-file validation.
+- Stop gates: missing Main-Planing, index, or all sub-plan files.
+- Context budget: inspect all plan files structurally, then quote only concise evidence.
+- Subagent policy: use subagents only for broad coverage/readiness/security review; parent writes the audit.
+
+Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Faz-*-Plans/*.md, and any supporting Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, evidence quality, confidence calibration, trace coverage, architecture drift coverage, competency-question coverage, open-hypothesis probes, ontology consistency, planning-history continuity, security/governance, vibecoding slice quality, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
 ```
 
 When executing Step 3 directly:
@@ -157,6 +178,7 @@ When Step 3 completes:
 - For untracked `Planner-docs/`, use `find Planner-docs -maxdepth 4 -type f | sort`, `git status --short -- Planner-docs`, and `git diff -- Planner-docs` together.
 - Keep long Goal mode stdout concise. Put detailed evidence in the generated Markdown artifacts.
 - Track planning and implementation continuity through `Planner-docs/Planing-Ledger.md` when available; Step 4 should append concise implementation summaries there.
+- Track project-understanding continuity through optional `Planner-docs/Project-Comprehension.md`; Step 4 should verify tentative assumptions before code changes and update the ledger when a hypothesis is confirmed or contradicted.
 
 ## Safety Rules
 

@@ -2,19 +2,19 @@
 
 [![validate](https://github.com/alicankiraz1/CodexQB/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/alicankiraz1/CodexQB/actions/workflows/validate.yml)
 
-**Vibecoding-first repo planning for Codex.** CodexQB turns a project repository into a durable planning package: main plan, existing-project autopsy, project ontology, planning ledger, phase sub-plans, QA audit, and a gated implementation handoff.
+**Vibecoding-first repo planning for Codex.** CodexQB turns a project repository into a durable planning package: main plan, existing-project autopsy, optional project comprehension, project ontology, planning ledger, phase sub-plans, QA audit, and a gated implementation handoff.
 
 ![CodexQB workflow and release validation](docs/assets/codexqb-workflow.png)
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
-The current release is hardened for repository marketplace distribution: dependency-free `make check`, GitHub Actions validation, and tracked-file sanitized exports through `make export-sanitized`.
+The current 0.2.0 release adds evidence-backed project comprehension while keeping repository marketplace distribution hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture eval checks, and tracked-file sanitized exports through `make export-sanitized`.
 
 ## Why CodexQB
 
 - **Repo-aware intake:** CodexQB inspects the current repository before asking questions, then proposes evidence-backed defaults for project name, intent, target end state, constraints, autonomy/review cadence, and token/context budget assumptions.
 - **Durable planning docs:** Output is written under `Planner-docs/` so long planning work, ontology, and implementation history survive context changes and can be reviewed like normal project documentation.
-- **Project Autopsy + Ontology:** Existing projects get a focused `Autopsy.md` report and may get `Project-Ontology.md` to capture vocabulary, entities, boundaries, workflows, integrations, and invariants.
+- **Project Autopsy + Ontology + Comprehension:** Existing projects get a focused `Autopsy.md` report and may get `Project-Ontology.md` plus `Project-Comprehension.md` to capture evidence confidence, CQ/TRACE/ARC links, architecture reflexion, quality scenarios, and open validation probes.
 - **Full phase decomposition:** The main plan can be expanded into ordered phase folders and detailed sub-plan files, using Autopsy feedback when available.
 - **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, ontology consistency, planning-history continuity, security/governance, vibecoding slice quality, and implementation preparedness.
 - **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin, then guides that run through the READY queue in small verified slices and asks Step 4 to append concise implementation summaries to `Planing-Ledger.md`.
@@ -31,12 +31,12 @@ When a project is large or ambiguous, CodexQB may recommend or explicitly reques
 | Step | What CodexQB Does | Output |
 | --- | --- | --- |
 | 1. Repo Scan + Main Plan | Reads the repository, asks four enriched intake questions, and creates the master plan. | `Planner-docs/Main-Planing.md` |
-| 1.5 Autopsy + Ontology | For existing projects, audits current project structure and may capture project vocabulary, entities, workflows, boundaries, and invariants. | `Planner-docs/Autopsy.md`, optional `Planner-docs/Project-Ontology.md` |
+| 1.5 Autopsy + Ontology + Comprehension | For existing projects, audits current project structure and may capture vocabulary, evidence confidence, concept-to-code traces, architecture reflexion, quality scenarios, and open hypotheses. | `Planner-docs/Autopsy.md`, optional `Planner-docs/Project-Ontology.md`, optional `Planner-docs/Project-Comprehension.md` |
 | 2. Phase Sub-Plans | Expands every main phase into detailed implementation-ready sub-plans. | `Planner-docs/Sub-Planing-Index.md`, `Planner-docs/Faz-*-Plans/*.md` |
 | 3. QA Audit | Audits coverage, structure, quality, readiness, and governance without repairing files. | `Planner-docs/Sub-Planing-Audit.md` |
 | 4. Gated Handoff | Prints a copy-ready implementation Goal prompt when Step 3 passes and tracks implementation summaries through the optional ledger. | Text-only Goal mode prompt, optional `Planner-docs/Planing-Ledger.md` updates |
 
-Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only Goal mode prompts so the user stays in control of long-running work. The Goal handoffs include outcome, unchanged boundaries, validation checkpoints, stop gates, token/context risk, and subagent guidance.
+Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only Goal mode prompts so the user stays in control of long-running work. The Goal handoffs include a Goal Run Contract: Outcome, Inputs, Boundaries, Source precedence, Validation gates, Stop gates, Context budget, and Subagent policy.
 
 ## Quick Start
 
@@ -77,6 +77,7 @@ Planner-docs/
   Main-Planing.md
   Autopsy.md
   Project-Ontology.md
+  Project-Comprehension.md
   Planing-Ledger.md
   Sub-Planing-Index.md
   Sub-Planing-Audit.md
@@ -87,6 +88,12 @@ Planner-docs/
 ```
 
 The `Planing` spelling is intentionally preserved because the bundled planner prompts and validators use these exact filenames.
+
+## Evidence-Based Project Comprehension
+
+`Planner-docs/Project-Comprehension.md` is optional and intended for medium or large existing projects. It records question-driven comprehension, evidence registers, confidence, domain-to-code trace maps, intended-vs-implemented architecture relations, bounded history/hotspot signals, quality scenarios, and open hypotheses with next probes.
+
+Allowed evidence types are `source`, `test`, `runtime`, `history`, `configuration`, `documentation`, and `user-confirmed`. Confidence values are `confirmed`, `probable`, `tentative`, and `contradicted`. Step 2 turns tentative claims into validation work; Step 3 audits evidence quality and trace coverage; Step 4 verifies relevant assumptions before code changes.
 
 ## Validator
 

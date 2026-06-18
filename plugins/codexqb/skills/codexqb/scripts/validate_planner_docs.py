@@ -58,7 +58,19 @@ ONTOLOGY_HEADINGS = [
     "## 8. Open Ontology Questions",
 ]
 
-LEDGER_HEADINGS = [
+COMPREHENSION_HEADINGS = [
+    "# Project Comprehension",
+    "## 1. Understanding Goals and Competency Questions",
+    "## 2. Evidence Register and Confidence",
+    "## 3. Domain-to-Code Trace Map",
+    "## 4. Structure, Data, and Runtime Flow Model",
+    "## 5. Intended vs Implemented Architecture",
+    "## 6. Change History, Hotspots, and Ownership Signals",
+    "## 7. Quality Attribute Scenarios and Tradeoffs",
+    "## 8. Open Hypotheses and Validation Probes",
+]
+
+LEDGER_LEGACY_HEADINGS = [
     "# Planing Ledger",
     "## 1. Purpose",
     "## 2. Planning Runs",
@@ -67,6 +79,20 @@ LEDGER_HEADINGS = [
     "## 5. Replanning Inputs",
     "## 6. Open Decisions and Follow-Ups",
 ]
+
+LEDGER_V2_HEADINGS = [
+    "# Planing Ledger",
+    "## 1. Purpose",
+    "## 2. Planning Runs",
+    "## 3. Plan Snapshot Registry",
+    "## 4. Sub-Plan Status Matrix",
+    "## 5. Implementation Runs",
+    "## 6. Current State Snapshot",
+    "## 7. Replanning Inputs",
+    "## 8. Open Decisions and Follow-Ups",
+]
+
+LEDGER_HEADINGS = LEDGER_V2_HEADINGS
 
 INDEX_HEADINGS = [
     "# Sub-Planing Index",
@@ -174,6 +200,29 @@ ALLOWED_REPEATED_SENTENCE_FRAGMENTS = (
     "real secret",
 )
 
+ALLOWED_EVIDENCE_TYPES = {
+    "source",
+    "test",
+    "runtime",
+    "history",
+    "configuration",
+    "documentation",
+    "user-confirmed",
+}
+ALLOWED_CONFIDENCE_VALUES = {"confirmed", "probable", "tentative", "contradicted"}
+ALLOWED_ARCHITECTURE_STATUSES = {"convergent", "divergent", "absent", "unmodeled", "uncertain"}
+ALLOWED_ONTOLOGY_QUESTION_STATUSES = {"answered", "partially_answered", "open", "contradicted"}
+UNKNOWN_CELL_VALUES = {"", "-", "n/a", "na", "none", "unknown", "unclear", "not found", "not evidenced"}
+
+
+@dataclass(frozen=True)
+class MarkdownHeading:
+    text: str
+    level: int
+    line: int
+    start: int
+    end: int
+
 
 @dataclass
 class ValidationState:
@@ -214,26 +263,109 @@ def read_text(path: Path, state: ValidationState) -> str | None:
     return None
 
 
+def markdown_headings(text: str) -> list[MarkdownHeading]:
+    headings: list[MarkdownHeading] = []
+    in_fence = False
+    fence_marker = ""
+    offset = 0
+    for line_number, line in enumerate(text.splitlines(keepends=True), start=1):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            marker = stripped[:3]
+            if not in_fence:
+                in_fence = True
+                fence_marker = marker
+            elif marker == fence_marker:
+                in_fence = False
+                fence_marker = ""
+            offset += len(line)
+            continue
+
+        if not in_fence:
+            raw = line.rstrip("\r\n")
+            match = re.match(r"^(#{1,6})\s+(.+?)\s*$", raw)
+            if match:
+                heading_text = f"{match.group(1)} {match.group(2).strip()}"
+                headings.append(
+                    MarkdownHeading(
+                        text=heading_text,
+                        level=len(match.group(1)),
+                        line=line_number,
+                        start=offset,
+                        end=offset + len(raw),
+                    )
+                )
+        offset += len(line)
+    return headings
+
+
 def validate_heading_order(text: str, headings: list[str], path: Path, state: ValidationState) -> None:
+    parsed = markdown_headings(text)
+    positions_by_heading: dict[str, list[MarkdownHeading]] = defaultdict(list)
+    for parsed_heading in parsed:
+        positions_by_heading[parsed_heading.text].append(parsed_heading)
+
     last_pos = -1
     for heading in headings:
-        pos = text.find(heading)
-        if pos == -1:
+        matches = positions_by_heading.get(heading, [])
+        if not matches:
             state.error(f"missing_heading={state.rel(path)}::{heading}")
             continue
+        if len(matches) > 1:
+            state.error(f"duplicate_heading={state.rel(path)}::{heading}::{len(matches)}")
+        pos = matches[0].start
         if pos < last_pos:
             state.error(f"heading_out_of_order={state.rel(path)}::{heading}")
         last_pos = pos
 
 
 def markdown_section(text: str, heading: str) -> str:
-    start = text.find(heading)
-    if start == -1:
+    parsed = markdown_headings(text)
+    current_index = next((index for index, item in enumerate(parsed) if item.text == heading), None)
+    if current_index is None:
         return ""
-    body_start = start + len(heading)
-    next_match = re.search(r"^##\s+\d+\.\s+", text[body_start:], flags=re.MULTILINE)
-    body_end = body_start + next_match.start() if next_match else len(text)
+    current = parsed[current_index]
+    body_start = text.find("\n", current.end)
+    body_start = len(text) if body_start == -1 else body_start + 1
+    next_heading = next((item for item in parsed[current_index + 1 :] if item.level <= current.level), None)
+    body_end = next_heading.start if next_heading else len(text)
     return text[body_start:body_end].strip()
+
+
+def markdown_tables(section: str) -> list[tuple[list[str], list[dict[str, str]]]]:
+    tables: list[tuple[list[str], list[dict[str, str]]]] = []
+    lines = section.splitlines()
+    index = 0
+    while index < len(lines):
+        if not lines[index].lstrip().startswith("|"):
+            index += 1
+            continue
+        block: list[str] = []
+        while index < len(lines) and lines[index].lstrip().startswith("|"):
+            block.append(lines[index].strip())
+            index += 1
+        if len(block) < 2:
+            continue
+        headers = [cell.strip() for cell in block[0].strip("|").split("|")]
+        separator = [cell.strip() for cell in block[1].strip("|").split("|")]
+        if not all(re.fullmatch(r":?-{3,}:?", cell) for cell in separator):
+            continue
+        rows: list[dict[str, str]] = []
+        for line in block[2:]:
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) < len(headers):
+                cells.extend([""] * (len(headers) - len(cells)))
+            rows.append(dict(zip(headers, cells)))
+        tables.append((headers, rows))
+    return tables
+
+
+def normalized_cell(value: str | None) -> str:
+    return (value or "").strip().strip("`").lower()
+
+
+def cell_has_evidence(value: str | None) -> bool:
+    return normalized_cell(value) not in UNKNOWN_CELL_VALUES
 
 
 def extract_main_phase_numbers(text: str) -> list[int]:
@@ -367,22 +499,106 @@ def validate_autopsy_required(state: ValidationState) -> None:
         validate_heading_order(text, AUTOPSY_HEADINGS, autopsy_path, state)
 
 
+def validate_ontology_competency_questions(text: str, path: Path, state: ValidationState) -> None:
+    question_section = markdown_section(text, "## 8. Open Ontology Questions")
+    if "Competency Questions" not in question_section:
+        return
+    for _, rows in markdown_tables(question_section):
+        for row in rows:
+            status = normalized_cell(row.get("Status"))
+            question_id = row.get("Question ID") or row.get("ID") or row.get("Question") or "unknown"
+            if status and status not in ALLOWED_ONTOLOGY_QUESTION_STATUSES:
+                state.warning(f"invalid_ontology_question_status={state.rel(path)}::{status}")
+            if status in {"answered", "partially_answered"} and not cell_has_evidence(row.get("Evidence")):
+                state.warning(f"ontology_question_missing_evidence={state.rel(path)}::{question_id}")
+
+
+def validate_optional_comprehension_doc(state: ValidationState) -> None:
+    path = state.planner_docs / "Project-Comprehension.md"
+    state.metrics["comprehension_exists"] = "true" if path.exists() else "false"
+    if not path.exists():
+        return
+
+    text = read_text(path, state)
+    if text is None:
+        return
+
+    validate_heading_order(text, COMPREHENSION_HEADINGS, path, state)
+
+    evidence_section = markdown_section(text, "## 2. Evidence Register and Confidence")
+    for _, rows in markdown_tables(evidence_section):
+        for row in rows:
+            evidence_id = row.get("Evidence ID") or row.get("ID") or "unknown"
+            evidence_type = normalized_cell(row.get("Evidence type"))
+            confidence = normalized_cell(row.get("Confidence"))
+            if evidence_type and evidence_type not in ALLOWED_EVIDENCE_TYPES:
+                state.warning(f"invalid_evidence_type={state.rel(path)}::{evidence_type}")
+            if confidence and confidence not in ALLOWED_CONFIDENCE_VALUES:
+                state.warning(f"invalid_confidence={state.rel(path)}::{confidence}")
+            if confidence == "confirmed" and not cell_has_evidence(row.get("Evidence source")):
+                state.warning(f"high_confidence_without_evidence={state.rel(path)}::{evidence_id}")
+
+    trace_section = markdown_section(text, "## 3. Domain-to-Code Trace Map")
+    for _, rows in markdown_tables(trace_section):
+        for row in rows:
+            trace_id = row.get("Trace ID") or row.get("ID") or "unknown"
+            confidence = normalized_cell(row.get("Confidence"))
+            if confidence and confidence not in ALLOWED_CONFIDENCE_VALUES:
+                state.warning(f"invalid_confidence={state.rel(path)}::{confidence}")
+            has_code_anchor = cell_has_evidence(row.get("Entry points")) or cell_has_evidence(row.get("Core implementation"))
+            has_test_anchor = cell_has_evidence(row.get("Tests"))
+            if not has_code_anchor and not has_test_anchor:
+                state.warning(f"trace_missing_code_or_test_anchor={state.rel(path)}::{trace_id}")
+
+    architecture_section = markdown_section(text, "## 5. Intended vs Implemented Architecture")
+    for _, rows in markdown_tables(architecture_section):
+        for row in rows:
+            status = normalized_cell(row.get("Status"))
+            if status and status not in ALLOWED_ARCHITECTURE_STATUSES:
+                state.warning(f"invalid_architecture_status={state.rel(path)}::{status}")
+
+    hypothesis_section = markdown_section(text, "## 8. Open Hypotheses and Validation Probes")
+    for _, rows in markdown_tables(hypothesis_section):
+        for row in rows:
+            hypothesis_id = row.get("Hypothesis ID") or row.get("ID") or "unknown"
+            confidence = normalized_cell(row.get("Confidence"))
+            if confidence and confidence not in ALLOWED_CONFIDENCE_VALUES:
+                state.warning(f"invalid_confidence={state.rel(path)}::{confidence}")
+            if not cell_has_evidence(row.get("Next probe")):
+                state.warning(f"open_hypothesis_missing_next_probe={state.rel(path)}::{hypothesis_id}")
+
+
 def validate_optional_continuity_docs(state: ValidationState) -> None:
     ontology_path = state.planner_docs / "Project-Ontology.md"
     ledger_path = state.planner_docs / "Planing-Ledger.md"
 
     state.metrics["ontology_exists"] = "true" if ontology_path.exists() else "false"
     state.metrics["ledger_exists"] = "true" if ledger_path.exists() else "false"
+    state.metrics["comprehension_exists"] = "true" if (state.planner_docs / "Project-Comprehension.md").exists() else "false"
 
     if ontology_path.exists():
         text = read_text(ontology_path, state)
         if text is not None:
             validate_heading_order(text, ONTOLOGY_HEADINGS, ontology_path, state)
+            validate_ontology_competency_questions(text, ontology_path, state)
 
     if ledger_path.exists():
         text = read_text(ledger_path, state)
         if text is not None:
-            validate_heading_order(text, LEDGER_HEADINGS, ledger_path, state)
+            headings = {item.text for item in markdown_headings(text)}
+            has_v2 = all(heading in headings for heading in LEDGER_V2_HEADINGS)
+            has_legacy = all(heading in headings for heading in LEDGER_LEGACY_HEADINGS)
+            if has_v2:
+                state.metrics["ledger_schema"] = "v2"
+                validate_heading_order(text, LEDGER_V2_HEADINGS, ledger_path, state)
+            elif has_legacy:
+                state.metrics["ledger_schema"] = "legacy_v1"
+                validate_heading_order(text, LEDGER_LEGACY_HEADINGS, ledger_path, state)
+            else:
+                state.metrics["ledger_schema"] = "unknown"
+                validate_heading_order(text, LEDGER_V2_HEADINGS, ledger_path, state)
+
+    validate_optional_comprehension_doc(state)
 
 
 def validate_index(state: ValidationState) -> set[str]:

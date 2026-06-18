@@ -1,4 +1,4 @@
 interface:
   display_name: "CodexQB"
-  short_description: "Vibecoding repo planning, autopsy, audit, and handoff"
-  default_prompt: "Use $codexqb to inspect this repo, create a vibecoding-first plan, autopsy, ontology-aware sub-plans, QA audit, and gated implementation handoff."
+  short_description: "Vibecoding evidence-backed repo comprehension"
+  default_prompt: "Use $codexqb to inspect this repo, build evidence-backed project comprehension, plan sub-phases, QA audit, and gated handoff."

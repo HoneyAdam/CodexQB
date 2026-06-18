@@ -75,6 +75,18 @@ AUTOPSY_HEADINGS = [
     "## 13. Priority Fix and Planning Signals",
 ]
 
+COMPREHENSION_HEADINGS = [
+    "# Project Comprehension",
+    "## 1. Understanding Goals and Competency Questions",
+    "## 2. Evidence Register and Confidence",
+    "## 3. Domain-to-Code Trace Map",
+    "## 4. Structure, Data, and Runtime Flow Model",
+    "## 5. Intended vs Implemented Architecture",
+    "## 6. Change History, Hotspots, and Ownership Signals",
+    "## 7. Quality Attribute Scenarios and Tradeoffs",
+    "## 8. Open Hypotheses and Validation Probes",
+]
+
 INDEX_HEADINGS = [
     "# Sub-Planing Index",
     "## 1. Purpose",
@@ -246,8 +258,34 @@ def write_ontology(docs: Path, headings: list[str] | None = None) -> None:
     (docs / "Project-Ontology.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_ledger(docs: Path, headings: list[str] | None = None) -> None:
-    ledger_headings = headings or [
+def write_ontology_with_competency_status(docs: Path, status: str) -> None:
+    lines: list[str] = []
+    for heading in [
+        "# Project Ontology",
+        "## 1. Purpose",
+        "## 2. Domain Vocabulary",
+        "## 3. Core Entities and Concepts",
+        "## 4. Module and Boundary Map",
+        "## 5. Workflows and Lifecycles",
+        "## 6. Integrations and External Systems",
+        "## 7. Invariants and Constraints",
+        "## 8. Open Ontology Questions",
+    ]:
+        lines += [heading, "", body(heading), ""]
+        if heading == "## 8. Open Ontology Questions":
+            lines += [
+                "### Competency Questions",
+                "",
+                "| Question ID | Question | Status | Evidence |",
+                "|---|---|---|---|",
+                f"| OQ-01 | Which component owns task lease renewal? | {status} | docs/architecture.md |",
+                "",
+            ]
+    (docs / "Project-Ontology.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_ledger(docs: Path, headings: list[str] | None = None, version: int = 1) -> None:
+    legacy_headings = [
         "# Planing Ledger",
         "## 1. Purpose",
         "## 2. Planning Runs",
@@ -256,10 +294,75 @@ def write_ledger(docs: Path, headings: list[str] | None = None) -> None:
         "## 5. Replanning Inputs",
         "## 6. Open Decisions and Follow-Ups",
     ]
+    v2_headings = [
+        "# Planing Ledger",
+        "## 1. Purpose",
+        "## 2. Planning Runs",
+        "## 3. Plan Snapshot Registry",
+        "## 4. Sub-Plan Status Matrix",
+        "## 5. Implementation Runs",
+        "## 6. Current State Snapshot",
+        "## 7. Replanning Inputs",
+        "## 8. Open Decisions and Follow-Ups",
+    ]
+    ledger_headings = headings or (v2_headings if version == 2 else legacy_headings)
     lines: list[str] = []
     for heading in ledger_headings:
         lines += [heading, "", body(heading), ""]
+        if heading == "## 4. Sub-Plan Status Matrix":
+            lines += [
+                "| Sub-plan | Status | Validation evidence | Blocker |",
+                "|---|---|---|---|",
+                "| Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md | verified | make check | none |",
+                "",
+            ]
     (docs / "Planing-Ledger.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_comprehension(
+    docs: Path,
+    headings: list[str] | None = None,
+    evidence_confidence: str = "confirmed",
+    evidence_type: str = "source",
+    architecture_status: str = "convergent",
+    evidence_source: str = "src/service.py",
+    trace_entry: str = "api/routes.py",
+    trace_core: str = "src/service.py",
+    trace_tests: str = "tests/test_service.py",
+    hypothesis_next_probe: str = "Run focused unit test for service boundary.",
+) -> None:
+    lines: list[str] = []
+    for heading in headings or COMPREHENSION_HEADINGS:
+        lines += [heading, "", body(heading), ""]
+        if heading == "## 2. Evidence Register and Confidence":
+            lines += [
+                "| Evidence ID | Claim | Evidence source | Evidence type | Confidence | Freshness | Contradiction | Next probe |",
+                "|---|---|---|---|---|---|---|---|",
+                f"| EV-01 | Service routes through a boundary layer. | {evidence_source} | {evidence_type} | {evidence_confidence} | current | none | Inspect service tests. |",
+                "",
+            ]
+        if heading == "## 3. Domain-to-Code Trace Map":
+            lines += [
+                "| Trace ID | Domain concept / feature | Entry points | Core implementation | State/data | Tests | Docs | Confidence |",
+                "|---|---|---|---|---|---|---|---|",
+                f"| TRACE-01 | Task lease renewal | {trace_entry} | {trace_core} | db/tasks.sql | {trace_tests} | docs/architecture.md | probable |",
+                "",
+            ]
+        if heading == "## 5. Intended vs Implemented Architecture":
+            lines += [
+                "| Relation ID | Intended relation | Source evidence | Status | Impact |",
+                "|---|---|---|---|---|",
+                f"| ARC-01 | API -> service -> repository | api/routes.py -> src/service.py | {architecture_status} | none |",
+                "",
+            ]
+        if heading == "## 8. Open Hypotheses and Validation Probes":
+            lines += [
+                "| Hypothesis ID | Type | Claim | Confidence | Supporting evidence | Contradicting evidence | Next probe |",
+                "|---|---|---|---|---|---|---|",
+                f"| HYP-01 | how | Retry behavior is idempotent. | tentative | src/service.py | none | {hypothesis_next_probe} |",
+                "",
+            ]
+    (docs / "Project-Comprehension.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_audit(docs: Path, status: str, fixes: list[str] | None = None) -> None:
@@ -371,6 +474,128 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("ontology_exists=true", result.stdout)
             self.assertIn("ledger_exists=true", result.stdout)
+
+    def test_step2_accepts_legacy_and_v2_ledger_headings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            write_ledger(docs, version=1)
+            legacy_result = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertEqual(legacy_result.returncode, 0, legacy_result.stdout + legacy_result.stderr)
+
+            write_ledger(docs, version=2)
+            v2_result = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertEqual(v2_result.returncode, 0, v2_result.stdout + v2_result.stderr)
+            self.assertIn("ledger_schema=v2", v2_result.stdout)
+
+    def test_step2_validates_optional_project_comprehension_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            write_comprehension(docs)
+            result = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("comprehension_exists=true", result.stdout)
+
+    def test_step2_rejects_optional_comprehension_heading_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            bad_headings = COMPREHENSION_HEADINGS.copy()
+            bad_headings[2], bad_headings[3] = bad_headings[3], bad_headings[2]
+            write_comprehension(docs, headings=bad_headings)
+            result = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("heading_out_of_order=Planner-docs/Project-Comprehension.md", result.stdout)
+
+    def test_heading_parser_ignores_fenced_code_and_detects_duplicate_headings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            fenced = [
+                "```markdown",
+                "# Project Ontology",
+                "## 1. Purpose",
+                "## 2. Domain Vocabulary",
+                "## 3. Core Entities and Concepts",
+                "## 4. Module and Boundary Map",
+                "## 5. Workflows and Lifecycles",
+                "## 6. Integrations and External Systems",
+                "## 7. Invariants and Constraints",
+                "## 8. Open Ontology Questions",
+                "```",
+            ]
+            (docs / "Project-Ontology.md").write_text("\n".join(fenced), encoding="utf-8")
+            fenced_result = run_validator(Path(temp_dir), "step2")
+            self.assertNotEqual(fenced_result.returncode, 0, fenced_result.stdout + fenced_result.stderr)
+            self.assertIn("missing_heading=Planner-docs/Project-Ontology.md::# Project Ontology", fenced_result.stdout)
+
+            write_ontology(
+                docs,
+                headings=[
+                    "# Project Ontology",
+                    "## 1. Purpose",
+                    "## 1. Purpose",
+                    "## 2. Domain Vocabulary",
+                    "## 3. Core Entities and Concepts",
+                    "## 4. Module and Boundary Map",
+                    "## 5. Workflows and Lifecycles",
+                    "## 6. Integrations and External Systems",
+                    "## 7. Invariants and Constraints",
+                    "## 8. Open Ontology Questions",
+                ],
+            )
+            duplicate_result = run_validator(Path(temp_dir), "step2")
+            self.assertNotEqual(duplicate_result.returncode, 0, duplicate_result.stdout + duplicate_result.stderr)
+            self.assertIn("duplicate_heading=Planner-docs/Project-Ontology.md::## 1. Purpose::2", duplicate_result.stdout)
+
+    def test_comprehension_invalid_statuses_warn_and_strict_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            write_comprehension(
+                docs,
+                evidence_confidence="certain",
+                evidence_type="guess",
+                architecture_status="aligned",
+            )
+            relaxed = run_validator(Path(temp_dir), "step2")
+            self.assertEqual(relaxed.returncode, 0, relaxed.stdout + relaxed.stderr)
+            self.assertIn("warning=invalid_evidence_type=Planner-docs/Project-Comprehension.md::guess", relaxed.stdout)
+            self.assertIn("warning=invalid_confidence=Planner-docs/Project-Comprehension.md::certain", relaxed.stdout)
+            self.assertIn("warning=invalid_architecture_status=Planner-docs/Project-Comprehension.md::aligned", relaxed.stdout)
+
+            strict = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertNotEqual(strict.returncode, 0, strict.stdout + strict.stderr)
+            self.assertIn("strict_warning=invalid_evidence_type=Planner-docs/Project-Comprehension.md::guess", strict.stdout)
+
+    def test_comprehension_quality_warnings_fail_in_strict_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            write_comprehension(
+                docs,
+                evidence_source="",
+                trace_entry="unknown",
+                trace_core="unknown",
+                trace_tests="unknown",
+                hypothesis_next_probe="",
+            )
+            relaxed = run_validator(Path(temp_dir), "step2")
+            self.assertEqual(relaxed.returncode, 0, relaxed.stdout + relaxed.stderr)
+            self.assertIn("warning=high_confidence_without_evidence=Planner-docs/Project-Comprehension.md::EV-01", relaxed.stdout)
+            self.assertIn("warning=trace_missing_code_or_test_anchor=Planner-docs/Project-Comprehension.md::TRACE-01", relaxed.stdout)
+            self.assertIn("warning=open_hypothesis_missing_next_probe=Planner-docs/Project-Comprehension.md::HYP-01", relaxed.stdout)
+
+            strict = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertNotEqual(strict.returncode, 0, strict.stdout + strict.stderr)
+            self.assertIn("strict_warning=high_confidence_without_evidence=Planner-docs/Project-Comprehension.md::EV-01", strict.stdout)
+
+    def test_ontology_competency_question_status_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            write_ontology_with_competency_status(docs, "answered")
+            valid = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
+
+            write_ontology_with_competency_status(docs, "resolved")
+            invalid = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertNotEqual(invalid.returncode, 0, invalid.stdout + invalid.stderr)
+            self.assertIn("strict_warning=invalid_ontology_question_status=Planner-docs/Project-Ontology.md::resolved", invalid.stdout)
 
     def test_step2_rejects_optional_ontology_heading_errors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

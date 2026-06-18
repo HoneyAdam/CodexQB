@@ -34,9 +34,10 @@ If they exist, read these files fully before generating sub-plans:
 
 Planner-docs/Autopsy.md
 Planner-docs/Project-Ontology.md
+Planner-docs/Project-Comprehension.md
 Planner-docs/Planing-Ledger.md
 
-Autopsy.md is not a replacement for Main-Planing.md. It is a supporting feedback source from Step 1.5. Use it to enrich sub-plans with concrete repo feedback, technical debt, placeholder/stub findings, broken integration risks, test gaps, security/governance gaps, and readiness blockers. Project-Ontology.md helps keep vocabulary, entities, workflows, boundaries, and invariants consistent. Planing-Ledger.md records prior planning and implementation history for replanning continuity.
+Autopsy.md is not a replacement for Main-Planing.md. It is a supporting feedback source from Step 1.5. Use it to enrich sub-plans with concrete repo feedback, technical debt, placeholder/stub findings, broken integration risks, test gaps, security/governance gaps, and readiness blockers. Project-Ontology.md helps keep vocabulary, entities, workflows, boundaries, and invariants consistent. Project-Comprehension.md carries evidence/confidence, CQ, TRACE, ARC, quality-scenario, and open-hypothesis context; never silently convert tentative comprehension claims into implementation facts. Planing-Ledger.md records prior planning and implementation history for replanning continuity.
 
 Supporting operational reference:
 If available, read the CodexQB support note before generating:
@@ -46,6 +47,7 @@ references/vibecoding-principles.md
 references/subagent-playbook.md
 references/planning-ledger.md
 references/project-ontology.md
+references/project-comprehension-methods.md
 references/assessment-and-budget.md
 references/engineering-principles.md
 
@@ -55,9 +57,19 @@ You must not modify Planner-docs/Main-Planing.md.
 You must not change the phase order.
 If Planner-docs/Main-Planing.md is inconsistent, incomplete, or impossible to decompose, create Planner-docs/Step2-Blocked.md and stop.
 
+Goal Run Contract:
+- Outcome: decompose every main phase into implementation-ready sub-plans.
+- Inputs: Planner-docs/Main-Planing.md plus optional Autopsy, Project-Ontology, Project-Comprehension, and Planing-Ledger files.
+- Boundaries: modify only Planner-docs; do not implement product code or edit Main-Planing.md.
+- Source precedence: user-confirmed intent and Main-Planing.md first; current repo evidence second; optional continuity artifacts third. Tentative comprehension claims require validation work.
+- Validation gates: run the bundled Step 2 validator or equivalent all-file validation.
+- Stop gates: missing, inconsistent, incomplete, or undecomposable Main-Planing.md; unrelated dirty worktree only if it blocks safe planning.
+- Context budget: read support artifacts fully once, then navigate by CQ, TRACE, ARC, ledger, and index references.
+- Subagent policy: use subagents only for large repo exploration or phase drafting; parent writes final artifacts.
+
 Step 1 produced the high-level master plan.
-Step 1.5 may have produced an existing-project autopsy report and optional project ontology. Step 4 or prior implementation runs may have produced a planning ledger.
-Step 2 must now decompose the master plan into detailed sub-plans, incorporating Autopsy.md, Project-Ontology.md, and Planing-Ledger.md feedback when those files exist.
+Step 1.5 may have produced an existing-project autopsy report, optional project ontology, and optional project comprehension model. Step 4 or prior implementation runs may have produced a planning ledger.
+Step 2 must now decompose the master plan into detailed sub-plans, incorporating Autopsy.md, Project-Ontology.md, Project-Comprehension.md, and Planing-Ledger.md feedback when those files exist.
 
 Expected output structure:
 
@@ -65,6 +77,7 @@ Planner-docs/
   Main-Planing.md
   Autopsy.md
   Project-Ontology.md
+  Project-Comprehension.md
   Planing-Ledger.md
   Sub-Planing-Index.md
   Faz-0-Plans/
@@ -126,6 +139,7 @@ Run only safe read-only commands such as:
 - cat Planner-docs/Main-Planing.md
 - if [ -f Planner-docs/Autopsy.md ]; then cat Planner-docs/Autopsy.md; fi
 - if [ -f Planner-docs/Project-Ontology.md ]; then cat Planner-docs/Project-Ontology.md; fi
+- if [ -f Planner-docs/Project-Comprehension.md ]; then cat Planner-docs/Project-Comprehension.md; fi
 - if [ -f Planner-docs/Planing-Ledger.md ]; then cat Planner-docs/Planing-Ledger.md; fi
 - ls
 - find . -maxdepth 3 \( -path './.git' -o -path './node_modules' -o -path './.venv' -o -path './dist' -o -path './build' -o -path './artifacts' \) -prune -o -type f -print | sort | head -300
@@ -150,7 +164,7 @@ If Planner-docs/Autopsy.md is missing:
 - Continue using Planner-docs/Main-Planing.md as the primary source of truth.
 - State in Planner-docs/Sub-Planing-Index.md that no Autopsy source was available.
 
-If Planner-docs/Project-Ontology.md or Planner-docs/Planing-Ledger.md is missing:
+If Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md is missing:
 - Do not block Step 2.
 - State in Planner-docs/Sub-Planing-Index.md which optional continuity sources were absent.
 
@@ -190,8 +204,9 @@ Sub-planning strategy:
    - broken or missing integrations;
    - test, CI, validation, security, governance, and operational readiness gaps;
    - Step 2 feedback and priority signals.
-4. If Project-Ontology.md exists, read it fully and identify vocabulary, entities, workflows, module boundaries, integrations, invariants, and open concept questions that sub-plans must respect.
-5. If Planing-Ledger.md exists, read it fully and identify prior planning runs, implementation summaries, completed slices, remaining blockers, and replanning inputs.
+4. If Project-Ontology.md exists, read it fully and identify vocabulary, entities, workflows, module boundaries, integrations, invariants, competency questions, and open concept questions that sub-plans must respect.
+5. If Project-Comprehension.md exists, read it fully and identify `CQ-*` comprehension questions, `TRACE-*` concept-to-code rows, `ARC-*` architecture reflexion rows, quality scenarios, confidence levels, and open hypotheses. Translate unresolved hypotheses into explicit validation work. Do not treat tentative claims as implementation facts.
+6. If Planing-Ledger.md exists, read it fully and identify prior planning runs, implementation summaries, completed slices, remaining blockers, and replanning inputs.
 6. Plan in a vibecoding-first style: small reversible slices, fast validation signals, explicit deferrals, secure boundaries, and room for discovery during Step 4.
 7. Use domain-appropriate engineering principles such as boundaries, contracts, state modeling, test strategy, threat modeling, least privilege, and observability only where they fit the project.
 8. Preserve the main phase order.
@@ -292,8 +307,6 @@ Examples:
 - infrastructure scaling;
 - secret handling beyond preflight;
 only where relevant;
-- secure coding and secure-by-design expectations where relevant;
-- ontology, lifecycle, or invariant consistency where relevant.
 
 ## 6. Current Repository Evidence
 

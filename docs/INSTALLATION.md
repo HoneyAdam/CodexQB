@@ -61,7 +61,8 @@ Expected behavior:
 6. It uses the confirmed values to create or update `Planner-docs/Main-Planing.md`.
 7. For existing or partially built repositories, it may create or update `Planner-docs/Autopsy.md` as Step 1.5.
 8. When enough evidence exists, it may create or update `Planner-docs/Project-Ontology.md`.
-9. Later Goal-mode implementation handoffs may update `Planner-docs/Planing-Ledger.md` with concise verified-slice summaries.
+9. For non-trivial existing projects, it may create or update `Planner-docs/Project-Comprehension.md` with evidence confidence, CQ/TRACE/ARC links, architecture reflexion, quality scenarios, and open validation probes.
+10. Later Goal-mode implementation handoffs may update `Planner-docs/Planing-Ledger.md` with concise verified-slice summaries and confirmed/contradicted hypothesis evidence.
 
 ## Update An Existing Local Install
 

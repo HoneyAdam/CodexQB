@@ -24,8 +24,10 @@ required_files=(
   "plugins/codexqb/skills/codexqb/references/subagent-playbook.md"
   "plugins/codexqb/skills/codexqb/references/planning-ledger.md"
   "plugins/codexqb/skills/codexqb/references/project-ontology.md"
+  "plugins/codexqb/skills/codexqb/references/project-comprehension-methods.md"
   "plugins/codexqb/skills/codexqb/references/assessment-and-budget.md"
   "plugins/codexqb/skills/codexqb/references/engineering-principles.md"
+  "evals/run_fixture_checks.py"
   "README.md"
   "docs/INSTALLATION.md"
   "docs/USAGE.md"
@@ -288,3 +290,5 @@ if [[ "${CODEXQB_VALIDATE_SKIP_UNITTESTS:-0}" == "1" ]]; then
 else
   python3 -m unittest discover -s tests -v
 fi
+
+python3 evals/run_fixture_checks.py

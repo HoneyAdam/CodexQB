@@ -1,7 +1,7 @@
 {
   "name": "codexqb",
-  "version": "0.1.5",
-  "description": "CodexQB packages a repo-aware Codex planning workflow with an existing-project autopsy and gated implementation handoff prompt.",
+  "version": "0.2.0",
+  "description": "CodexQB packages evidence-backed repo planning with project comprehension, autopsy, ontology, ledger continuity, traceability, QA audit, and gated handoff.",
   "author": {
     "name": "Alican Kiraz",
     "email": "167613664+alicankiraz1@users.noreply.github.com",
@@ -13,6 +13,12 @@
   "keywords": [
     "codex",
     "planning",
+    "project-comprehension",
+    "evidence",
+    "traceability",
+    "vibecoding",
+    "ontology",
+    "ledger",
     "project-management",
     "skills",
     "goal-mode"
@@ -20,8 +26,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "CodexQB",
-    "shortDescription": "Run repo-aware planning, autopsy, audit, and handoff.",
-    "longDescription": "CodexQB helps Codex inspect a repository, ask repo-aware intake questions, create a master project plan, autopsy existing project state, decompose the plan into phase-level sub-plans, audit the resulting planning package for coverage, ordering, readiness, and governance, then print a gated Goal-mode implementation handoff when the audit allows it.",
+    "shortDescription": "Run evidence-backed repo planning and gated handoff.",
+    "longDescription": "CodexQB helps Codex inspect a repository, ask repo-aware intake questions, create a master project plan, autopsy existing project state, capture optional project comprehension and ontology artifacts, decompose the plan into phase-level sub-plans, audit coverage, evidence quality, confidence, traceability, readiness, and governance, then print a gated Goal-mode implementation handoff when the audit allows it.",
     "developerName": "Alican Kiraz",
     "category": "Productivity",
     "capabilities": [
@@ -30,9 +36,9 @@
     ],
     "websiteURL": "https://github.com/alicankiraz1/CodexQB",
     "defaultPrompt": [
-      "Use $codexqb to inspect this repo and plan this project.",
-      "Use $codexqb to autopsy this existing project and create phase sub-plans.",
-      "Use $codexqb to audit the planning docs and prepare the implementation handoff."
+      "Use $codexqb to inspect this repo and create an evidence-backed project comprehension plan.",
+      "Use $codexqb to autopsy this project, capture ontology/comprehension evidence, and create phase sub-plans.",
+      "Use $codexqb to audit evidence, traceability, readiness, and prepare the gated implementation handoff."
     ],
     "brandColor": "#2563EB"
   }
