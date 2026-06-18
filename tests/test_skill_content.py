@@ -195,6 +195,14 @@ class SkillContentTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, validate_script)
 
+    def test_local_skill_sync_docs_exclude_python_caches(self) -> None:
+        install = (REPO_ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
+        maintaining = (REPO_ROOT / "docs/MAINTAINING.md").read_text(encoding="utf-8")
+        for text in [install, maintaining]:
+            self.assertIn("--exclude '__pycache__/'", text)
+            self.assertIn("--exclude '*.pyc'", text)
+            self.assertIn("diff -ru -x __pycache__", text)
+
     def test_validate_script_runs_without_git_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = Path(temp_dir) / "CodexQB"

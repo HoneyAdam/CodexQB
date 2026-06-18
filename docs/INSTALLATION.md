@@ -81,8 +81,8 @@ codex plugin add codexqb@codexqb
 For a manually maintained global skill copy, sync and verify parity from the repository root:
 
 ```bash
-rsync -a --delete plugins/codexqb/skills/codexqb/ "$HOME/.codex/skills/codexqb/"
-diff -ru plugins/codexqb/skills/codexqb "$HOME/.codex/skills/codexqb"
+rsync -a --delete --exclude '__pycache__/' --exclude '*.pyc' plugins/codexqb/skills/codexqb/ "$HOME/.codex/skills/codexqb/"
+diff -ru -x __pycache__ plugins/codexqb/skills/codexqb "$HOME/.codex/skills/codexqb"
 ```
 
 ## Troubleshooting

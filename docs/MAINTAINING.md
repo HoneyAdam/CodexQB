@@ -103,11 +103,12 @@ When changing replanning behavior, verify that `Planing-Ledger.md` and `Project-
 
 ## Optional Local Skill Copy Parity
 
-If you maintain a local global skill copy, compare it with the repo-bundled skill after syncing:
+If you maintain a local global skill copy, sync without generated Python caches and compare it with the repo-bundled skill:
 
 ```bash
 CODEXQB_GLOBAL_SKILL="${CODEXQB_GLOBAL_SKILL:-$HOME/.codex/skills/codexqb}"
-diff -ru plugins/codexqb/skills/codexqb "$CODEXQB_GLOBAL_SKILL"
+rsync -a --delete --exclude '__pycache__/' --exclude '*.pyc' plugins/codexqb/skills/codexqb/ "$CODEXQB_GLOBAL_SKILL/"
+diff -ru -x __pycache__ plugins/codexqb/skills/codexqb "$CODEXQB_GLOBAL_SKILL"
 ```
 
 This is a local-only workflow check. It is not required for CI or repository marketplace releases.
