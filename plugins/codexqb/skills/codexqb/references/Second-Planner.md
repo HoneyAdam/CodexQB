@@ -39,6 +39,11 @@ Planner-docs/Planing-Ledger.md
 
 Autopsy.md is not a replacement for Main-Planing.md. It is a supporting feedback source from Step 1.5. Use it to enrich sub-plans with concrete repo feedback, technical debt, placeholder/stub findings, broken integration risks, test gaps, security/governance gaps, and readiness blockers. Project-Ontology.md helps keep vocabulary, entities, workflows, boundaries, and invariants consistent. Project-Comprehension.md carries evidence/confidence, CQ, TRACE, ARC, quality-scenario, and open-hypothesis context; never silently convert tentative comprehension claims into implementation facts. Planing-Ledger.md records prior planning and implementation history for replanning continuity.
 
+Ledger ownership for this step:
+- If `Planner-docs/Planing-Ledger.md` does not exist, Step 2 may create it using Ledger v2 headings.
+- If a legacy v1 ledger exists, Step 2 may upgrade it to Ledger v2 while preserving prior planning and implementation history.
+- Step 1 and Step 1.5 may update an existing ledger, but they should not be required to create one.
+
 Supporting operational reference:
 If available, read the CodexQB support note before generating:
 
@@ -57,15 +62,8 @@ You must not modify Planner-docs/Main-Planing.md.
 You must not change the phase order.
 If Planner-docs/Main-Planing.md is inconsistent, incomplete, or impossible to decompose, create Planner-docs/Step2-Blocked.md and stop.
 
-Goal Run Contract:
-- Outcome: decompose every main phase into implementation-ready sub-plans.
-- Inputs: Planner-docs/Main-Planing.md plus optional Autopsy, Project-Ontology, Project-Comprehension, and Planing-Ledger files.
-- Boundaries: modify only Planner-docs; do not implement product code or edit Main-Planing.md.
-- Source precedence: user-confirmed intent and Main-Planing.md first; current repo evidence second; optional continuity artifacts third. Tentative comprehension claims require validation work.
-- Validation gates: run the bundled Step 2 validator or equivalent all-file validation.
-- Stop gates: missing, inconsistent, incomplete, or undecomposable Main-Planing.md; unrelated dirty worktree only if it blocks safe planning.
-- Context budget: read support artifacts fully once, then navigate by CQ, TRACE, ARC, ledger, and index references.
-- Subagent policy: use subagents only for large repo exploration or phase drafting; parent writes final artifacts.
+Goal handoff source:
+Read and return the exact canonical handoff from `references/handoffs/run-step2.md` when the user asks for Step 2 Goal mode text. Do not duplicate the full Goal Run Contract in this file.
 
 Step 1 produced the high-level master plan.
 Step 1.5 may have produced an existing-project autopsy report, optional project ontology, and optional project comprehension model. Step 4 or prior implementation runs may have produced a planning ledger.
@@ -461,6 +459,8 @@ Include:
 Also include a "Supporting Sources" note:
 - If Planner-docs/Autopsy.md exists, state that it was read and summarize the most important Step 2 feedback categories.
 - If Planner-docs/Project-Ontology.md exists, state that it was read and summarize the key ontology categories.
+- If Planner-docs/Project-Comprehension.md exists, state `comprehension artifact used: yes`, list relevant `CQ-*`, `TRACE-*`, `ARC-*`, and `HYP-*` IDs, and document confidence-sensitive assumptions that must not be promoted into implementation facts.
+- If Planner-docs/Project-Comprehension.md does not exist, state `comprehension artifact used: no`.
 - If Planner-docs/Planing-Ledger.md exists, state that it was read and summarize prior planning/implementation history.
 - If any optional source does not exist, state that Step 2 continued without that input.
 

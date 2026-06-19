@@ -20,7 +20,7 @@ IMPORTANT:
   Planner-docs/Project-Ontology.md
 - For non-trivial existing projects with distributed features, architecture drift, lifecycle complexity, stale prior plans, or unclear runtime behavior, you may also create or update:
   Planner-docs/Project-Comprehension.md
-- If `Planner-docs/Planing-Ledger.md` already exists, read it as supporting history but do not modify it during Step 1.5.
+- If `Planner-docs/Planing-Ledger.md` already exists, read it as supporting history. Step 1.5 may append or update a concise comprehension-refresh entry only when it can do so without disrupting existing ledger structure. Do not create a new ledger during Step 1.5.
 - If the Planner-docs directory does not exist, create it.
 
 Purpose:

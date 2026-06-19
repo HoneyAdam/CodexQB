@@ -69,19 +69,14 @@ Implementation handoff reference:
 If available, read this only after the audit is written and Step 4 readiness is known:
 
 references/Fourth-Planner.md
+references/handoffs/run-step3.md
+references/handoffs/run-step4.md
 
 Language:
 Write Planner-docs/Sub-Planing-Audit.md in English by default unless the user explicitly requests another content language. Required document headings remain English for validator stability.
 
-Goal Run Contract:
-- Outcome: audit every generated sub-plan and decide whether Step 4 can begin.
-- Inputs: Main-Planing, Sub-Planing-Index, Faz plans, optional Autopsy, Project-Ontology, Project-Comprehension, and Planing-Ledger files.
-- Boundaries: modify only Planner-docs/Sub-Planing-Audit.md.
-- Source precedence: Main-Planing and validator findings first; support artifacts as evidence, with tentative comprehension claims audited before use.
-- Validation gates: run the bundled Step 3 validator or equivalent all-file validation.
-- Stop gates: missing Main-Planing, missing Sub-Planing-Index, or no sub-plan files.
-- Context budget: inspect all plan files structurally, then quote only concise evidence.
-- Subagent policy: use subagents only for broad coverage/readiness/security review; parent writes the audit.
+Goal handoff source:
+Read and return the exact canonical handoff from `references/handoffs/run-step3.md` when the user asks for Step 3 Goal mode text. Do not duplicate the full Goal Run Contract in this file.
 
 Repository inspection requirements:
 
@@ -104,9 +99,9 @@ Useful discovery commands:
 - rg -l "secret|token|credential|api[_-]?key|password|private[_-]?key" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 - rg "docs/|Planner-docs/|Main-Planing|Sub-Planing|Faz-" Planner-docs --glob '!.git/**' --glob '!node_modules/**' --glob '!.venv/**' --glob '!dist/**' --glob '!build/**' --glob '!artifacts/**'
 
-Before writing the audit, run the bundled read-only validator if available:
+Before writing the audit, run the bundled read-only Step 3 preflight validator if available:
 
-python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3-preflight --strict
 
 If an installed plugin exposes a different active skill script path, use that bundled validator path instead.
 
@@ -461,33 +456,56 @@ If the project domain differs, adapt but still check for security boundaries.
 
 Create a table:
 
-Columns:
-- Faz / Alt Plan
-- Ready for Step 4?
-- Reason
-- Required fix before Step 4 starts
-- First implementation slice
-- Validation signal
-- Token/context risk
-- Recommended subagent roles, if any
+Use exactly these columns:
+
+```markdown
+| Sub-Plan Path | Status | Finding IDs | Dependency State | Reason | Required Repair |
+|---|---|---|---|---|---|
+```
 
 Use statuses:
 - READY
 - READY_WITH_WARNINGS
 - NEEDS_REPAIR
 - BLOCKED
+- COMPLETE
+- SUPERSEDED
+- DEFERRED
+
+Use dependency states:
+- satisfied
+- independent
+- blocked
+- unknown
+
+Execution queue states:
+- READY: at least one READY or READY_WITH_WARNINGS row is present and no blocking finding applies.
+- NO_ACTION_REQUIRED: all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED; Step 4 must not start implementation.
+- BLOCKED: open P0/P1, global execution blocker, unsafe path, missing target, or unresolved dependency blocks execution.
+
+Rules:
+- READY rows require dependency state `satisfied` or `independent`.
+- READY_WITH_WARNINGS may reference only open or accepted P2/P3 findings.
+- NEEDS_REPAIR, BLOCKED, COMPLETE, SUPERSEDED, and DEFERRED are not queued for Step 4.
+- Use repo-relative sub-plan paths such as `Planner-docs/Faz-1-Plans/Faz1.1-example.md`; never use absolute paths or `..` traversal.
+- Do not emit two rows for the same sub-plan with conflicting active statuses.
 
 ## 13. Priority Fix List
 
-List concrete fixes needed before Step 4.
+List concrete fixes needed before Step 4 in this exact table shape:
 
-Each item must include:
-- ID, using AUDIT-FIX-NN
-- severity: P0, P1, P2, P3
-- affected file(s)
-- issue
-- recommended fix
-- why it matters
+```markdown
+| Finding ID | Severity | Status | Affected Files | Issue | Required Action |
+|---|---|---|---|---|---|
+```
+
+Each row must include:
+- Finding ID, using AUDIT-FIX-NN
+- Severity: P0, P1, P2, P3
+- Status: open, accepted, resolved, or not_applicable
+- Affected Files
+- Issue
+- Required Action
 
 Severity guide:
 - P0: blocks Step 4 or could cause dangerous planning/implementation.
@@ -496,6 +514,12 @@ Severity guide:
 - P3: minor wording or maintainability issue.
 
 Do not modify affected files. Only report fixes.
+
+Finding status consistency:
+- open P0/P1 always blocks Step 4.
+- open or accepted P2/P3 requires PASS_WITH_WARNINGS.
+- resolved or not_applicable P2/P3 can coexist with PASS.
+- accepted means risk is knowingly carried forward and must remain visible.
 
 ## 14. Recommended Next Command / Prompt
 

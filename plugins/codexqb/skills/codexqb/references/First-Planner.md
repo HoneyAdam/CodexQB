@@ -75,7 +75,7 @@ Use the following principles while planning:
    - keep phases action-guiding but leave room for discovery during Step 4;
    - identify small reversible slices and fast validation signals;
    - never relax safety, secret, approval, validation, or file-boundary rules.
-13. If existing `Planner-docs/Planing-Ledger.md`, `Planner-docs/Project-Ontology.md`, or `Planner-docs/Project-Comprehension.md` exists, read it as supporting evidence for replanning continuity and project understanding. Repository state and user-confirmed intent still win over stale ledger, ontology, or comprehension entries.
+13. If existing `Planner-docs/Planing-Ledger.md`, `Planner-docs/Project-Ontology.md`, or `Planner-docs/Project-Comprehension.md` exists, read it as supporting evidence for replanning continuity and project understanding. Repository state and user-confirmed intent still win over stale ledger, ontology, or comprehension entries. Step 1 writes `Planner-docs/Main-Planing.md`; it may update an existing ledger only when the user explicitly asks for that continuity note, and it must not create a new ledger.
 14. Apply domain-appropriate computer science and secure engineering principles such as clear boundaries, state modeling, contracts, test strategy, threat modeling, least privilege, and safe command/path handling. Do not cargo-cult methods that do not fit the project.
 15. For Goal mode readiness, include rough token/context risk and autonomy/review assumptions. Use low/medium/high estimates unless the user provides a concrete budget baseline; do not invent exact token spend or percentages.
 

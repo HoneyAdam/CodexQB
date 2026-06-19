@@ -2,69 +2,47 @@
 
 This reference is not an auto-executed CodexQB planning step.
 
-Use it only after Step 3 writes `Planner-docs/Sub-Planing-Audit.md` and the audit says Step 4 can begin. Print the copy block below for the user to paste into Goal mode.
-
-If the audit status is `BLOCKED`, do not print this prompt. Print the minimal unblock prompt from the audit instead.
-
-If the audit status is `PASS_WITH_WARNINGS` and any P0/P1 finding exists, do not print this prompt. Print a repair prompt targeting those P0/P1 findings first.
-
-If the audit status is `PASS_WITH_WARNINGS` with only P2/P3 findings, this prompt may be printed, but state that the implementation run must keep those warnings visible.
-
-## Copy Block
+Use it only after Step 3 writes `Planner-docs/Sub-Planing-Audit.md` and the audit says Step 4 can begin. The full copy block lives in one canonical source:
 
 ```text
-Goal Run Contract:
-- Outcome: implement the ordered READY/READY_WITH_WARNINGS queue in small verified slices.
-- Inputs: Main-Planing, Sub-Planing-Index, Sub-Planing-Audit, active Faz sub-plan, optional Autopsy, Project-Ontology, Project-Comprehension, and Planing-Ledger evidence.
-- Boundaries: change only files required by the active slice; do not batch unrelated sub-plans.
-- Source precedence: repo instructions and current source first; audit/sub-plan second; comprehension and ontology as evidence. Tentative claims must be verified before code changes.
-- Validation gates: targeted validation first, then repo-level gate.
-- Stop gates: P0/P1 or safety finding, unclear contradiction, failing regression, missing source, credential/live approval, destructive mutation, unrelated dirty worktree, unavailable validation without fallback, scope overflow, token/context budget pressure, or user stop.
-- Context budget: read only the active slice and the Project-Comprehension.md CQ/TRACE/ARC/HYP rows relevant to that slice.
-- Subagent policy: use subagents only for non-trivial exploration, test-path discovery, implementation/review separation, or security review; only one writer modifies files per slice.
+references/handoffs/run-step4.md
+```
 
-Treat Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Sub-Planing-Audit.md, Planner-docs/Faz-*-Plans/*.md, and any Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md as source material. Build an ordered implementation queue from the audit's READY and READY_WITH_WARNINGS rows, preserving the index order. If the audit contains P0/P1 findings, stop before implementation and propose a repair prompt.
+Do not duplicate the full Goal Run Contract in this file. When the user asks for Step 4 Goal mode text, read and return the exact canonical handoff from `references/handoffs/run-step4.md`.
 
-If installed/available, use relevant Codex skills/plugins by scope: use superpowers:executing-plans or superpowers:subagent-driven-development for implementation, superpowers:test-driven-development for code changes, superpowers:verification-before-completion before finishing, and codex-security for security, policy, secret, or command-execution work. If these skills/plugins are not installed, do not stop; continue using the audit, the active sub-plan, repo instructions, and existing validation commands with the same principles. Use GitHub publish/PR workflows only when explicitly requested. Use subagents when they reduce context pollution or separate evidence gathering from implementation/review; do not use them for trivial single-file changes.
+If the audit status is `BLOCKED`, do not print the Step 4 handoff. Print the minimal unblock prompt from the audit instead.
 
-Execute the queue continuously in this Goal run. For non-trivial slices, use this subagent pattern when available: explorer maps relevant files and risks; tester/verifier identifies validation path; implementer/worker makes the smallest change; reviewer/security reviews the diff and evidence. Only one writer should modify files per slice unless the user explicitly requests parallel branches.
+If the audit status is `NO_ACTION_REQUIRED`, do not start implementation. Summarize that all in-scope sub-plans are COMPLETE, SUPERSEDED, or DEFERRED.
 
-For each implementation slice:
-1. Name the active phase/sub-plan and the specific acceptance criterion being targeted.
-2. Read AGENTS.md, README.md, Makefile, repo instructions, the audit, the index, optional ontology/ledger files as needed, only the active sub-plan, and only the Project-Comprehension.md CQ/TRACE/ARC/HYP rows relevant to the active slice.
-3. Run git status and stop if unrelated dirty changes or conflicts exist.
-4. Inspect relevant files before editing.
-5. Prefer adding or adjusting a focused failing test first when practical.
-6. Verify tentative comprehension assumptions before code changes; then implement the smallest change that can satisfy the selected acceptance criterion.
-7. Run targeted validation first.
-8. If targeted validation fails and the source is unclear, stop and summarize the exact failure before editing more files.
-9. Run the repo-level gate when targeted validation passes.
-10. Do not batch unrelated sub-plans in one diff; continue to the next queue item only after the active slice is verified or blocked.
-11. Append or update `Planner-docs/Planing-Ledger.md` with a concise implementation summary for the verified slice or stop event. If a `Project-Comprehension.md` hypothesis is confirmed or contradicted, record the hypothesis ID and evidence in the ledger. If the ledger does not exist, create it using the structure from CodexQB planning-ledger guidance.
-12. Summarize:
-   - files changed;
-   - acceptance criterion addressed;
-   - tests/commands run;
-   - evidence produced;
-   - remaining risks;
-   - ledger entry added or updated.
-13. Continue to the next acceptance criterion or the next READY/READY_WITH_WARNINGS sub-plan instead of stopping.
+If the audit status is `PASS_WITH_WARNINGS` and any open P0/P1 finding exists, do not print the Step 4 handoff. Print a repair prompt targeting those P0/P1 findings first.
 
-Stop only when one of these stop gates is hit: P0/P1 or safety/security finding; failing test or unresolved regression; missing required source file; unclear contradiction between plan, audit, and repo reality; credential/live-environment/human-approval requirement; destructive external mutation requirement; unrelated dirty worktree or merge conflict; validation command unavailable with no equivalent fallback; scope would exceed the selected sub-plan; token/context budget too low to continue safely; or the user explicitly asks to stop. When stopping, write a concise handoff summary with completed slices, changed files, verification commands, blocker text, and the next queue item.
+If the audit status is `PASS_WITH_WARNINGS` with only open or accepted P2/P3 findings, the canonical handoff may be printed, but state that the implementation run must keep those warnings visible.
 
-Do not write secrets, tokens, private keys, or local credentials. Do not paste full logs into the ledger; store concise evidence paths or summaries. Watch token use: do not load every sub-plan into context; use the index/audit to navigate, read only the active sub-plan, and refresh queue status from the audit/index between slices. If context compaction or budget pressure is likely, summarize progress and continue only when the next slice can still be executed safely.
+Before printing the canonical handoff, run the bundled validator when available:
+
+```bash
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+```
+
+For strict execution gates, use:
+
+```bash
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4 --strict
 ```
 
 ## Operator Notes
 
-- Keep each implementation slice small and reversible, but continue through the ordered queue after each verified slice.
+- Keep each implementation slice small and reversible, but continue through the ordered queue after each verified slice when the canonical handoff allows it.
+- For non-trivial slices, use this subagent pattern when available: explorer maps relevant files and risks; tester/verifier identifies validation path; implementer/worker makes the smallest change; reviewer/security reviews the diff and evidence.
+- Only one writer should modify files per slice unless the user explicitly requests parallel branches.
 - Do not batch unrelated sub-plans in one diff.
 - If targeted validation fails and the source is unclear, stop before widening the edit.
 - Do not load every sub-plan into context unless the active slice requires cross-plan repair.
 - Prefer existing repo validation commands over invented commands.
 - Report exact blocker strings and separate code-delivery status from external config or credential blockers.
-- Keep `Planing-Ledger.md` concise; it is a replanning memory artifact, not a transcript dump.
+- Keep `Planner-docs/Planing-Ledger.md` concise; it is a replanning memory artifact, not a transcript dump.
 - Read `references/project-comprehension-methods.md` if the active slice depends on evidence confidence, CQ, TRACE, ARC, or HYP rows.
-- Use `Project-Ontology.md` to preserve vocabulary, entity, workflow, boundary, integration, and invariant consistency for the active slice.
-- Use `Project-Comprehension.md` to preserve evidence/confidence, CQ/TRACE/ARC links, and open hypothesis probes for the active slice.
+- Use `Planner-docs/Project-Ontology.md` to preserve vocabulary, entity, workflow, boundary, integration, and invariant consistency for the active slice.
+- Use `Planner-docs/Project-Comprehension.md` to preserve evidence/confidence, CQ/TRACE/ARC links, and open hypothesis probes for the active slice.
+- Use `references/probe-policy.md` before running local stateful or external/live probes.
 - Do not commit, push, open a PR, deploy, or mutate external systems unless the user explicitly asks in the Step 4 run.

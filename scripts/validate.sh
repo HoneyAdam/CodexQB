@@ -18,6 +18,9 @@ required_files=(
   "plugins/codexqb/skills/codexqb/references/Second-Planner.md"
   "plugins/codexqb/skills/codexqb/references/Third-Planner.md"
   "plugins/codexqb/skills/codexqb/references/Fourth-Planner.md"
+  "plugins/codexqb/skills/codexqb/references/handoffs/run-step2.md"
+  "plugins/codexqb/skills/codexqb/references/handoffs/run-step3.md"
+  "plugins/codexqb/skills/codexqb/references/handoffs/run-step4.md"
   "plugins/codexqb/skills/codexqb/references/repo-aware-intake.md"
   "plugins/codexqb/skills/codexqb/references/workflow-quality.md"
   "plugins/codexqb/skills/codexqb/references/vibecoding-principles.md"
@@ -25,10 +28,13 @@ required_files=(
   "plugins/codexqb/skills/codexqb/references/planning-ledger.md"
   "plugins/codexqb/skills/codexqb/references/project-ontology.md"
   "plugins/codexqb/skills/codexqb/references/project-comprehension-methods.md"
+  "plugins/codexqb/skills/codexqb/references/probe-policy.md"
   "plugins/codexqb/skills/codexqb/references/assessment-and-budget.md"
   "plugins/codexqb/skills/codexqb/references/engineering-principles.md"
+  "evals/run_fixture_corpus_checks.py"
   "evals/run_fixture_checks.py"
   "README.md"
+  "CHANGELOG.md"
   "docs/INSTALLATION.md"
   "docs/USAGE.md"
   "docs/MAINTAINING.md"
@@ -291,4 +297,4 @@ else
   python3 -m unittest discover -s tests -v
 fi
 
-python3 evals/run_fixture_checks.py
+python3 evals/run_fixture_corpus_checks.py

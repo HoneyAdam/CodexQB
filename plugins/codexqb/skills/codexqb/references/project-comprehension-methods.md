@@ -8,6 +8,12 @@ Use this reference when an existing project needs a durable evidence-backed ment
 
 The artifact is optional. Create it for non-trivial existing projects with distributed domain behavior, unclear architecture boundaries, stale plans, repeated replanning, lifecycle complexity, or runtime behavior that is not obvious from static files.
 
+New generated artifacts should include this schema marker near the top:
+
+```text
+codexqb_schema_version: 2
+```
+
 ## Question-Driven Comprehension
 
 Start with 8-15 question-driven comprehension prompts. Use IDs such as `CQ-01`.
@@ -37,14 +43,29 @@ Each hypothesis should include:
 
 Do not treat `tentative` or `probable` claims as implementation facts. Step 2 should convert them into validation work, and Step 4 should verify them before code changes.
 
+If no unresolved hypotheses remain, write:
+
+```text
+NO_UNRESOLVED_HYPOTHESES: <evidence-based explanation>
+```
+
 ## Evidence Register
 
 Use an Evidence Register table:
 
 ```markdown
-| Evidence ID | Claim | Evidence source | Evidence type | Confidence | Freshness | Contradiction | Next probe |
-|---|---|---|---|---|---|---|---|
+| Evidence ID | Claim Type | Claim | Evidence source | Evidence type | Confidence | Freshness | Contradiction | Next probe |
+|---|---|---|---|---|---|---|---|---|
 ```
+
+Allowed claim types:
+
+- `structural`
+- `behavioral`
+- `historical`
+- `configuration`
+- `user_intent`
+- `architectural`
 
 Allowed evidence types:
 
@@ -56,7 +77,16 @@ Allowed evidence types:
 - `documentation`
 - `user-confirmed`
 
-Prefer `confirmed` only when a claim has executable evidence or two independent evidence types.
+Confirmed evidence rules:
+
+- `structural`: one direct `source` locator can be enough.
+- `configuration`: one direct `configuration` locator can be enough.
+- `behavioral`: use `test`/`runtime` evidence, or at least two independent evidence types with different locators.
+- `historical`: requires `history` evidence.
+- `user_intent`: requires `user-confirmed` evidence.
+- `architectural`: requires source/configuration relation evidence, or multiple supporting evidence types with different locators.
+
+Independent evidence must use different evidence types and different locators. Two documentation rows alone are not independent proof.
 
 ## Domain-to-Code Trace Map
 
@@ -67,7 +97,14 @@ Use a Domain-to-Code Trace Map to link user/product language to implementation a
 |---|---|---|---|---|---|---|---|
 ```
 
-Every major concept should have code/test anchors or an explicit unknown/gap. Missing anchors are planning inputs, not facts to smooth over.
+Every major concept should have code/test anchors or an explicit marker. Missing anchors are planning inputs, not facts to smooth over.
+
+Allowed explicit markers:
+
+```text
+NOT_APPLICABLE: <reason>
+UNKNOWN: <reason and next probe>
+```
 
 ## Architecture Reflexion
 
@@ -87,6 +124,18 @@ Allowed statuses:
 - `uncertain`
 
 Use `ARC-*` IDs in Step 2/3/4 when architecture drift affects planning or implementation.
+
+If architecture reflexion is not applicable, write:
+
+```text
+NOT_APPLICABLE: <reason>
+```
+
+If the architecture relation is unknown, write:
+
+```text
+UNKNOWN: <reason and next probe>
+```
 
 ## Semantic, Behavioral, And Evolutionary Evidence
 

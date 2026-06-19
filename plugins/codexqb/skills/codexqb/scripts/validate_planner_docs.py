@@ -94,6 +94,9 @@ LEDGER_V2_HEADINGS = [
 
 LEDGER_HEADINGS = LEDGER_V2_HEADINGS
 
+ARTIFACT_SCHEMA_VERSION = 2
+HANDOFF_CONTRACT_VERSION = 1
+
 INDEX_HEADINGS = [
     "# Sub-Planing Index",
     "## 1. Purpose",
@@ -210,8 +213,63 @@ ALLOWED_EVIDENCE_TYPES = {
     "user-confirmed",
 }
 ALLOWED_CONFIDENCE_VALUES = {"confirmed", "probable", "tentative", "contradicted"}
+ALLOWED_CLAIM_TYPES = {
+    "structural",
+    "behavioral",
+    "historical",
+    "configuration",
+    "user_intent",
+    "architectural",
+}
 ALLOWED_ARCHITECTURE_STATUSES = {"convergent", "divergent", "absent", "unmodeled", "uncertain"}
 ALLOWED_ONTOLOGY_QUESTION_STATUSES = {"answered", "partially_answered", "open", "contradicted"}
+ALLOWED_LEDGER_STATUSES = {
+    "planned",
+    "ready",
+    "ready_with_warnings",
+    "in_progress",
+    "implemented",
+    "verified",
+    "blocked",
+    "superseded",
+}
+ALLOWED_FINDING_STATUSES = {"open", "accepted", "resolved", "not_applicable"}
+OPEN_FINDING_STATUSES = {"open", "accepted"}
+ALLOWED_READINESS_STATUSES = {
+    "READY",
+    "READY_WITH_WARNINGS",
+    "NEEDS_REPAIR",
+    "BLOCKED",
+    "COMPLETE",
+    "SUPERSEDED",
+    "DEFERRED",
+}
+READY_READINESS_STATUSES = {"READY", "READY_WITH_WARNINGS"}
+COMPLETED_READINESS_STATUSES = {"COMPLETE", "SUPERSEDED", "DEFERRED"}
+ALLOWED_DEPENDENCY_STATES = {"satisfied", "independent", "blocked", "unknown"}
+READINESS_HEADERS = [
+    "Sub-Plan Path",
+    "Status",
+    "Finding IDs",
+    "Dependency State",
+    "Reason",
+    "Required Repair",
+]
+FINDING_HEADERS = ["Finding ID", "Severity", "Status", "Affected Files", "Issue", "Required Action"]
+LEDGER_V2_STATUS_HEADERS = [
+    "Sub-plan Path",
+    "Status",
+    "Snapshot ID",
+    "Run ID",
+    "Validation Evidence",
+    "Blocker",
+    "Next Action",
+    "Superseded By",
+    "Updated At",
+]
+NOT_APPLICABLE_PREFIX = "NOT_APPLICABLE:"
+NO_UNRESOLVED_HYPOTHESES_PREFIX = "NO_UNRESOLVED_HYPOTHESES:"
+UNKNOWN_PREFIX = "UNKNOWN:"
 UNKNOWN_CELL_VALUES = {"", "-", "n/a", "na", "none", "unknown", "unclear", "not found", "not evidenced"}
 
 
@@ -360,12 +418,113 @@ def markdown_tables(section: str) -> list[tuple[list[str], list[dict[str, str]]]
     return tables
 
 
+def canonical_header(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.strip().lower())
+
+
+def headers_match(headers: list[str], required: list[str]) -> bool:
+    return [canonical_header(item) for item in headers[: len(required)]] == [
+        canonical_header(item) for item in required
+    ]
+
+
+def row_value(row: dict[str, str], *names: str) -> str:
+    canonical = {canonical_header(key): value for key, value in row.items()}
+    for name in names:
+        value = canonical.get(canonical_header(name))
+        if value is not None:
+            return value.strip()
+    return ""
+
+
+def split_cell_values(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    items = re.split(r"[,;/]+|\band\b", value, flags=re.IGNORECASE)
+    return [item.strip().lower() for item in items if item.strip()]
+
+
 def normalized_cell(value: str | None) -> str:
     return (value or "").strip().strip("`").lower()
 
 
 def cell_has_evidence(value: str | None) -> bool:
     return normalized_cell(value) not in UNKNOWN_CELL_VALUES
+
+
+def markdown_link_target(value: str) -> str:
+    match = re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", value.strip())
+    return match.group(1).strip() if match else value.strip()
+
+
+def resolve_within_root(root: Path, rel_path: str) -> Path | None:
+    target_text = markdown_link_target(rel_path)
+    target = Path(target_text)
+    if target.is_absolute() or ".." in target.parts:
+        return None
+    candidate = (root / target).resolve(strict=False)
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
+def safe_subplan_path(state: ValidationState, value: str) -> tuple[Path | None, str | None]:
+    target_text = markdown_link_target(value)
+    target = Path(target_text)
+    if target.is_absolute() or ".." in target.parts:
+        return None, "unsafe"
+    if len(target.parts) != 3 or target.parts[0] != "Planner-docs":
+        return None, "unsafe"
+    if not FOLDER_RE.match(target.parts[1]) or not SUBPLAN_RE.match(target.name):
+        return None, "unsafe"
+    resolved = resolve_within_root(state.root, target_text)
+    if resolved is None:
+        return None, "unsafe"
+    if not resolved.exists():
+        return resolved, "missing"
+    return resolved, None
+
+
+def section_has_table(section: str) -> bool:
+    return any(rows for _, rows in markdown_tables(section))
+
+
+def marker_reason(value: str, prefix: str) -> str | None:
+    for line in value.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped[len(prefix) :].strip()
+    return None
+
+
+def valid_marker_reason(value: str, prefix: str) -> bool:
+    reason = marker_reason(value, prefix)
+    return reason is not None and cell_has_evidence(reason) and len(reason) >= 8
+
+
+def unknown_marker_has_next_probe(value: str) -> bool:
+    reason = marker_reason(value, UNKNOWN_PREFIX)
+    if reason is None or not cell_has_evidence(reason):
+        return False
+    return "next probe" in reason.lower() and len(reason) >= 12
+
+
+def evidence_is_direct_for_claim(claim_type: str, evidence_type: str, evidence_source: str) -> bool:
+    if not cell_has_evidence(evidence_source):
+        return False
+    if claim_type == "structural":
+        return evidence_type == "source"
+    if claim_type == "configuration":
+        return evidence_type == "configuration"
+    return False
+
+
+def has_independent_evidence(evidence_type: str, evidence_source: str) -> bool:
+    evidence_types = {item for item in split_cell_values(evidence_type) if item in ALLOWED_EVIDENCE_TYPES}
+    locators = {item for item in split_cell_values(evidence_source) if cell_has_evidence(item)}
+    return len(evidence_types) >= 2 and len(locators) >= 2
 
 
 def extract_main_phase_numbers(text: str) -> list[int]:
@@ -525,21 +684,60 @@ def validate_optional_comprehension_doc(state: ValidationState) -> None:
 
     validate_heading_order(text, COMPREHENSION_HEADINGS, path, state)
 
+    question_section = markdown_section(text, "## 1. Understanding Goals and Competency Questions")
+    if "CQ-" not in question_section and "question id" not in question_section.lower():
+        state.warning(f"comprehension_missing_question={state.rel(path)}")
+
     evidence_section = markdown_section(text, "## 2. Evidence Register and Confidence")
+    evidence_rows: list[dict[str, str]] = []
     for _, rows in markdown_tables(evidence_section):
+        evidence_rows.extend(rows)
         for row in rows:
             evidence_id = row.get("Evidence ID") or row.get("ID") or "unknown"
-            evidence_type = normalized_cell(row.get("Evidence type"))
+            evidence_type = normalized_cell(row_value(row, "Evidence type", "Evidence Type"))
+            evidence_source = row_value(row, "Evidence source", "Evidence Source")
             confidence = normalized_cell(row.get("Confidence"))
+            claim_type = normalized_cell(row_value(row, "Claim Type", "Type")) or "structural"
+            if claim_type not in ALLOWED_CLAIM_TYPES:
+                state.warning(f"invalid_claim_type={state.rel(path)}::{claim_type}")
             if evidence_type and evidence_type not in ALLOWED_EVIDENCE_TYPES:
                 state.warning(f"invalid_evidence_type={state.rel(path)}::{evidence_type}")
             if confidence and confidence not in ALLOWED_CONFIDENCE_VALUES:
                 state.warning(f"invalid_confidence={state.rel(path)}::{confidence}")
-            if confidence == "confirmed" and not cell_has_evidence(row.get("Evidence source")):
+            if confidence == "confirmed" and not cell_has_evidence(evidence_source):
                 state.warning(f"high_confidence_without_evidence={state.rel(path)}::{evidence_id}")
+            if confidence == "confirmed" and cell_has_evidence(evidence_source):
+                if claim_type == "behavioral" and evidence_type not in {"test", "runtime"}:
+                    if not has_independent_evidence(evidence_type, evidence_source):
+                        state.warning(
+                            f"confirmed_behavioral_claim_needs_test_or_runtime={state.rel(path)}::{evidence_id}"
+                        )
+                elif claim_type == "historical" and evidence_type != "history":
+                    state.warning(f"historical_claim_requires_history_evidence={state.rel(path)}::{evidence_id}")
+                elif claim_type == "user_intent" and evidence_type != "user-confirmed":
+                    state.warning(f"user_intent_claim_requires_user_confirmed_evidence={state.rel(path)}::{evidence_id}")
+                elif claim_type == "architectural":
+                    if evidence_type not in {"source", "configuration"} and not has_independent_evidence(
+                        evidence_type, evidence_source
+                    ):
+                        state.warning(f"architectural_claim_needs_relation_evidence={state.rel(path)}::{evidence_id}")
+                elif claim_type in {"structural", "configuration"}:
+                    if not evidence_is_direct_for_claim(claim_type, evidence_type, evidence_source):
+                        if not has_independent_evidence(evidence_type, evidence_source):
+                            state.warning(f"confirmed_{claim_type}_claim_needs_direct_evidence={state.rel(path)}::{evidence_id}")
+    if not evidence_rows:
+        state.warning(f"comprehension_missing_evidence_row={state.rel(path)}")
 
     trace_section = markdown_section(text, "## 3. Domain-to-Code Trace Map")
+    trace_has_rows = False
+    if marker_reason(trace_section, NOT_APPLICABLE_PREFIX) is not None and not valid_marker_reason(
+        trace_section, NOT_APPLICABLE_PREFIX
+    ):
+        state.warning(f"invalid_not_applicable_marker={state.rel(path)}::## 3. Domain-to-Code Trace Map")
+    if marker_reason(trace_section, UNKNOWN_PREFIX) is not None and not unknown_marker_has_next_probe(trace_section):
+        state.warning(f"unknown_marker_missing_next_probe={state.rel(path)}::## 3. Domain-to-Code Trace Map")
     for _, rows in markdown_tables(trace_section):
+        trace_has_rows = trace_has_rows or bool(rows)
         for row in rows:
             trace_id = row.get("Trace ID") or row.get("ID") or "unknown"
             confidence = normalized_cell(row.get("Confidence"))
@@ -549,16 +747,44 @@ def validate_optional_comprehension_doc(state: ValidationState) -> None:
             has_test_anchor = cell_has_evidence(row.get("Tests"))
             if not has_code_anchor and not has_test_anchor:
                 state.warning(f"trace_missing_code_or_test_anchor={state.rel(path)}::{trace_id}")
+    if not trace_has_rows and not valid_marker_reason(trace_section, NOT_APPLICABLE_PREFIX):
+        state.warning(f"comprehension_missing_trace={state.rel(path)}")
 
     architecture_section = markdown_section(text, "## 5. Intended vs Implemented Architecture")
+    architecture_has_rows = False
+    if marker_reason(architecture_section, NOT_APPLICABLE_PREFIX) is not None and not valid_marker_reason(
+        architecture_section, NOT_APPLICABLE_PREFIX
+    ):
+        state.warning(f"invalid_not_applicable_marker={state.rel(path)}::## 5. Intended vs Implemented Architecture")
+    if marker_reason(architecture_section, UNKNOWN_PREFIX) is not None and not unknown_marker_has_next_probe(
+        architecture_section
+    ):
+        state.warning(
+            f"unknown_marker_missing_next_probe={state.rel(path)}::## 5. Intended vs Implemented Architecture"
+        )
     for _, rows in markdown_tables(architecture_section):
+        architecture_has_rows = architecture_has_rows or bool(rows)
         for row in rows:
             status = normalized_cell(row.get("Status"))
             if status and status not in ALLOWED_ARCHITECTURE_STATUSES:
                 state.warning(f"invalid_architecture_status={state.rel(path)}::{status}")
+    if not architecture_has_rows and not valid_marker_reason(architecture_section, NOT_APPLICABLE_PREFIX):
+        state.warning(f"comprehension_missing_architecture={state.rel(path)}")
 
     hypothesis_section = markdown_section(text, "## 8. Open Hypotheses and Validation Probes")
+    hypothesis_has_rows = False
+    if marker_reason(hypothesis_section, NO_UNRESOLVED_HYPOTHESES_PREFIX) is not None and not valid_marker_reason(
+        hypothesis_section, NO_UNRESOLVED_HYPOTHESES_PREFIX
+    ):
+        state.warning(f"invalid_no_unresolved_hypotheses_marker={state.rel(path)}")
+    if marker_reason(hypothesis_section, UNKNOWN_PREFIX) is not None and not unknown_marker_has_next_probe(
+        hypothesis_section
+    ):
+        state.warning(
+            f"unknown_marker_missing_next_probe={state.rel(path)}::## 8. Open Hypotheses and Validation Probes"
+        )
     for _, rows in markdown_tables(hypothesis_section):
+        hypothesis_has_rows = hypothesis_has_rows or bool(rows)
         for row in rows:
             hypothesis_id = row.get("Hypothesis ID") or row.get("ID") or "unknown"
             confidence = normalized_cell(row.get("Confidence"))
@@ -566,6 +792,57 @@ def validate_optional_comprehension_doc(state: ValidationState) -> None:
                 state.warning(f"invalid_confidence={state.rel(path)}::{confidence}")
             if not cell_has_evidence(row.get("Next probe")):
                 state.warning(f"open_hypothesis_missing_next_probe={state.rel(path)}::{hypothesis_id}")
+    if not hypothesis_has_rows and not valid_marker_reason(hypothesis_section, NO_UNRESOLVED_HYPOTHESES_PREFIX):
+        state.warning(f"comprehension_missing_hypothesis_or_marker={state.rel(path)}")
+
+
+def validate_ledger_v2_rows(text: str, path: Path, state: ValidationState) -> None:
+    section = markdown_section(text, "## 4. Sub-Plan Status Matrix")
+    found_table = False
+    active_rows: dict[str, str] = {}
+    for headers, rows in markdown_tables(section):
+        if not headers_match(headers, LEDGER_V2_STATUS_HEADERS):
+            continue
+        found_table = True
+        for row in rows:
+            subplan = row_value(row, "Sub-plan Path", "Sub-plan", "Sub-Plan Path")
+            status = normalized_cell(row_value(row, "Status"))
+            run_id = row_value(row, "Run ID")
+            validation = row_value(row, "Validation Evidence", "Validation evidence")
+            blocker = row_value(row, "Blocker")
+            next_action = row_value(row, "Next Action")
+            superseded_by = row_value(row, "Superseded By")
+
+            if status not in ALLOWED_LEDGER_STATUSES:
+                state.warning(f"invalid_ledger_status={state.rel(path)}::{status or 'missing'}")
+                continue
+            if subplan:
+                resolved, reason = safe_subplan_path(state, subplan)
+                if reason == "unsafe":
+                    state.warning(f"unsafe_ledger_subplan_path={state.rel(path)}::{subplan}")
+                elif reason == "missing":
+                    state.warning(f"missing_ledger_subplan={state.rel(path)}::{subplan}")
+                key = state.rel(resolved) if resolved is not None else subplan
+                previous = active_rows.get(key)
+                if previous and previous != status and status not in {"superseded"} and previous not in {"superseded"}:
+                    state.warning(f"conflicting_ledger_status={state.rel(path)}::{key}::{previous},{status}")
+                active_rows[key] = status
+
+            if status == "in_progress" and not cell_has_evidence(run_id):
+                state.warning(f"ledger_in_progress_missing_run_id={state.rel(path)}::{subplan or 'unknown'}")
+            if status == "implemented" and not cell_has_evidence(validation):
+                state.warning(f"ledger_implemented_missing_validation={state.rel(path)}::{subplan or 'unknown'}")
+            if status == "verified" and not cell_has_evidence(validation):
+                state.warning(f"ledger_verified_missing_validation={state.rel(path)}::{subplan or 'unknown'}")
+            if status == "blocked":
+                if not cell_has_evidence(blocker):
+                    state.warning(f"ledger_blocked_missing_blocker={state.rel(path)}::{subplan or 'unknown'}")
+                if not cell_has_evidence(next_action):
+                    state.warning(f"ledger_blocked_missing_next_action={state.rel(path)}::{subplan or 'unknown'}")
+            if status == "superseded" and not cell_has_evidence(superseded_by):
+                state.warning(f"ledger_superseded_missing_target={state.rel(path)}::{subplan or 'unknown'}")
+    if not found_table:
+        state.warning(f"ledger_v2_status_matrix_missing_table={state.rel(path)}")
 
 
 def validate_optional_continuity_docs(state: ValidationState) -> None:
@@ -591,9 +868,14 @@ def validate_optional_continuity_docs(state: ValidationState) -> None:
             if has_v2:
                 state.metrics["ledger_schema"] = "v2"
                 validate_heading_order(text, LEDGER_V2_HEADINGS, ledger_path, state)
+                validate_ledger_v2_rows(text, ledger_path, state)
             elif has_legacy:
                 state.metrics["ledger_schema"] = "legacy_v1"
                 validate_heading_order(text, LEDGER_LEGACY_HEADINGS, ledger_path, state)
+                if state.mode == "step4" and state.strict:
+                    state.error("legacy_ledger_requires_v2_for_step4=Planner-docs/Planing-Ledger.md")
+                else:
+                    state.warning("legacy_ledger_schema=Planner-docs/Planing-Ledger.md")
             else:
                 state.metrics["ledger_schema"] = "unknown"
                 validate_heading_order(text, LEDGER_V2_HEADINGS, ledger_path, state)
@@ -771,13 +1053,138 @@ def count_audit_severities(text: str) -> dict[str, int]:
     return counts
 
 
-def validate_step4_readiness(state: ValidationState) -> None:
-    validate_step3_preflight(state)
+def parse_audit_findings(text: str, path: Path, state: ValidationState) -> list[dict[str, str]]:
+    fix_section = markdown_section(text, "## 13. Priority Fix List")
+    findings: list[dict[str, str]] = []
+    for headers, rows in markdown_tables(fix_section):
+        if not headers_match(headers, FINDING_HEADERS):
+            continue
+        for row in rows:
+            finding_id = row_value(row, "Finding ID")
+            severity = row_value(row, "Severity").upper()
+            status = normalized_cell(row_value(row, "Status")) or "open"
+            if not finding_id.startswith("AUDIT-FIX-"):
+                continue
+            if severity not in {"P0", "P1", "P2", "P3"}:
+                state.error(f"invalid_finding_severity={state.rel(path)}::{finding_id}::{severity or 'missing'}")
+            if status not in ALLOWED_FINDING_STATUSES:
+                state.error(f"invalid_finding_status={state.rel(path)}::{finding_id}::{status or 'missing'}")
+            findings.append(
+                {
+                    "id": finding_id,
+                    "severity": severity,
+                    "status": status,
+                    "affected_files": row_value(row, "Affected Files"),
+                }
+            )
+    if findings:
+        return findings
+
+    for finding_id, severity in AUDIT_FIX_RE.findall(fix_section):
+        findings.append({"id": finding_id, "severity": severity, "status": "open", "affected_files": ""})
+    return findings
+
+
+def active_severity_counts(findings: list[dict[str, str]]) -> dict[str, int]:
+    counts = {severity: 0 for severity in ("P0", "P1", "P2", "P3")}
+    for finding in findings:
+        severity = finding.get("severity", "")
+        status = finding.get("status", "")
+        if severity in counts and status in OPEN_FINDING_STATUSES:
+            counts[severity] += 1
+    return counts
+
+
+def parse_readiness_rows(text: str, path: Path, state: ValidationState) -> list[dict[str, str]]:
+    section = markdown_section(text, "## 12. Step 4 Readiness Assessment")
+    for headers, rows in markdown_tables(section):
+        if headers_match(headers, READINESS_HEADERS):
+            return rows
+    state.error(f"audit_readiness_table_missing={state.rel(path)}")
+    return []
+
+
+def validate_audit_section_depth(text: str, path: Path, state: ValidationState) -> None:
+    for heading in AUDIT_HEADINGS:
+        if heading == "# Sub-Planing Audit":
+            continue
+        body = markdown_section(text, heading)
+        if len(body) < 20:
+            state.error(f"empty_or_too_short_audit_section={state.rel(path)}::{heading}")
+
+
+def validate_readiness_rows(
+    rows: list[dict[str, str]],
+    path: Path,
+    state: ValidationState,
+    findings: list[dict[str, str]],
+) -> None:
+    by_id = {finding.get("id", ""): finding for finding in findings}
+    seen: dict[str, str] = {}
+    ready_count = 0
+    terminal_count = 0
+
+    if not rows:
+        state.metrics["execution_queue_state"] = "BLOCKED"
+        return
+
+    for row in rows:
+        subplan = row_value(row, "Sub-Plan Path", "Sub-plan Path", "Subplan Path")
+        status = row_value(row, "Status").upper()
+        finding_ids = row_value(row, "Finding IDs", "Finding ID")
+        dependency = normalized_cell(row_value(row, "Dependency State"))
+
+        if status not in ALLOWED_READINESS_STATUSES:
+            state.error(f"invalid_readiness_status={state.rel(path)}::{status or 'missing'}")
+        if dependency not in ALLOWED_DEPENDENCY_STATES:
+            state.error(f"invalid_dependency_state={state.rel(path)}::{dependency or 'missing'}")
+
+        resolved, reason = safe_subplan_path(state, subplan)
+        if reason == "unsafe":
+            state.error(f"unsafe_subplan_path={state.rel(path)}::{subplan}")
+            key = subplan
+        elif reason == "missing":
+            state.error(f"missing_readiness_subplan={subplan}")
+            key = subplan
+        else:
+            key = state.rel(resolved) if resolved is not None else subplan
+
+        previous = seen.get(key)
+        if previous and previous != status:
+            state.error(f"conflicting_readiness_status={key}::{previous},{status}")
+        seen[key] = status
+
+        if status in READY_READINESS_STATUSES:
+            ready_count += 1
+            if dependency not in {"satisfied", "independent"}:
+                state.error(f"ready_row_has_blocked_dependency={key}::{dependency}")
+        elif status in COMPLETED_READINESS_STATUSES:
+            terminal_count += 1
+
+        ids = [item.strip() for item in re.split(r"[,; ]+", finding_ids) if item.strip() and item.strip().lower() != "none"]
+        if status == "READY_WITH_WARNINGS":
+            for finding_id in ids:
+                finding = by_id.get(finding_id)
+                if finding and finding.get("status") in OPEN_FINDING_STATUSES and finding.get("severity") in {"P0", "P1"}:
+                    state.error(f"ready_with_warnings_references_blocking_finding={key}::{finding_id}")
+
+    if ready_count:
+        state.metrics["execution_queue_state"] = "READY"
+    elif terminal_count == len(rows):
+        state.metrics["execution_queue_state"] = "NO_ACTION_REQUIRED"
+    else:
+        state.metrics["execution_queue_state"] = "BLOCKED"
+
+
+def validate_audit_required(state: ValidationState, require_readiness: bool) -> None:
     audit_path = state.planner_docs / "Sub-Planing-Audit.md"
     text = read_text(audit_path, state)
     if text is None:
         state.metrics["audit_status"] = "missing"
         return
+
+    validate_heading_order(text, AUDIT_HEADINGS, audit_path, state)
+    validate_audit_section_depth(text, audit_path, state)
 
     status = extract_audit_status(text)
     state.metrics["audit_status"] = status or "unknown"
@@ -786,17 +1193,36 @@ def validate_step4_readiness(state: ValidationState) -> None:
     elif status == "BLOCKED":
         state.error("step4_blocked_by_audit_status=BLOCKED")
 
-    severity_counts = count_audit_severities(text)
+    findings = parse_audit_findings(text, audit_path, state)
+    severity_counts = active_severity_counts(findings)
     for severity, count in severity_counts.items():
         state.metrics[f"{severity.lower()}_findings"] = count
     if severity_counts["P0"] or severity_counts["P1"]:
         state.error(
             f"step4_blocked_by_high_severity_findings=P0:{severity_counts['P0']},P1:{severity_counts['P1']}"
         )
+    if status == "PASS" and (severity_counts["P2"] or severity_counts["P3"]):
+        state.error(f"audit_status_inconsistent_with_open_warnings=PASS::P2:{severity_counts['P2']},P3:{severity_counts['P3']}")
     if status == "PASS_WITH_WARNINGS" and (severity_counts["P2"] or severity_counts["P3"]):
         state.warning(
             f"step4_has_nonblocking_warnings=P2:{severity_counts['P2']},P3:{severity_counts['P3']}"
         )
+    elif status == "PASS_WITH_WARNINGS" and not (severity_counts["P0"] or severity_counts["P1"]):
+        state.warning("audit_status_has_no_open_warnings=PASS_WITH_WARNINGS")
+
+    if require_readiness:
+        rows = parse_readiness_rows(text, audit_path, state)
+        validate_readiness_rows(rows, audit_path, state, findings)
+
+
+def validate_step3_post_audit(state: ValidationState) -> None:
+    validate_step3_preflight(state)
+    validate_audit_required(state, require_readiness=False)
+
+
+def validate_step4_readiness(state: ValidationState) -> None:
+    validate_step3_preflight(state)
+    validate_audit_required(state, require_readiness=True)
 
 
 def scan_secrets(state: ValidationState) -> None:
@@ -820,6 +1246,8 @@ def scan_secrets(state: ValidationState) -> None:
 def finalize(state: ValidationState) -> int:
     if state.strict:
         for warning in state.warnings:
+            if warning.startswith("legacy_ledger_schema=") and state.mode != "step4":
+                continue
             state.errors.append(f"strict_warning={warning}")
 
     state.metrics["warning_count"] = len(state.warnings)
@@ -827,7 +1255,9 @@ def finalize(state: ValidationState) -> int:
 
     status = "failed" if state.errors else "passed"
     print(f"planner_docs_validation={status}")
+    print(f"validation_status={status}")
     print(f"mode={state.mode}")
+    print(f"validation_mode={state.mode}")
     print(f"root={state.root}")
     for key in sorted(state.metrics):
         print(f"{key}={state.metrics[key]}")
@@ -835,6 +1265,8 @@ def finalize(state: ValidationState) -> int:
         print(f"warning={warning}")
     for error in sorted(state.errors):
         print(f"error={error}")
+    if any(error.startswith(("unknown_mode=", "read_error=", "non_utf8_file=")) for error in state.errors):
+        return 2
     return 1 if state.errors else 0
 
 
@@ -843,7 +1275,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--root", default=".", help="Project root containing Planner-docs/; default: current directory.")
     parser.add_argument(
         "--mode",
-        choices=("step1", "autopsy", "step2", "step3", "step4", "all"),
+        choices=("step1", "autopsy", "step2", "step3-preflight", "step3", "step4", "all"),
         default="all",
         help="Validation scope.",
     )
@@ -862,8 +1294,12 @@ def run_validation(root: Path, mode: str, strict: bool = False) -> int:
         validate_optional_continuity_docs(state)
     elif mode == "step2":
         validate_step2(state)
-    elif mode in {"step3", "all"}:
+    elif mode == "step3-preflight":
         validate_step3_preflight(state)
+    elif mode == "step3":
+        validate_step3_post_audit(state)
+    elif mode == "all":
+        validate_step3_post_audit(state)
     elif mode == "step4":
         validate_step4_readiness(state)
     else:

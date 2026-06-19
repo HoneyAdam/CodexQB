@@ -8,7 +8,15 @@
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
-The current 0.2.0 release adds evidence-backed project comprehension while keeping repository marketplace distribution hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture eval checks, and tracked-file sanitized exports through `make export-sanitized`.
+The current 0.2.1 release adds gate-integrity compatibility on top of evidence-backed project comprehension while keeping repository marketplace distribution hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and tracked-file sanitized exports through `make export-sanitized`.
+
+Release contracts:
+
+```text
+plugin_version: 0.2.1
+artifact_schema_version: 2
+handoff_contract_version: 1
+```
 
 ## Why CodexQB
 
@@ -36,7 +44,7 @@ When a project is large or ambiguous, CodexQB may recommend or explicitly reques
 | 3. QA Audit | Audits coverage, structure, quality, readiness, and governance without repairing files. | `Planner-docs/Sub-Planing-Audit.md` |
 | 4. Gated Handoff | Prints a copy-ready implementation Goal prompt when Step 3 passes and tracks implementation summaries through the optional ledger. | Text-only Goal mode prompt, optional `Planner-docs/Planing-Ledger.md` updates |
 
-Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only Goal mode prompts so the user stays in control of long-running work. The Goal handoffs include a Goal Run Contract: Outcome, Inputs, Boundaries, Source precedence, Validation gates, Stop gates, Context budget, and Subagent policy.
+Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only Goal mode prompts so the user stays in control of long-running work. Canonical Goal handoffs live under `references/handoffs/` and include the Goal Run Contract, resume/recovery protocol, validation gates, stop gates, context budget, and subagent policy.
 
 ## Quick Start
 
@@ -102,13 +110,25 @@ The skill includes a read-only validator:
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode autopsy --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step2 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3-preflight --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3 --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step4
 ```
 
+Validator modes:
+
+| Mode | Purpose |
+| --- | --- |
+| `step1` | Validate `Main-Planing.md`. |
+| `autopsy` | Require `Autopsy.md` and validate optional ontology/comprehension/ledger continuity docs. |
+| `step2` | Validate index, phase folders, sub-plans, and optional continuity docs. |
+| `step3-preflight` | Validate Step 2 artifacts before `Sub-Planing-Audit.md` exists. |
+| `step3` | Require and validate `Sub-Planing-Audit.md` after Step 3 writes it. |
+| `step4` | Enforce semantic readiness, finding status, NO_ACTION_REQUIRED, and Ledger v2 strict execution gates. |
+
 These commands are for manual validation from a CodexQB repository checkout. When running through an installed plugin, CodexQB should use the bundled validator path exposed by the active skill; if that path is unavailable, it should perform equivalent all-file validation and report the fallback clearly.
 
-The validator checks required sections, optional ontology/ledger headings, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. P0/P1 audit findings block the implementation handoff.
+The validator checks required sections, optional ontology/ledger/comprehension headings and content, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. Open P0/P1 audit findings block the implementation handoff. Open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`; resolved/not_applicable P2/P3 findings do not keep the audit in warning state forever.
 
 Repository maintainers can run the dependency-free repo check with:
 
@@ -116,7 +136,7 @@ Repository maintainers can run the dependency-free repo check with:
 make check
 ```
 
-`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
+`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, the fixture corpus, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
 
 On a normal local development machine, `make check` is expected to finish well under 30 seconds. A timeout or hang in validator tests is a release blocker, not a warning to ignore.
 
@@ -169,12 +189,18 @@ plugins/codexqb/
       Second-Planner.md
       Third-Planner.md
       Fourth-Planner.md
+      handoffs/
+        run-step2.md
+        run-step3.md
+        run-step4.md
       repo-aware-intake.md
       workflow-quality.md
       vibecoding-principles.md
       subagent-playbook.md
       planning-ledger.md
       project-ontology.md
+      project-comprehension-methods.md
+      probe-policy.md
       assessment-and-budget.md
       engineering-principles.md
 docs/
@@ -182,9 +208,12 @@ docs/
   MAINTAINING.md
   USAGE.md
   assets/codexqb-workflow.png
+evals/
+  run_fixture_corpus_checks.py
 scripts/
   validate.sh
 tests/
+CHANGELOG.md
 LICENSE
 README.md
 ```

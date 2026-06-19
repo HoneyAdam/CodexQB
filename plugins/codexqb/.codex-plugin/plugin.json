@@ -1,7 +1,7 @@
 {
   "name": "codexqb",
-  "version": "0.2.0",
-  "description": "CodexQB packages evidence-backed repo planning with project comprehension, autopsy, ontology, ledger continuity, traceability, QA audit, and gated handoff.",
+  "version": "0.2.1",
+  "description": "CodexQB packages evidence-backed repo planning with project comprehension, autopsy, ontology, ledger continuity, traceability, gate integrity, QA audit, and gated handoff.",
   "author": {
     "name": "Alican Kiraz",
     "email": "167613664+alicankiraz1@users.noreply.github.com",
@@ -19,6 +19,7 @@
     "vibecoding",
     "ontology",
     "ledger",
+    "gate-integrity",
     "project-management",
     "skills",
     "goal-mode"

@@ -144,22 +144,22 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn("equivalent all-file validation", text, path.name)
 
     def test_fourth_planner_external_skills_are_optional(self) -> None:
-        fourth = (SKILL_ROOT / "references/Fourth-Planner.md").read_text(encoding="utf-8")
+        fourth = (SKILL_ROOT / "references/handoffs/run-step4.md").read_text(encoding="utf-8")
         self.assertIn("if installed/available", fourth.lower())
         self.assertIn("superpowers:executing-plans", fourth)
         self.assertIn("codex-security", fourth)
         self.assertIn("continue using the audit", fourth)
 
     def test_fourth_planner_runs_queue_continuously_with_stop_gates(self) -> None:
-        fourth = (SKILL_ROOT / "references/Fourth-Planner.md").read_text(encoding="utf-8")
+        fourth = (SKILL_ROOT / "references/handoffs/run-step4.md").read_text(encoding="utf-8")
         self.assertIn("Build an ordered implementation queue", fourth)
-        self.assertIn("Execute the queue continuously", fourth)
+        self.assertIn("Default Goal batch", fourth)
         self.assertIn("instead of stopping", fourth)
         self.assertIn("Stop only when one of these stop gates is hit", fourth)
         self.assertIn("token/context budget too low to continue safely", fourth)
 
     def test_fourth_planner_has_mechanical_per_slice_loop(self) -> None:
-        fourth = (SKILL_ROOT / "references/Fourth-Planner.md").read_text(encoding="utf-8")
+        fourth = (SKILL_ROOT / "references/handoffs/run-step4.md").read_text(encoding="utf-8")
         for phrase in [
             "For each implementation slice:",
             "Name the active phase/sub-plan",
@@ -195,9 +195,9 @@ class SkillContentTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, validate_script)
 
-    def test_plugin_metadata_reflects_020_comprehension_release(self) -> None:
+    def test_plugin_metadata_reflects_021_gate_integrity_release(self) -> None:
         plugin_text = (REPO_ROOT / "plugins/codexqb/.codex-plugin/plugin.json").read_text(encoding="utf-8")
-        self.assertIn('"version": "0.2.0"', plugin_text)
+        self.assertIn('"version": "0.2.1"', plugin_text)
         for phrase in [
             "project comprehension",
             "evidence",
@@ -205,6 +205,7 @@ class SkillContentTests(unittest.TestCase):
             "vibecoding",
             "ontology",
             "ledger",
+            "gate",
         ]:
             self.assertIn(phrase, plugin_text.lower())
 
@@ -263,17 +264,37 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn("Project-Comprehension.md", text, path.name)
             self.assertIn("project-comprehension-methods.md", text, path.name)
 
-    def test_goal_run_contract_is_wired_into_handoffs(self) -> None:
-        for path in [
-            SKILL_ROOT / "SKILL.md",
-            SKILL_ROOT / "references/Second-Planner.md",
-            SKILL_ROOT / "references/Third-Planner.md",
-            SKILL_ROOT / "references/Fourth-Planner.md",
-        ]:
+    def test_goal_run_contract_uses_canonical_handoff_sources(self) -> None:
+        handoff_root = SKILL_ROOT / "references/handoffs"
+        for name in ["run-step2.md", "run-step3.md", "run-step4.md"]:
+            path = handoff_root / name
+            self.assertTrue(path.is_file(), name)
             text = path.read_text(encoding="utf-8")
-            self.assertIn("Goal Run Contract", text, path.name)
-            for phrase in ["Outcome", "Inputs", "Boundaries", "Source precedence", "Validation gates", "Stop gates", "Context budget", "Subagent policy"]:
-                self.assertIn(phrase, text, path.name)
+            self.assertIn("contract_version: 1", text)
+            self.assertIn("Goal Run Contract", text)
+            self.assertIn("Resume / Recovery Protocol", text)
+            for phrase in [
+                "Outcome",
+                "Inputs",
+                "Boundaries",
+                "Source precedence",
+                "Validation gates",
+                "Stop gates",
+                "Context budget",
+                "Subagent policy",
+            ]:
+                self.assertIn(phrase, text, name)
+
+        references = {
+            "SKILL.md": SKILL_ROOT / "SKILL.md",
+            "Second-Planner.md": SKILL_ROOT / "references/Second-Planner.md",
+            "Third-Planner.md": SKILL_ROOT / "references/Third-Planner.md",
+            "Fourth-Planner.md": SKILL_ROOT / "references/Fourth-Planner.md",
+        }
+        for name, path in references.items():
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("references/handoffs/", text, name)
+            self.assertNotIn("Goal Run Contract:\n- Outcome:", text, name)
 
     def test_comprehension_validator_contract_is_documented(self) -> None:
         validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")
@@ -282,20 +303,24 @@ class SkillContentTests(unittest.TestCase):
             "Project-Comprehension.md",
             "ALLOWED_EVIDENCE_TYPES",
             "ALLOWED_CONFIDENCE_VALUES",
+            "ALLOWED_CLAIM_TYPES",
             "ALLOWED_ARCHITECTURE_STATUSES",
             "ALLOWED_ONTOLOGY_QUESTION_STATUSES",
             "markdown_headings",
             "validate_optional_comprehension_doc",
+            "NOT_APPLICABLE",
+            "NO_UNRESOLVED_HYPOTHESES",
         ]:
             self.assertIn(phrase, validator)
 
     def test_planning_ledger_v2_is_documented_and_legacy_remains_supported(self) -> None:
         ledger_ref = (SKILL_ROOT / "references/planning-ledger.md").read_text(encoding="utf-8")
         validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")
-        for phrase in ["Plan Snapshot Registry", "Sub-Plan Status Matrix", "Ledger v2", "legacy v1"]:
+        for phrase in ["Plan Snapshot Registry", "Sub-Plan Status Matrix", "Ledger v2", "legacy v1", "Superseded By", "Updated At"]:
             self.assertIn(phrase, ledger_ref)
         self.assertIn("LEDGER_V2_HEADINGS", validator)
         self.assertIn("LEDGER_LEGACY_HEADINGS", validator)
+        self.assertIn("ALLOWED_LEDGER_STATUSES", validator)
 
     def test_ci_and_export_sanitized_are_hardened(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/validate.yml").read_text(encoding="utf-8")
@@ -308,9 +333,14 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("git diff --cached --quiet", makefile)
         self.assertIn("--prefix=CodexQB/", makefile)
 
-    def test_fixture_eval_infrastructure_is_present(self) -> None:
-        runner = REPO_ROOT / "evals/run_fixture_checks.py"
+    def test_fixture_corpus_infrastructure_is_present(self) -> None:
+        runner = REPO_ROOT / "evals/run_fixture_corpus_checks.py"
+        wrapper = REPO_ROOT / "evals/run_fixture_checks.py"
         self.assertTrue(runner.is_file())
+        self.assertTrue(wrapper.is_file())
+        runner_text = runner.read_text(encoding="utf-8")
+        self.assertIn("fixture_corpus_checks=passed", runner_text)
+        self.assertNotIn("fixture_eval_checks=passed", runner_text)
         fixture_root = REPO_ROOT / "evals/fixtures"
         for fixture in [
             "clean-layered-service",
@@ -324,7 +354,20 @@ class SkillContentTests(unittest.TestCase):
             self.assertTrue((fixture_root / fixture / "expected.json").is_file(), fixture)
 
         validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
-        self.assertIn("python3 evals/run_fixture_checks.py", validate_script)
+        self.assertIn("python3 evals/run_fixture_corpus_checks.py", validate_script)
+
+    def test_probe_policy_and_schema_versions_are_documented(self) -> None:
+        probe = SKILL_ROOT / "references/probe-policy.md"
+        self.assertTrue(probe.is_file())
+        probe_text = probe.read_text(encoding="utf-8")
+        for phrase in ["Tier 0", "Tier 1", "Tier 2", "Tier 3", "approval", "timeout", "cleanup"]:
+            self.assertIn(phrase, probe_text)
+
+        for path in [REPO_ROOT / "README.md", REPO_ROOT / "docs/USAGE.md", REPO_ROOT / "docs/MAINTAINING.md"]:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("artifact_schema_version: 2", text, path.name)
+            self.assertIn("handoff_contract_version: 1", text, path.name)
+            self.assertIn("fixture corpus", text.lower(), path.name)
 
     def test_local_skill_sync_docs_exclude_python_caches(self) -> None:
         install = (REPO_ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")

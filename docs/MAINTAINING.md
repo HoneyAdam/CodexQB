@@ -2,6 +2,14 @@
 
 This document covers validation and release maintenance for CodexQB.
 
+Current release contracts:
+
+```text
+plugin_version: 0.2.1
+artifact_schema_version: 2
+handoff_contract_version: 1
+```
+
 ## Dependency-Free Repo Check
 
 Run the default repository validation before every release:
@@ -10,7 +18,7 @@ Run the default repository validation before every release:
 make check
 ```
 
-This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology/comprehension prompt wiring, deterministic fixture eval inputs, tracked-file secret hygiene, archive hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
+This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology/comprehension prompt wiring, deterministic fixture corpus inputs, tracked-file secret hygiene, archive hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
 
 On a normal local development machine, `make check` is expected to complete well under 30 seconds. Validator CLI smoke tests have a 30-second timeout, and any timeout or hang is a release blocker. CI pins Python 3.12 with `actions/setup-python`.
 
@@ -47,9 +55,18 @@ The skill ships a read-only validator for generated `Planner-docs/` outputs. Fro
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step1
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode autopsy --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step2 --strict
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3-preflight --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3 --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step4
 ```
+
+Mode contract:
+
+- `step3-preflight` validates Step 2 artifacts before `Sub-Planing-Audit.md` exists.
+- `step3` requires `Planner-docs/Sub-Planing-Audit.md` and validates post-audit structure.
+- `step4` enforces semantic readiness rows, finding status consistency, NO_ACTION_REQUIRED, and strict Ledger v2 execution gates.
+- Exit codes are stable: `0` passed, `1` document validation failed, `2` invocation/configuration/I/O error.
+- Output includes `validation_status=...`, `validation_mode=...`, `error_count=...`, and `warning_count=...`.
 
 When running through an installed plugin, use the bundled validator path exposed by the active skill. If that path is unavailable, perform equivalent all-file validation and report the fallback clearly.
 
@@ -63,8 +80,8 @@ When changing the validator, test at least:
 - optional `Autopsy.md`, `Project-Ontology.md`, and `Planing-Ledger.md` validation when present, and no failure when they are absent;
 - optional `Project-Comprehension.md` validation when present, including evidence types, confidence values, architecture statuses, trace anchors, and open hypothesis probes;
 - fenced code block heading false positives and duplicate real headings;
-- Ledger v2 headings with `Plan Snapshot Registry` and `Sub-Plan Status Matrix`, while legacy v1 ledgers remain accepted;
-- Step 4 readiness gating for missing audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, and prose such as `no P0/P1 findings`.
+- Ledger v2 headings with `Plan Snapshot Registry` and `Sub-Plan Status Matrix`, while legacy v1 ledgers remain accepted outside strict Step 4 execution with a deprecation warning;
+- Step 4 readiness gating for missing audit, headings-only audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, NO_ACTION_REQUIRED, unsafe readiness paths, duplicate conflicting rows, and prose such as `no P0/P1 findings`.
 
 Run the tracked validator test suite:
 
@@ -106,15 +123,15 @@ When changing Goal handoff behavior, verify that Step 2, Step 3, and Step 4 prom
 
 When changing replanning behavior, verify that `Planing-Ledger.md`, `Project-Ontology.md`, and `Project-Comprehension.md` are read as supporting evidence and never treated as stronger than current repository state or explicit user intent.
 
-## Fixture Eval Checks
+## Fixture Corpus Checks
 
-CodexQB includes lightweight deterministic eval fixture checks. They do not run live `codex exec`; they keep the fixture repos and expected signals stable for future live skill evals.
+CodexQB includes lightweight deterministic fixture corpus checks. They do not run live `codex exec`; they keep the fixture repos and expected signals stable for future live skill evals.
 
 ```bash
-python3 evals/run_fixture_checks.py
+python3 evals/run_fixture_corpus_checks.py
 ```
 
-`make check` runs this command. Optional live skill evals may be added later with `codex exec --json` and structured rubric output, but they must not become required for dependency-free CI until the runtime is stable in CI.
+`make check` runs this command. `python3 evals/run_fixture_checks.py` remains as a compatibility wrapper and should return the same exit code. Optional live skill evals may be added later with `codex exec --json` and structured rubric output, but they must not become required for dependency-free CI until the runtime is stable in CI.
 
 ## Optional Local Skill Copy Parity
 

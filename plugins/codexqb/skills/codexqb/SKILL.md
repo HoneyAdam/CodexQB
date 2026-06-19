@@ -16,6 +16,7 @@ The bundled prompts are:
 - `references/Second-Planner.md` for Step 2 phase sub-planning.
 - `references/Third-Planner.md` for Step 3 sub-plan QA and coverage audit.
 - `references/Fourth-Planner.md` for the Step 4 implementation Goal handoff prompt template.
+- `references/handoffs/run-step2.md`, `run-step3.md`, and `run-step4.md` as the canonical Goal handoff sources.
 
 Planning behavior references:
 
@@ -24,6 +25,7 @@ Planning behavior references:
 - `references/planning-ledger.md` for durable plan/implementation history via `Planner-docs/Planing-Ledger.md`.
 - `references/project-ontology.md` for durable project vocabulary, entities, workflows, boundaries, and invariants.
 - `references/project-comprehension-methods.md` for evidence/confidence, hypothesis, traceability, architecture reflexion, and quality-scenario methods.
+- `references/probe-policy.md` for static/local/live probe tiers, approval, timeout, cleanup, and evidence artifact rules.
 - `references/assessment-and-budget.md` for autonomy, Goal mode, token/context, and budget assessment.
 - `references/engineering-principles.md` for domain-appropriate CS, architecture, validation, and secure engineering methods.
 
@@ -64,7 +66,7 @@ Before long planning runs, read `references/vibecoding-principles.md`, `referenc
 
 Use subagents only when they reduce context pollution or improve evidence quality: large repo exploration, Step 1.5 Autopsy, ontology mapping, multi-phase Step 2 drafting, Step 3 readiness/security audit, or Step 4 implementation/review separation. Read `references/subagent-playbook.md` before requesting subagents. Parent CodexQB owns final artifact writes; subagents should gather evidence, draft options, or review unless the user explicitly asks otherwise.
 
-Goal mode handoffs must include a Goal Run Contract with: Outcome, Inputs, Boundaries, Source precedence, Validation gates, Stop gates, Context budget, and Subagent policy.
+Goal mode handoffs must come from the canonical files under `references/handoffs/` so the Goal Run Contract is maintained in one physical source.
 
 After all four values are available:
 
@@ -96,19 +98,7 @@ When Step 1.5 applies:
 After Step 1 feedback is handled, ask whether the user wants to continue to Step 2. If yes, tell the user to copy the following text, open Goal mode, and send it:
 
 ```text
-Use $codexqb. Run Step 2 according to references/Second-Planner.md.
-
-Goal Run Contract:
-- Outcome: decompose every main phase into implementation-ready sub-plans.
-- Inputs: Planner-docs/Main-Planing.md plus any Autopsy, Project-Ontology, Project-Comprehension, or Planing-Ledger files.
-- Boundaries: modify only Planner-docs; do not implement product code.
-- Source precedence: user-confirmed intent and Main-Planing.md first; repo evidence and support artifacts second; tentative comprehension claims require validation work.
-- Validation gates: run the bundled Step 2 validator or equivalent all-file validation.
-- Stop gates: missing, inconsistent, incomplete, or undecomposable Main-Planing.md.
-- Context budget: read support files fully, then use index/sections to avoid loading unrelated source.
-- Subagent policy: use subagents only for large repo exploration or phase drafting; parent writes final artifacts.
-
-Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md exists, read it fully as supporting evidence and account for it in the sub-phase plans. Plan in a vibecoding-first style: small reversible slices, fast validation signals, explicit deferrals, security boundaries, evidence confidence, CQ/TRACE/ARC references, and Goal-mode readiness. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
+Use $codexqb. Read and return the exact canonical handoff from references/handoffs/run-step2.md, then execute it.
 ```
 
 When executing Step 2 directly:
@@ -128,19 +118,7 @@ When executing Step 2 directly:
 After Step 2 is complete, ask whether the user wants to continue to Step 3. If yes, tell the user to copy the following text, open Goal mode, and send it:
 
 ```text
-Use $codexqb. Run Step 3 according to references/Third-Planner.md.
-
-Goal Run Contract:
-- Outcome: audit every sub-plan and decide whether Step 4 can begin.
-- Inputs: Main-Planing, Sub-Planing-Index, Faz plans, and optional Autopsy, Project-Ontology, Project-Comprehension, and Planing-Ledger files.
-- Boundaries: modify only Planner-docs/Sub-Planing-Audit.md.
-- Source precedence: Main-Planing and validator findings first; support artifacts only as evidence.
-- Validation gates: run the bundled Step 3 validator or equivalent all-file validation.
-- Stop gates: missing Main-Planing, index, or all sub-plan files.
-- Context budget: inspect all plan files structurally, then quote only concise evidence.
-- Subagent policy: use subagents only for broad coverage/readiness/security review; parent writes the audit.
-
-Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Faz-*-Plans/*.md, and any supporting Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, evidence quality, confidence calibration, trace coverage, architecture drift coverage, competency-question coverage, open-hypothesis probes, ontology consistency, planning-history continuity, security/governance, vibecoding slice quality, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
+Use $codexqb. Read and return the exact canonical handoff from references/handoffs/run-step3.md, then execute it.
 ```
 
 When executing Step 3 directly:
@@ -167,12 +145,12 @@ When Step 3 completes:
 3. If validation passes, print the Step 4 Goal mode copy block and remind the user to watch token use.
 4. If validation fails because the audit is `BLOCKED` or contains P0/P1 findings, do not print the Step 4 prompt; print the minimal repair or unblock prompt instead.
 5. If validation passes with non-blocking warnings, print the Step 4 prompt and state that the implementation run must keep P2/P3 warnings visible.
-6. The Step 4 prompt should execute the READY/READY_WITH_WARNINGS queue continuously in small verified slices. It should not stop after the first successful slice unless a stop gate is hit.
+6. The Step 4 prompt should come from `references/handoffs/run-step4.md`, execute the READY/READY_WITH_WARNINGS queue continuously in small verified slices, and report NO_ACTION_REQUIRED without starting implementation when no work is queued.
 
 ## Quality and Validation
 
 - Prefer `scripts/validate_planner_docs.py` over ad hoc validation scripts.
-- Use `--mode step1`, `--mode autopsy`, `--mode step2`, `--mode step3`, or `--mode step4` for the active workflow step.
+- Use `--mode step1`, `--mode autopsy`, `--mode step2`, `--mode step3-preflight`, `--mode step3`, or `--mode step4` for the active workflow step.
 - Use `--strict` in Goal mode so generic or repeated section warnings become failures.
 - Do not report section counts from memory; report counts only after reading the active prompt or running validation.
 - For untracked `Planner-docs/`, use `find Planner-docs -maxdepth 4 -type f | sort`, `git status --short -- Planner-docs`, and `git diff -- Planner-docs` together.

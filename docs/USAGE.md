@@ -2,6 +2,14 @@
 
 CodexQB runs a vibecoding-first, repo-aware planning workflow with an optional Step 1.5 Autopsy and ontology pass for existing projects.
 
+Release contracts:
+
+```text
+plugin_version: 0.2.1
+artifact_schema_version: 2
+handoff_contract_version: 1
+```
+
 
 ## Vibecoding, Subagents, and Durable Memory
 
@@ -73,9 +81,7 @@ After Step 1, CodexQB prints a text block for Goal mode. Copy it, open Goal mode
 The prompt is:
 
 ```text
-Use $codexqb. Run Step 2 according to references/Second-Planner.md.
-
-Read all main phases in Planner-docs/Main-Planing.md. If Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md exists, read it fully as supporting evidence and account for it in the sub-phase plans. Include a Goal Run Contract with Outcome, Inputs, Boundaries, Source precedence, Validation gates, Stop gates, Context budget, and Subagent policy. Plan in a vibecoding-first style: small reversible slices, fast validation signals, explicit deferrals, secure engineering boundaries, evidence confidence, CQ/TRACE/ARC references, and Goal-mode readiness. For each phase, create Faz-<n>-Plans folders and detailed Faz<n>.<m>-*.md sub-plan files under Planner-docs. Do not stop until all phases are covered. Modify only Planner-docs.
+Use $codexqb. Read and return the exact canonical handoff from references/handoffs/run-step2.md, then execute it.
 ```
 
 Expected outputs:
@@ -106,9 +112,7 @@ After Step 2, CodexQB prints another text block for Goal mode. Copy it, open Goa
 The prompt is:
 
 ```text
-Use $codexqb. Run Step 3 according to references/Third-Planner.md.
-
-Audit Planner-docs/Main-Planing.md, Planner-docs/Sub-Planing-Index.md, Planner-docs/Faz-*-Plans/*.md, and any supporting Planner-docs/Autopsy.md, Planner-docs/Project-Ontology.md, Planner-docs/Project-Comprehension.md, or Planner-docs/Planing-Ledger.md. Include a Goal Run Contract with Outcome, Inputs, Boundaries, Source precedence, Validation gates, Stop gates, Context budget, and Subagent policy. Analyze main-phase coverage, file naming, sequencing, required section structure, index consistency, content quality, scope drift, readiness realism, ontology consistency, evidence quality, confidence calibration, trace coverage, architecture drift coverage, planning-history continuity, security/governance, vibecoding slice quality, and Step 4 readiness. Do not fix any plan files; produce only Planner-docs/Sub-Planing-Audit.md. Do not stop until all phases and sub-plans have been reviewed.
+Use $codexqb. Read and return the exact canonical handoff from references/handoffs/run-step3.md, then execute it.
 ```
 
 Expected output:
@@ -122,6 +126,7 @@ Step 3 is an audit step. It reports problems but does not fix the sub-plans.
 Step 3 should run the bundled validator first and incorporate its findings into `Planner-docs/Sub-Planing-Audit.md`. When manually validating from a CodexQB repository checkout, use:
 
 ```bash
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3-preflight --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root /path/to/project --mode step3 --strict
 ```
 
@@ -185,16 +190,20 @@ The validator prints deterministic summary lines such as:
 
 ```text
 planner_docs_validation=passed
+validation_status=passed
 mode=step2
+validation_mode=step2
 phase_folder_count=9
 subplan_count=35
 warning_count=0
 error_count=0
 ```
 
-It exits nonzero on structural failures. With `--strict`, repeated or generic section warnings are treated as failures. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, P0/P1 audit findings block implementation readiness while P2/P3 findings are warnings.
+It uses stable exit codes: `0` means validation passed, `1` means document validation failed, and `2` means invocation/configuration/I/O error. With `--strict`, repeated or generic section warnings are treated as failures except documented legacy compatibility warnings. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, open P0/P1 audit findings block implementation readiness, open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`, resolved/not_applicable P2/P3 findings may coexist with `PASS`, and `NO_ACTION_REQUIRED` is valid when all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED.
 
-If `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, or `Planner-docs/Planing-Ledger.md` exists, the validator checks its required heading order during Step 2/3 validation. If these optional continuity docs do not exist, Step 2/3 validation continues without treating them as required. Use `--mode autopsy --strict` after Step 1.5 when `Autopsy.md` should be required.
+If `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, `Planner-docs/Project-Comprehension.md`, or `Planner-docs/Planing-Ledger.md` exists, the validator checks its required heading order and supported semantic fields during Step 2/3 validation. If these optional continuity docs do not exist, Step 2/3 validation continues without treating them as required. Use `--mode autopsy --strict` after Step 1.5 when `Autopsy.md` should be required.
+
+The repository `make check` also runs the deterministic fixture corpus checker. The fixture corpus keeps static input repos and expected signals healthy; it does not measure live Codex behavior.
 
 ## Safety Expectations
 

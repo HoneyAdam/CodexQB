@@ -2,6 +2,14 @@
 
 CodexQB is distributed as a Codex plugin repository with a repo-local marketplace manifest.
 
+Current package contracts:
+
+```text
+plugin_version: 0.2.1
+artifact_schema_version: 2
+handoff_contract_version: 1
+```
+
 ## Requirements
 
 - Codex with plugin support.
@@ -85,6 +93,24 @@ For a manually maintained global skill copy, sync and verify parity from the rep
 rsync -a --delete --exclude '__pycache__/' --exclude '*.pyc' plugins/codexqb/skills/codexqb/ "$HOME/.codex/skills/codexqb/"
 diff -ru -x __pycache__ plugins/codexqb/skills/codexqb "$HOME/.codex/skills/codexqb"
 ```
+
+## Compatibility Notes
+
+CodexQB 0.2.1 keeps 0.2.0 planner artifacts readable outside strict execution gates. Legacy `Planing-Ledger.md` v1 files pass non-strict validation with a deprecation warning, but strict Step 4 execution requires Ledger v2 migration before implementation starts.
+
+The old fixture checker command remains available as a compatibility wrapper:
+
+```bash
+python3 evals/run_fixture_checks.py
+```
+
+The canonical command is:
+
+```bash
+python3 evals/run_fixture_corpus_checks.py
+```
+
+Both should return the same exit code.
 
 ## Troubleshooting
 
