@@ -1,0 +1,53 @@
+name: Enhancement request
+description: Propose a CodexQB behavior, validator, packaging, or workflow improvement.
+title: "enhancement: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What gap should this solve?
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Target surface
+      options:
+        - Skill prompt
+        - Planner-docs validator
+        - Project comprehension
+        - Ontology / ledger
+        - Step 4 handoff
+        - Packaging / install
+        - Documentation
+        - GitHub / CI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful change and how it should behave.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility notes
+      description: Mention effects on `$codexqb`, `Planing` filenames, validator modes, or generated artifact schemas.
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Suggested validation
+      description: Which tests, fixtures, or commands should prove this works?
+      placeholder: |
+        make test
+        make check
+        extracted package make check
+    validations:
+      required: false

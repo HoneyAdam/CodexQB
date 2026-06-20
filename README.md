@@ -138,6 +138,12 @@ make check
 
 `make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, the fixture corpus, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
 
+For a faster local unit-test loop, run:
+
+```bash
+make test
+```
+
 On a normal local development machine, `make check` is expected to finish well under 30 seconds. A timeout or hang in validator tests is a release blocker, not a warning to ignore.
 
 ## Release Validation
@@ -223,6 +229,28 @@ README.md
 - [Installation](docs/INSTALLATION.md)
 - [Usage](docs/USAGE.md)
 - [Maintaining CodexQB](docs/MAINTAINING.md)
+
+## Contributing
+
+Use GitHub issues for bugs, enhancements, and documentation requests. The issue templates ask for the CodexQB version, affected surface, validation evidence, and expected behavior so fixes can stay evidence-backed.
+
+Before opening a pull request, run:
+
+```bash
+make test
+make check
+git diff --check
+```
+
+For release, packaging, or validation changes, also run:
+
+```bash
+make export-sanitized
+```
+
+Then extract `CodexQB-sanitized.zip` into a temporary directory and run `make check` there to prove package-level validation still works without `.git/`.
+
+Pull requests should keep the existing compatibility contracts intact: preserve the `$codexqb` invocation, keep `Planing` filenames unchanged, keep validator checks dependency-free, avoid printing secret values, and do not weaken `export-sanitized` dirty-worktree guards.
 
 ## Public Plugin Directory Status
 

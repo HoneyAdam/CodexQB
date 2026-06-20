@@ -1,4 +1,4 @@
 interface:
   display_name: "CodexQB"
   short_description: "Vibecoding evidence-backed repo comprehension"
-  default_prompt: "Use $codexqb to inspect this repo, build evidence-backed project comprehension, plan sub-phases, QA audit, gate integrity, and gated handoff."
+  default_prompt: "Use $codexqb to start evidence-backed repo planning; guide comprehension, sub-plans, QA audit, gate integrity, and gated handoff as explicit steps."

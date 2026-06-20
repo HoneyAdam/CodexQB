@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: CodexQB usage docs
+    url: https://github.com/alicankiraz1/CodexQB/blob/main/docs/USAGE.md
+    about: Read the current workflow, validator, and handoff behavior.
+  - name: CodexQB maintenance docs
+    url: https://github.com/alicankiraz1/CodexQB/blob/main/docs/MAINTAINING.md
+    about: Review release validation, package hygiene, and local install guidance.

@@ -1,0 +1,34 @@
+name: Documentation request
+description: Report unclear, stale, or missing CodexQB documentation.
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or file
+      description: Link or path, such as README.md, docs/USAGE.md, or docs/MAINTAINING.md.
+      placeholder: "README.md"
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: Documentation issue
+      description: What is missing, stale, ambiguous, or misleading?
+    validations:
+      required: true
+  - type: textarea
+    id: suggested
+    attributes:
+      label: Suggested wording or outcome
+      description: Optional exact wording or the decision the docs should make clear.
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This request does not require adding secrets, credentials, private repo details, or local machine paths.
+          required: true

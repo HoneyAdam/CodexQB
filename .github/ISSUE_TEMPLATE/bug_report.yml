@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible CodexQB bug or validation failure.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a CodexQB issue. Please include evidence without pasting secrets.
+  - type: input
+    id: version
+    attributes:
+      label: CodexQB version
+      description: Example: 0.2.1, or the commit SHA if testing from main.
+      placeholder: "0.2.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Skill prompt
+        - Planner-docs validator
+        - Step 1 main plan
+        - Step 1.5 autopsy/comprehension
+        - Step 2 sub-plans
+        - Step 3 audit
+        - Step 4 handoff
+        - Packaging / install
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should CodexQB have done?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Redact secrets and tokens.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include commands, validator mode, relevant filenames, and a minimal fixture when possible.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation evidence
+      description: Paste command names and non-secret output summaries. Do not paste secret-bearing lines.
+      placeholder: |
+        make check -> ...
+        python3 ...validate_planner_docs.py --mode ... -> ...
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have removed or redacted secrets, tokens, credentials, private keys, and local environment values.
+          required: true

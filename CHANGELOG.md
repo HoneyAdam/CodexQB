@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added GitHub issue and pull request templates for evidence-backed contribution intake.
+- Documented `make test` and pull request validation expectations in the README.
+- Clarified the default `$codexqb` prompt so it describes explicit planning steps instead of implying a single automatic full-workflow run.
+
 ## 0.2.1
 
 - Added Step 3 preflight validation and made Step 3 require `Planner-docs/Sub-Planing-Audit.md`.
