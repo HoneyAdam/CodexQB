@@ -187,11 +187,15 @@ def run_validator_cli(
     return ValidatorResult(completed.returncode, completed.stdout, completed.stderr)
 
 
-def write_main_plan(docs: Path) -> None:
+def write_main_plan(
+    docs: Path,
+    headings: list[str] | None = None,
+    include_phase_table: bool = True,
+) -> None:
     lines: list[str] = []
-    for heading in STEP1_HEADINGS:
+    for heading in headings or STEP1_HEADINGS:
         lines += [heading, "", body(heading), ""]
-        if heading == "## 6. Phase-Based Master Roadmap":
+        if heading == "## 6. Phase-Based Master Roadmap" and include_phase_table:
             lines += [
                 "The existing repo includes historical Faz 0B-10 plans and Phase 11 security notes.",
                 "",
@@ -441,6 +445,54 @@ def write_valid_step2_fixture(root: Path, relative_refs: bool = False) -> Path:
 
 
 class ValidatePlannerDocsTests(unittest.TestCase):
+
+    def test_step1_valid_main_plan_reports_phase_count(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = Path(temp_dir) / "Planner-docs"
+            docs.mkdir()
+            write_main_plan(docs)
+
+            result = run_validator(Path(temp_dir), "step1", strict=True)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("main_phase_count=2", result.stdout)
+            self.assertIn("validation_mode=step1", result.stdout)
+
+    def test_step1_missing_heading_reports_expected_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = Path(temp_dir) / "Planner-docs"
+            docs.mkdir()
+            headings = [heading for heading in STEP1_HEADINGS if heading != "## 2. Project Vision"]
+            write_main_plan(docs, headings=headings)
+
+            result = run_validator(Path(temp_dir), "step1")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("missing_heading=Planner-docs/Main-Planing.md::## 2. Project Vision", result.stdout)
+
+    def test_step1_heading_order_error_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = Path(temp_dir) / "Planner-docs"
+            docs.mkdir()
+            headings = STEP1_HEADINGS.copy()
+            headings[2], headings[3] = headings[3], headings[2]
+            write_main_plan(docs, headings=headings)
+
+            result = run_validator(Path(temp_dir), "step1")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("heading_out_of_order=Planner-docs/Main-Planing.md", result.stdout)
+
+    def test_step1_without_roadmap_phases_reports_expected_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = Path(temp_dir) / "Planner-docs"
+            docs.mkdir()
+            write_main_plan(docs, include_phase_table=False)
+
+            result = run_validator(Path(temp_dir), "step1")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("main_plan_has_no_detected_phases=Planner-docs/Main-Planing.md", result.stdout)
 
     def test_autopsy_mode_validates_main_autopsy_and_optional_ontology(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

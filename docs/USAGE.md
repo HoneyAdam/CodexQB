@@ -138,6 +138,16 @@ If the validator exits nonzero because it found structural issues, Step 3 should
 
 After Step 3, CodexQB may print a Step 4 Goal mode prompt. This prompt is for a separate implementation run; CodexQB itself does not implement product changes during Steps 1-3.
 
+The canonical Step 4 handoff lives in `references/handoffs/run-step4.md`. When CodexQB prints a Step 4 prompt, it may include audit-derived queue details, but the structure must still follow that canonical handoff.
+
+A manual Step 4 handoff request can use this shape:
+
+```text
+Use $codexqb. Read and return the exact canonical handoff from references/handoffs/run-step4.md, then execute it only if Planner-docs/Sub-Planing-Audit.md allows implementation.
+```
+
+The generated handoff should include the Goal Run Contract, the READY or READY_WITH_WARNINGS implementation queue or `NO_ACTION_REQUIRED`, source precedence, validation gates, stop gates, context-budget and subagent policy, and per-slice reporting requirements.
+
 CodexQB should print the Step 4 prompt only when:
 
 - `Planner-docs/Sub-Planing-Audit.md` exists;
