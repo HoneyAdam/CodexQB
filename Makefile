@@ -7,6 +7,4 @@ test:
 	python3 -m unittest discover -s tests -v
 
 export-sanitized:
-	git diff --quiet
-	git diff --cached --quiet
-	git archive --format=zip --prefix=CodexQB/ --output CodexQB-sanitized.zip HEAD
+	python3 scripts/export_sanitized.py --root . --output CodexQB-sanitized.zip

@@ -121,7 +121,7 @@ New or rewritten Step 2 public artifacts must start with this frontmatter:
 ---
 artifact_schema_version: 3
 generated_by: codexqb
-plugin_version: 0.2.2
+plugin_version: 0.3.0
 ---
 ```
 
@@ -486,7 +486,15 @@ The JSON must be dependency-free parseable by Python `json` and must use this sh
     {"path": "tests/test_example.py", "state": "proposed"}
   ],
   "validation_commands": [
-    {"id": "VAL-01", "command": "python3 -m pytest tests/test_example.py -q", "expected_result": "exit_code_0"}
+    {
+      "id": "VAL-01",
+      "argv": ["python3", "-m", "pytest", "tests/test_example.py", "-q"],
+      "cwd": ".",
+      "expected_exit_code": 0,
+      "timeout_seconds": 120,
+      "network": "deny",
+      "probe_tier": 1
+    }
   ],
   "parent_signals": ["MP-PH1-AS-01"],
   "dependencies": {
@@ -496,16 +504,19 @@ The JSON must be dependency-free parseable by Python `json` and must use this sh
     "activation_conditions": ["Python project skeleton exists"]
   },
   "outputs": ["src/example/module.py", "tests/test_example.py"],
+  "risk_class": "medium",
+  "risk_domains": ["external_provider"],
   "security_review_required": true
 }
 ```
 
 Rules:
 - `implementation_paths` and `outputs` must be repo-relative, safe paths outside `Planner-docs/`.
-- `validation_commands` must be exact commands, not generic placeholders such as `make`.
+- `validation_commands` should use the structured `argv` shape shown above. Legacy `command` strings are compatibility-only outside strict mode and must not contain shell metacharacters, command chaining, install/deploy/delete/push commands, or external mutation intent.
 - `parent_signals` must use real IDs from Main-Planing.md or the index parent-signal mapping.
 - dependency arrays may be empty only when that is true; `activation_conditions` must contain at least one concrete condition.
 - do not use generic output strings such as `something`, `artifact`, or `document`.
+- `risk_class` must be `low`, `medium`, `high`, or `critical`; `risk_domains` must name concrete domains such as `auth`, `authorization`, `credential`, `secret`, `external_provider`, `network`, `command_execution`, `deployment`, `migration`, `stateful_runtime`, `distributed_runtime`, `online_learning`, `reinforcement_learning`, `cache`, `resume`, `checkpoint`, `payment`, `personal_data`, `algorithmic_invariant`, or `none`.
 - set `security_review_required` to true for security-sensitive, live, credentialed, stateful, distributed, online/RL, or external-framework work.
 
 Index file requirements:

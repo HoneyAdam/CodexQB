@@ -144,7 +144,7 @@ def body(label: str) -> str:
 
 
 def artifact_frontmatter() -> list[str]:
-    return ["---", "artifact_schema_version: 3", "generated_by: codexqb", "plugin_version: 0.2.2", "---", ""]
+    return ["---", "artifact_schema_version: 3", "generated_by: codexqb", "plugin_version: 0.3.0", "---", ""]
 
 
 def normalize_output(value: str | bytes | None) -> str:
@@ -255,7 +255,15 @@ def write_subplan(path: Path, phase: int, subphase: int) -> None:
         f'    {{"path": "tests/test_feature_{phase}_{subphase}.py", "state": "proposed"}}',
         "  ],",
         '  "validation_commands": [',
-        f'    {{"id": "VAL-01", "command": "python3 -m pytest tests/test_feature_{phase}_{subphase}.py -q", "expected_result": "exit_code_0"}}',
+        "    {",
+        '      "id": "VAL-01",',
+        f'      "argv": ["python3", "-m", "pytest", "tests/test_feature_{phase}_{subphase}.py", "-q"],',
+        '      "cwd": ".",',
+        '      "expected_exit_code": 0,',
+        '      "timeout_seconds": 120,',
+        '      "network": "deny",',
+        '      "probe_tier": 1',
+        "    }",
         "  ],",
         f'  "parent_signals": ["MP-PH{phase}-AS-01"],',
         '  "dependencies": {',
@@ -265,7 +273,9 @@ def write_subplan(path: Path, phase: int, subphase: int) -> None:
         '    "activation_conditions": ["local fixture files exist"]',
         "  },",
         f'  "outputs": ["reports/faz{phase}-{subphase}-readiness.md"],',
-        '  "security_review_required": false',
+        '  "risk_class": "low",',
+        '  "risk_domains": ["none"],',
+        '  "security_review_required": true',
         "}",
         "```",
         "",
@@ -884,7 +894,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             docs = write_valid_step2_fixture(Path(temp_dir))
             subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
             subplan_path.write_text(
-                subplan_path.read_text(encoding="utf-8").replace("plugin_version: 0.2.2", "plugin_version: 0.2.1"),
+                subplan_path.read_text(encoding="utf-8").replace("plugin_version: 0.3.0", "plugin_version: 0.2.1"),
                 encoding="utf-8",
             )
 
@@ -930,7 +940,10 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
             text = subplan_path.read_text(encoding="utf-8")
             text = text.replace('"path": "src/feature_1_1.py"', '"path": "Planner-docs/notes.md"')
-            text = text.replace('"command": "python3 -m pytest tests/test_feature_1_1.py -q"', '"command": "make"')
+            text = text.replace(
+                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"command": "make"',
+            )
             text = text.replace('"parent_signals": ["MP-PH1-AS-01"]', '"parent_signals": ["Parent Signal"]')
             subplan_path.write_text(text, encoding="utf-8")
 
@@ -940,6 +953,88 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             self.assertIn("strict_warning=subplan_invalid_implementation_path=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md::Planner-docs/notes.md", result.stdout)
             self.assertIn("strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
             self.assertIn("strict_warning=subplan_invalid_parent_acceptance_signal=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md::Parent Signal", result.stdout)
+
+    def test_strict_step2_rejects_shell_chained_validation_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
+            text = subplan_path.read_text(encoding="utf-8")
+            text = text.replace(
+                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"command": "python3 -m pytest tests/test_feature_1_1.py -q && rm -rf /tmp/codexqb-owned"',
+            )
+            subplan_path.write_text(text, encoding="utf-8")
+
+            result = run_validator(Path(temp_dir), "step2", strict=True)
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
+
+    def test_strict_step2_rejects_command_substitution_validation_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
+            text = subplan_path.read_text(encoding="utf-8")
+            text = text.replace(
+                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"command": "python3 -m pytest tests/test_feature_1_1.py -q $(touch /tmp/codexqb-owned)"',
+            )
+            subplan_path.write_text(text, encoding="utf-8")
+
+            result = run_validator(Path(temp_dir), "step2", strict=True)
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
+
+    def test_strict_step2_rejects_mutating_validation_command_intent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
+            text = subplan_path.read_text(encoding="utf-8")
+            text = text.replace(
+                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"argv": ["npm", "run", "deploy"]',
+            )
+            subplan_path.write_text(text, encoding="utf-8")
+
+            result = run_validator(Path(temp_dir), "step2", strict=True)
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
+
+    def test_step2_accepts_safe_legacy_validation_command_only_outside_strict_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
+            text = subplan_path.read_text(encoding="utf-8")
+            text = text.replace(
+                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"command": "python3 -m pytest tests/test_feature_1_1.py -q"',
+            )
+            text = re.sub(r',\n      "cwd": "\\.",\n      "expected_exit_code": 0,\n      "timeout_seconds": 120,\n      "network": "deny",\n      "probe_tier": 1', ',\n      "expected_result": "exit_code_0"', text)
+            subplan_path.write_text(text, encoding="utf-8")
+
+            compatible = run_validator(Path(temp_dir), "step2", strict=False)
+            self.assertEqual(compatible.returncode, 0, compatible.stdout + compatible.stderr)
+
+            strict = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertNotEqual(strict.returncode, 0, strict.stdout + strict.stderr)
+            self.assertIn("strict_warning=subplan_validation_command_requires_structured_argv=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md::VAL-01", strict.stdout)
+
+    def test_strict_step2_requires_security_review_for_high_risk_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = write_valid_step2_fixture(Path(temp_dir))
+            subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
+            text = subplan_path.read_text(encoding="utf-8")
+            text = text.replace('"risk_class": "low"', '"risk_class": "high"')
+            text = text.replace('"risk_domains": ["none"]', '"risk_domains": ["credential"]')
+            text = text.replace('"security_review_required": true', '"security_review_required": false')
+            subplan_path.write_text(text, encoding="utf-8")
+
+            result = run_validator(Path(temp_dir), "step2", strict=True)
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("strict_warning=subplan_security_review_required_for_risk=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
 
     def test_strict_step2_rejects_blank_dependencies_and_unknown_parent_signal(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1004,6 +1099,52 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             self.assertIn("strict_warning=framework_ownership_matrix_table_missing=Planner-docs/Sub-Planing-Index.md", heading_only.stdout)
             self.assertIn("strict_warning=algorithmic_invariant_register_table_missing=Planner-docs/Sub-Planing-Index.md", heading_only.stdout)
 
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8")
+                .replace(
+                    "Framework ownership is discussed here.",
+                    "\n".join(
+                        [
+                            "| Capability | External Framework Owns | Project Owns | Wrapper Boundary | Validation |",
+                            "|---|---|---|---|---|",
+                            "| | | | | |",
+                        ]
+                    ),
+                )
+                .replace(
+                    "Invariant notes are discussed here.",
+                    "\n".join(
+                        [
+                            "| Invariant ID | Scope | Required Condition | Violation Risk | Validation Probe |",
+                            "|---|---|---|---|---|",
+                            "| | | | | |",
+                        ]
+                    ),
+                ),
+                encoding="utf-8",
+            )
+            blank_rows = run_validator(Path(temp_dir), "step2", strict=True)
+            self.assertNotEqual(blank_rows.returncode, 0, blank_rows.stdout + blank_rows.stderr)
+            self.assertIn("strict_warning=framework_matrix_missing_capability=Planner-docs/Sub-Planing-Index.md::unknown", blank_rows.stdout)
+            self.assertIn("strict_warning=algorithmic_invariant_invalid_id=Planner-docs/Sub-Planing-Index.md::missing", blank_rows.stdout)
+            self.assertIn("strict_warning=framework_ownership_matrix_table_missing=Planner-docs/Sub-Planing-Index.md", blank_rows.stdout)
+            self.assertIn("strict_warning=algorithmic_invariant_register_table_missing=Planner-docs/Sub-Planing-Index.md", blank_rows.stdout)
+
+            index_path.write_text(heading_only_root := index_path.read_text(encoding="utf-8"), encoding="utf-8")
+            index_text = heading_only_root
+            index_text = re.sub(
+                r"### Framework Ownership Matrix\n\n.*?\n### Algorithmic Invariant Register",
+                "### Framework Ownership Matrix\n\nFramework ownership is discussed here.\n\n### Algorithmic Invariant Register",
+                index_text,
+                flags=re.DOTALL,
+            )
+            index_text = re.sub(
+                r"### Algorithmic Invariant Register\n\n.*$",
+                "### Algorithmic Invariant Register\n\nInvariant notes are discussed here.\n",
+                index_text,
+                flags=re.DOTALL,
+            )
+            index_path.write_text(index_text, encoding="utf-8")
             index_text = index_path.read_text(encoding="utf-8")
             index_text = index_text.replace(
                 "Framework ownership is discussed here.",

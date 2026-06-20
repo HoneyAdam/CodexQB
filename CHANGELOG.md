@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Bumped the release surface to 0.3.0 with deterministic Goal previews and artifact-based Step 4 apply-run contracts.
+- Added `references/goal-compiler.md`, stage goal specs, and dependency-free `scripts/goal_run.py` for `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json` generation.
+- Added `references/apply-orchestrator.md` and dependency-free `scripts/apply_run.py` for `.codexqb/apply-runs/<apply-run-id>/` artifacts, apply modes, `no_action` mode, review-order validation, and default `commit_policy: none`.
+- Added `goal_run_schema_version: 1` and `apply_run_schema_version: 1` runtime artifact contracts.
+- Hardened strict planner validation against shell chaining, command substitution, mutation/deploy validation commands, high-risk security-review bypasses, and empty framework/invariant rows.
 - Added 0.2.2 adaptive Step 2 release notes covering wave/full planning, artifact schema v3, handoff contract v2, structured implementation contracts, and stricter semantic validator gates.
 - Added GitHub issue and pull request templates for evidence-backed contribution intake.
 - Added a README community supporters section for public issue and PR contributors.

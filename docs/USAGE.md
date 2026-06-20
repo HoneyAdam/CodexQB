@@ -5,9 +5,11 @@ CodexQB runs a vibecoding-first, repo-aware planning workflow with an optional S
 Release contracts:
 
 ```text
-plugin_version: 0.2.2
+plugin_version: 0.3.0
 artifact_schema_version: 3
 handoff_contract_version: 2
+goal_run_schema_version: 1
+apply_run_schema_version: 1
 ```
 
 
@@ -99,7 +101,9 @@ Step 2 defaults to `wave` mode: it details only the active planning horizon from
 
 `Sub-Planing-Index.md` includes a Planning Scope Manifest with `planning_mode`, `active_phases`, `deferred_phases`, `max_detailed_subplans`, `max_output_words`, `goal_token_risk`, and `review_checkpoint`. It also carries Execution Waves, Parent Acceptance Traceability, and a central Decision Register so repeated global blockers are not copied into every sub-plan.
 
-Active detailed sub-plans keep the 13-section structure and add a machine-readable `### Implementation Contract` JSON block with implementation paths, exact validation commands, parent acceptance signal IDs, dependency graph labels, concrete outputs, and security review flags. Rewritten public planning artifacts use `artifact_schema_version: 3`, `generated_by: codexqb`, and `plugin_version: 0.2.2` frontmatter.
+Active detailed sub-plans keep the 13-section structure and add a machine-readable `### Implementation Contract` JSON block with implementation paths, structured validation commands, parent acceptance signal IDs, dependency graph labels, concrete outputs, risk metadata, and security review flags. Rewritten public planning artifacts use `artifact_schema_version: 3`, `generated_by: codexqb`, and `plugin_version: 0.3.0` frontmatter.
+
+Validation commands should use `argv`, `cwd`, `expected_exit_code`, `timeout_seconds`, `network`, and `probe_tier`. `network` is an enum such as `deny`, `local`, `live`, or `allow`; `probe_tier` is an integer tier. Legacy `command` strings are compatibility-only outside strict mode, and strict validation rejects shell chaining, command substitution, deploy/install/delete/push intent, and other external mutation patterns. High or critical risk classes and domains such as `auth`, `authorization`, `credential`, `secret`, `external_provider`, `network`, `command_execution`, `deployment`, `migration`, `stateful_runtime`, `distributed_runtime`, `online_learning`, `reinforcement_learning`, `cache`, `resume`, `checkpoint`, `payment`, `personal_data`, or `algorithmic_invariant` require `security_review_required: true`.
 
 At the end of Step 2, CodexQB should run the bundled validator or an equivalent all-file validation, summarize the result, and print the Step 3 Goal mode handoff block. Do not rely on sampled reads alone for Step 2 structure checks.
 
@@ -174,6 +178,30 @@ The implementation handoff tells Codex to use relevant skills/plugins or subagen
 
 Step 4 should not stop after the first successful slice. It should continue to the next acceptance criterion or next eligible sub-plan until the queue is complete or a stop gate is hit, such as a P0/P1 finding, failing test, missing source file, required credential/live approval, unsafe external mutation, unrelated dirty worktree, or token/context budget pressure.
 
+Step 4 apply modes are `direct`, `subagent_serial`, `external_superpowers`, and `no_action`. Non-trivial slices should use a fresh-slice implementer when useful, followed by independent spec review, quality/security review, fix/re-review when needed, and final review for the selected batch or queue. Commit, push, PR, deploy, and external mutation remain opt-in.
+
+## Goal Preview and Apply Artifacts
+
+CodexQB 0.3.0 includes dependency-free helpers for local preview and artifact validation. They do not execute implementation or validation commands.
+
+Compile a deterministic Goal preview:
+
+```bash
+python3 plugins/codexqb/skills/codexqb/scripts/goal_run.py --root /path/to/project --stage step2
+```
+
+Supported stages are `step15`, `step2`, `step3`, and `step4`. Output is written under `Planner-docs/Goal-Runs/<goal-run-id>/` as `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json`.
+
+Create or validate an apply-run artifact directory:
+
+```bash
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py init --root /path/to/project --mode subagent_serial
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py validate --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
+```
+
+Output is written under `.codexqb/apply-runs/<apply-run-id>/` as `Apply-Run.json`, `Progress.json`, per-task brief/report/review/fix artifacts, `Final-Review.json`, and `Result.json`. The default commit policy is `none`.
+`Goal-Run.json` records `goal_run_schema_version: 1`; `Apply-Run.json` records `apply_run_schema_version: 1`.
+
 ## Direct Step Invocation
 
 You can invoke Step 2 or Step 3 directly:
@@ -215,7 +243,7 @@ warning_count=0
 error_count=0
 ```
 
-It uses stable exit codes: `0` means validation passed, `1` means document validation failed, and `2` means invocation/configuration/I/O error. With `--strict`, missing semantic readiness signals, repeated or generic section warnings, unsupported planning scope, and uniform quota anomalies are treated as failures except documented compatibility warnings. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, open P0/P1 audit findings block implementation readiness, open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`, resolved/not_applicable P2/P3 findings may coexist with `PASS`, and `NO_ACTION_REQUIRED` is valid when all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED.
+It uses stable exit codes: `0` means validation passed, `1` means document validation failed, and `2` means invocation/configuration/I/O error. With `--strict`, missing semantic readiness signals, repeated or generic section warnings, unsafe validation commands, high-risk security-review bypasses, unsupported planning scope, and uniform quota anomalies are treated as failures except documented compatibility warnings. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, open P0/P1 audit findings block implementation readiness, open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`, resolved/not_applicable P2/P3 findings may coexist with `PASS`, and `NO_ACTION_REQUIRED` is valid when all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED.
 
 If `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, `Planner-docs/Project-Comprehension.md`, or `Planner-docs/Planing-Ledger.md` exists, the validator checks its required heading order and supported semantic fields during Step 2/3 validation. If these optional continuity docs do not exist, Step 2/3 validation continues without treating them as required. Use `--mode autopsy --strict` after Step 1.5 when `Autopsy.md` should be required.
 

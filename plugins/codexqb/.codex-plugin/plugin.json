@@ -1,7 +1,7 @@
 {
   "name": "codexqb",
-  "version": "0.2.2",
-  "description": "CodexQB packages adaptive evidence-backed repo planning with project comprehension, autopsy, ontology, ledger continuity, traceability, semantic Step 2 quality gates, QA audit, and gated handoff.",
+  "version": "0.3.0",
+  "description": "CodexQB packages adaptive evidence-backed repo planning, semantic validator gates, deterministic Goal previews, and artifact-based Step 4 apply orchestration.",
   "author": {
     "name": "Alican Kiraz",
     "email": "167613664+alicankiraz1@users.noreply.github.com",
@@ -22,6 +22,8 @@
     "gate-integrity",
     "adaptive-planning",
     "semantic-validation",
+    "goal-compiler",
+    "apply-orchestrator",
     "project-management",
     "skills",
     "goal-mode"
@@ -30,7 +32,7 @@
   "interface": {
     "displayName": "CodexQB",
     "shortDescription": "Run evidence-backed repo planning and gated handoff.",
-    "longDescription": "CodexQB helps Codex inspect a repository, ask repo-aware intake questions, create a master project plan, autopsy existing project state, capture optional project comprehension and ontology artifacts, decompose the active planning horizon into implementation-ready sub-plans while deferring later roadmap phases, audit coverage, evidence quality, confidence, traceability, readiness, and governance, then print a gated Goal-mode implementation handoff when the audit allows it.",
+    "longDescription": "CodexQB helps Codex inspect a repository, ask repo-aware intake questions, create a master project plan, autopsy existing project state, capture optional project comprehension and ontology artifacts, decompose the active planning horizon into implementation-ready sub-plans while deferring later roadmap phases, audit coverage, evidence quality, confidence, traceability, readiness, and governance, compile deterministic Goal prompt previews, then print or manage a gated Step 4 apply handoff when the audit allows it.",
     "developerName": "Alican Kiraz",
     "category": "Productivity",
     "capabilities": [
@@ -41,7 +43,7 @@
     "defaultPrompt": [
       "Use $codexqb to inspect this repo and create an evidence-backed project comprehension plan.",
       "Use $codexqb to autopsy this project, capture ontology/comprehension evidence, and create phase sub-plans.",
-      "Use $codexqb to audit evidence, traceability, readiness, and prepare the gated implementation handoff."
+      "Use $codexqb to audit evidence, traceability, readiness, compile a Goal preview, and prepare the gated implementation handoff."
     ],
     "brandColor": "#2563EB"
   }

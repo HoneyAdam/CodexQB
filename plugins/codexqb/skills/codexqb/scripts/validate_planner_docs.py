@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -111,7 +112,7 @@ LEDGER_HEADINGS = LEDGER_V3_HEADINGS
 
 ARTIFACT_SCHEMA_VERSION = 3
 HANDOFF_CONTRACT_VERSION = 2
-PLUGIN_VERSION = "0.2.2"
+PLUGIN_VERSION = "0.3.0"
 
 INDEX_HEADINGS = [
     "# Sub-Planing Index",
@@ -334,6 +335,47 @@ VALIDATION_COMMAND_RE = re.compile(
     r"\b(?:uv run|python3 -m|python -m|pytest|make|bash scripts/|npm run|pnpm|yarn|cargo test|go test|ruff|mypy)\b",
     re.IGNORECASE,
 )
+SHELL_METACHAR_RE = re.compile(r"(?:&&|\|\||[;&|<>`]|[$]\(|\n|\r)")
+MUTATING_COMMAND_WORDS = {
+    "rm",
+    "rmdir",
+    "mv",
+    "cp",
+    "chmod",
+    "chown",
+    "sudo",
+    "su",
+    "ssh",
+    "scp",
+    "rsync",
+    "curl",
+    "wget",
+    "kubectl",
+    "terraform",
+    "docker",
+    "gh",
+    "git",
+}
+MUTATING_COMMAND_INTENT_RE = re.compile(
+    r"\b(?:deploy|release|publish|push|merge|destroy|delete|remove|prune|reset|checkout|apply|install|upgrade|"
+    r"migrate|seed|prod|production|live|remote)\b",
+    re.IGNORECASE,
+)
+SAFE_VALIDATION_EXECUTABLES = {
+    "python3",
+    "python",
+    "pytest",
+    "make",
+    "bash",
+    "npm",
+    "pnpm",
+    "yarn",
+    "cargo",
+    "go",
+    "ruff",
+    "mypy",
+    "uv",
+}
 PARENT_SIGNAL_RE = re.compile(r"\bMP-PH\d+-AS-\d{2}\b", re.IGNORECASE)
 DEPENDENCY_LABELS = ("depends_on", "blocks", "can_run_in_parallel_with", "activation_conditions")
 DEFERRED_CARD_HEADERS = ["Phase", "Status", "Deferral Reason", "Activation Trigger", "Earliest Wave"]
@@ -351,6 +393,37 @@ NOT_APPLICABLE_PREFIX = "NOT_APPLICABLE:"
 NO_UNRESOLVED_HYPOTHESES_PREFIX = "NO_UNRESOLVED_HYPOTHESES:"
 UNKNOWN_PREFIX = "UNKNOWN:"
 UNKNOWN_CELL_VALUES = {"", "-", "n/a", "na", "none", "unknown", "unclear", "not found", "not evidenced"}
+ALLOWED_RISK_CLASSES = {"low", "medium", "high", "critical"}
+ALLOWED_RISK_DOMAINS = {
+    "auth",
+    "authorization",
+    "credential",
+    "secret",
+    "external_provider",
+    "network",
+    "command_execution",
+    "deployment",
+    "migration",
+    "stateful_runtime",
+    "distributed_runtime",
+    "online_learning",
+    "reinforcement_learning",
+    "cache",
+    "resume",
+    "checkpoint",
+    "payment",
+    "personal_data",
+    "algorithmic_invariant",
+    "none",
+}
+SECURITY_REVIEW_DOMAINS = ALLOWED_RISK_DOMAINS - {"none"}
+ALLOWED_VALIDATION_NETWORK = {"deny", "local", "live", "allow"}
+SECURITY_REVIEW_SIGNAL_RE = re.compile(
+    r"\b(?:security|secret|credential|token|auth|authorization|permission|policy|live|external|provider|network|"
+    r"stateful|distributed|online|\brl\b|grpo|rollout|trainer-step|vllm|trl|peft|deploy|production|migration|"
+    r"cache|resume|checkpoint|payment|personal data|destructive|command execution)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -524,11 +597,11 @@ def split_cell_values(value: str | None) -> list[str]:
     return [item.strip().lower() for item in items if item.strip()]
 
 
-def normalized_cell(value: str | None) -> str:
-    return (value or "").strip().strip("`").lower()
+def normalized_cell(value: object | None) -> str:
+    return ("" if value is None else str(value)).strip().strip("`").lower()
 
 
-def cell_has_evidence(value: str | None) -> bool:
+def cell_has_evidence(value: object | None) -> bool:
     return normalized_cell(value) not in UNKNOWN_CELL_VALUES
 
 
@@ -606,6 +679,14 @@ def safe_repo_path(value: str) -> str | None:
     return target.as_posix()
 
 
+def safe_repo_cwd(value: str) -> bool:
+    target_text = value.strip().strip("`")
+    if target_text in {".", "./"}:
+        return True
+    target = Path(target_text)
+    return bool(target_text) and not target.is_absolute() and ".." not in target.parts
+
+
 def implementation_surface_path(value: str) -> str | None:
     target = safe_repo_path(value)
     if target is None:
@@ -635,7 +716,70 @@ def exact_validation_command(value: str) -> bool:
         return False
     if len(command.split()) < 2:
         return False
+    if SHELL_METACHAR_RE.search(command):
+        return False
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return False
+    if not safe_validation_argv(argv):
+        return False
     return bool(VALIDATION_COMMAND_RE.search(command))
+
+
+def safe_validation_argv(argv: object) -> bool:
+    if not isinstance(argv, list) or len(argv) < 2:
+        return False
+    normalized: list[str] = []
+    for item in argv:
+        if not isinstance(item, str):
+            return False
+        value = item.strip()
+        if not value or SHELL_METACHAR_RE.search(value):
+            return False
+        if ".." in Path(value).parts or Path(value).is_absolute():
+            return False
+        if any(pattern.search(value) for _, pattern in SECRET_PATTERNS):
+            return False
+        normalized.append(value)
+
+    executable = Path(normalized[0]).name
+    if executable not in SAFE_VALIDATION_EXECUTABLES:
+        return False
+    if executable in MUTATING_COMMAND_WORDS:
+        return False
+
+    joined = " ".join(normalized)
+    if MUTATING_COMMAND_INTENT_RE.search(joined):
+        return False
+
+    if executable == "bash":
+        if len(normalized) < 2 or safe_repo_path(normalized[1]) is None:
+            return False
+        if not normalized[1].startswith("scripts/"):
+            return False
+    if executable == "npm" and normalized[:2] != ["npm", "run"]:
+        return False
+    if executable in {"pnpm", "yarn"} and len(normalized) >= 2 and normalized[1] in {"add", "install", "upgrade"}:
+        return False
+    if executable == "uv" and len(normalized) >= 2 and normalized[1] not in {"run"}:
+        return False
+    return True
+
+
+def safe_validation_command_item(item: dict[str, object]) -> bool:
+    argv = item.get("argv")
+    if argv is not None:
+        return safe_validation_argv(argv)
+    command = item.get("command")
+    return isinstance(command, str) and exact_validation_command(command)
+
+
+def validation_probe_is_safe(value: str) -> bool:
+    probe = value.strip()
+    if re.fullmatch(r"VAL-\d{2}", probe):
+        return True
+    return exact_validation_command(probe)
 
 
 def extract_fenced_json_after_heading(text: str, heading: str) -> tuple[object | None, str | None]:
@@ -916,13 +1060,33 @@ def validate_implementation_contract(
                 continue
             command_id = str(item.get("id", ""))
             command = str(item.get("command", ""))
-            expected = str(item.get("expected_result", ""))
+            expected = item.get("expected_result", item.get("expected_exit_code", ""))
             if not re.fullmatch(r"VAL-\d{2}", command_id):
                 state.warning(f"subplan_invalid_validation_command_id={state.rel(path)}::{command_id or 'missing'}")
-            if exact_validation_command(command):
+            if safe_validation_command_item(item):
                 exact_commands += 1
             else:
                 state.warning(f"subplan_missing_exact_validation_command={state.rel(path)}")
+            if state.strict and "argv" not in item:
+                state.warning(f"subplan_validation_command_requires_structured_argv={state.rel(path)}::{command_id or 'unknown'}")
+            if "argv" in item:
+                cwd = str(item.get("cwd", ""))
+                timeout = item.get("timeout_seconds")
+                network = item.get("network")
+                probe_tier = item.get("probe_tier")
+                expected_exit = item.get("expected_exit_code")
+                if not safe_repo_cwd(cwd):
+                    state.warning(f"subplan_validation_command_invalid_cwd={state.rel(path)}::{command_id or 'unknown'}")
+                if not isinstance(expected_exit, int):
+                    state.warning(f"subplan_validation_command_invalid_expected_exit_code={state.rel(path)}::{command_id or 'unknown'}")
+                if not isinstance(timeout, int) or timeout < 1 or timeout > 3600:
+                    state.warning(f"subplan_validation_command_invalid_timeout={state.rel(path)}::{command_id or 'unknown'}")
+                if network not in ALLOWED_VALIDATION_NETWORK:
+                    state.warning(f"subplan_validation_command_invalid_network={state.rel(path)}::{command_id or 'unknown'}")
+                if not isinstance(probe_tier, int) or probe_tier < 1 or probe_tier > 3:
+                    state.warning(f"subplan_validation_command_invalid_probe_tier={state.rel(path)}::{command_id or 'unknown'}")
+                if network in {"live", "allow"} and probe_tier != 3:
+                    state.warning(f"subplan_validation_command_network_requires_live_probe={state.rel(path)}::{command_id or 'unknown'}")
             if not cell_has_evidence(expected):
                 state.warning(f"subplan_validation_command_missing_expected_result={state.rel(path)}::{command_id or 'unknown'}")
         if exact_commands == 0:
@@ -968,8 +1132,35 @@ def validate_implementation_contract(
         if valid_outputs == 0:
             state.warning(f"subplan_missing_concrete_output_artifact={state.rel(path)}")
 
-    if not isinstance(contract.get("security_review_required"), bool):
+    security_review_required = contract.get("security_review_required")
+    if not isinstance(security_review_required, bool):
         state.warning(f"subplan_invalid_security_review_flag={state.rel(path)}")
+
+    risk_class = normalized_cell(str(contract.get("risk_class", "")))
+    if risk_class not in ALLOWED_RISK_CLASSES:
+        state.warning(f"subplan_invalid_risk_class={state.rel(path)}::{risk_class or 'missing'}")
+
+    raw_domains = contract.get("risk_domains")
+    risk_domains: set[str] = set()
+    if not isinstance(raw_domains, list) or not raw_domains:
+        state.warning(f"subplan_invalid_risk_domains={state.rel(path)}::missing")
+    else:
+        for raw_domain in raw_domains:
+            domain = normalized_cell(str(raw_domain))
+            if domain not in ALLOWED_RISK_DOMAINS:
+                state.warning(f"subplan_invalid_risk_domain={state.rel(path)}::{domain or 'missing'}")
+            else:
+                risk_domains.add(domain)
+
+    implementation_text = json.dumps(contract, sort_keys=True)
+    requires_security_review = (
+        risk_class in {"high", "critical"}
+        or bool(risk_domains & SECURITY_REVIEW_DOMAINS)
+        or bool(SECURITY_REVIEW_SIGNAL_RE.search(text))
+        or bool(SECURITY_REVIEW_SIGNAL_RE.search(implementation_text))
+    )
+    if requires_security_review and security_review_required is not True:
+        state.warning(f"subplan_security_review_required_for_risk={state.rel(path)}")
 
 
 def is_allowed_repeated_sentence(sentence: str) -> bool:
@@ -1534,6 +1725,83 @@ def validate_decision_references(state: ValidationState, subplan_texts: list[str
         state.warning(f"decision_reference_missing_register_entry={decision_id}")
 
 
+def validate_framework_matrix_rows(state: ValidationState, index_path: Path, headers: list[str], rows: list[dict[str, str]]) -> int:
+    if not headers_match(headers, FRAMEWORK_MATRIX_HEADERS):
+        return 0
+    valid_rows = 0
+    seen_capabilities: set[str] = set()
+    for row in rows:
+        capability = row_value(row, "Capability")
+        external_owns = row_value(row, "External Framework Owns")
+        project_owns = row_value(row, "Project Owns")
+        wrapper = row_value(row, "Wrapper Boundary")
+        validation = row_value(row, "Validation")
+        row_id = capability or "unknown"
+        if not cell_has_evidence(capability):
+            state.warning(f"framework_matrix_missing_capability={state.rel(index_path)}::{row_id}")
+            continue
+        normalized_capability = normalize_semantic_sentence(capability)
+        if normalized_capability in seen_capabilities:
+            state.warning(f"framework_matrix_duplicate_capability={state.rel(index_path)}::{capability}")
+        seen_capabilities.add(normalized_capability)
+        missing_columns = [
+            name
+            for name, value in [
+                ("externalframeworkowns", external_owns),
+                ("projectowns", project_owns),
+                ("wrapperboundary", wrapper),
+                ("validation", validation),
+            ]
+            if not cell_has_evidence(value)
+        ]
+        for column in missing_columns:
+            state.warning(f"framework_matrix_missing_{column}={state.rel(index_path)}::{capability}")
+        if wrapper and implementation_surface_path(wrapper) is None:
+            state.warning(f"framework_matrix_invalid_wrapper_boundary={state.rel(index_path)}::{capability}")
+        if validation and not validation_probe_is_safe(validation):
+            state.warning(f"framework_matrix_invalid_validation={state.rel(index_path)}::{capability}")
+        if not missing_columns and wrapper and validation and implementation_surface_path(wrapper) is not None and validation_probe_is_safe(validation):
+            valid_rows += 1
+    return valid_rows
+
+
+def validate_invariant_register_rows(state: ValidationState, index_path: Path, headers: list[str], rows: list[dict[str, str]]) -> int:
+    if not headers_match(headers, ALGORITHMIC_INVARIANT_HEADERS):
+        return 0
+    valid_rows = 0
+    seen_ids: set[str] = set()
+    for row in rows:
+        invariant_id = row_value(row, "Invariant ID")
+        scope = row_value(row, "Scope")
+        condition = row_value(row, "Required Condition")
+        risk = row_value(row, "Violation Risk")
+        probe = row_value(row, "Validation Probe")
+        row_id = invariant_id or "missing"
+        if not re.fullmatch(r"INV-\d{3}", invariant_id):
+            state.warning(f"algorithmic_invariant_invalid_id={state.rel(index_path)}::{row_id}")
+        elif invariant_id in seen_ids:
+            state.warning(f"algorithmic_invariant_duplicate_id={state.rel(index_path)}::{invariant_id}")
+        else:
+            seen_ids.add(invariant_id)
+        for column, value in [
+            ("scope", scope),
+            ("requiredcondition", condition),
+            ("violationrisk", risk),
+            ("validationprobe", probe),
+        ]:
+            if not cell_has_evidence(value):
+                state.warning(f"algorithmic_invariant_missing_{column}={state.rel(index_path)}::{row_id}")
+        if probe and not validation_probe_is_safe(probe):
+            state.warning(f"algorithmic_invariant_invalid_validation_probe={state.rel(index_path)}::{row_id}")
+        if (
+            re.fullmatch(r"INV-\d{3}", invariant_id)
+            and all(cell_has_evidence(value) for value in [scope, condition, risk, probe])
+            and validation_probe_is_safe(probe)
+        ):
+            valid_rows += 1
+    return valid_rows
+
+
 def validate_framework_and_invariant_guidance(
     state: ValidationState,
     main_text: str,
@@ -1546,8 +1814,13 @@ def validate_framework_and_invariant_guidance(
         framework_section = markdown_section(index_text, "### Framework Ownership Matrix")
         if not framework_section:
             state.warning("framework_ownership_matrix_missing=Planner-docs/Sub-Planing-Index.md")
-        elif not any(headers_match(headers, FRAMEWORK_MATRIX_HEADERS) and rows for headers, rows in markdown_tables(framework_section)):
-            state.warning("framework_ownership_matrix_table_missing=Planner-docs/Sub-Planing-Index.md")
+        else:
+            valid_rows = sum(
+                validate_framework_matrix_rows(state, state.planner_docs / "Sub-Planing-Index.md", headers, rows)
+                for headers, rows in markdown_tables(framework_section)
+            )
+            if valid_rows == 0:
+                state.warning("framework_ownership_matrix_table_missing=Planner-docs/Sub-Planing-Index.md")
 
     invariant_terms = (
         r"\bgrpo\b",
@@ -1563,11 +1836,13 @@ def validate_framework_and_invariant_guidance(
         invariant_section = markdown_section(index_text, "### Algorithmic Invariant Register")
         if not invariant_section:
             state.warning("algorithmic_invariant_register_missing=Planner-docs/Sub-Planing-Index.md")
-        elif not any(
-            headers_match(headers, ALGORITHMIC_INVARIANT_HEADERS) and rows
-            for headers, rows in markdown_tables(invariant_section)
-        ):
-            state.warning("algorithmic_invariant_register_table_missing=Planner-docs/Sub-Planing-Index.md")
+        else:
+            valid_rows = sum(
+                validate_invariant_register_rows(state, state.planner_docs / "Sub-Planing-Index.md", headers, rows)
+                for headers, rows in markdown_tables(invariant_section)
+            )
+            if valid_rows == 0:
+                state.warning("algorithmic_invariant_register_table_missing=Planner-docs/Sub-Planing-Index.md")
 
 
 def validate_index(state: ValidationState) -> tuple[set[str], dict[str, object]]:

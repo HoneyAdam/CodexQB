@@ -28,10 +28,14 @@ Planning behavior references:
 - `references/probe-policy.md` for static/local/live probe tiers, approval, timeout, cleanup, and evidence artifact rules.
 - `references/assessment-and-budget.md` for autonomy, Goal mode, token/context, and budget assessment.
 - `references/engineering-principles.md` for domain-appropriate CS, architecture, validation, and secure engineering methods.
+- `references/goal-compiler.md` for deterministic Goal preview artifacts.
+- `references/apply-orchestrator.md` for Step 4 apply-run artifact contracts, modes, state, review loop, and resume/no-action behavior.
 
 Bundled support files:
 
 - `scripts/validate_planner_docs.py` for read-only structural validation of `Planner-docs/`.
+- `scripts/goal_run.py` for dependency-free Goal preview artifact generation.
+- `scripts/apply_run.py` for dependency-free Step 4 apply-run artifact creation and validation.
 - `references/repo-aware-intake.md` for evidence-backed Step 1 intake questions.
 - `references/workflow-quality.md` for Goal mode reliability, validation, token discipline, and handoff practices.
 
@@ -126,6 +130,8 @@ When executing Step 3 directly:
 1. Read `references/Third-Planner.md`.
 2. Read `references/workflow-quality.md`.
 3. Run the bundled validator first when available and incorporate its findings into the audit. When manually validating from a CodexQB repository checkout, use:
+   `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3-preflight --strict`
+   Then, after `Planner-docs/Sub-Planing-Audit.md` is written, use:
    `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict`
    If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
 4. Follow audit, file-boundary, validation, and stopping rules exactly.
@@ -152,11 +158,13 @@ When Step 3 completes:
 - Prefer `scripts/validate_planner_docs.py` over ad hoc validation scripts.
 - Use `--mode step1`, `--mode autopsy`, `--mode step2`, `--mode step3-preflight`, `--mode step3`, or `--mode step4` for the active workflow step.
 - Use `--strict` in Goal mode so generic or repeated section warnings become failures.
+- Prefer structured validation command contracts with `argv`, `cwd`, `expected_exit_code`, `timeout_seconds`, `network`, and `probe_tier`; strict validation rejects shell chaining, command substitution, and mutation/deploy intent.
 - Do not report section counts from memory; report counts only after reading the active prompt or running validation.
 - For untracked `Planner-docs/`, use `find Planner-docs -maxdepth 4 -type f | sort`, `git status --short -- Planner-docs`, and `git diff -- Planner-docs` together.
 - Keep long Goal mode stdout concise. Put detailed evidence in the generated Markdown artifacts.
 - Track planning and implementation continuity through `Planner-docs/Planing-Ledger.md` when available; Step 4 should append concise implementation summaries there.
 - Track project-understanding continuity through optional `Planner-docs/Project-Comprehension.md`; Step 4 should verify tentative assumptions before code changes and update the ledger when a hypothesis is confirmed or contradicted.
+- Optional 0.3.0 helpers write only repo-local `Planner-docs/Goal-Runs/` or `.codexqb/apply-runs/` artifacts and do not execute implementation, commit, push, PR, deploy, install dependencies, or edit global Codex config.
 
 ## Safety Rules
 

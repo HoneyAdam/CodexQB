@@ -177,6 +177,34 @@ class SkillContentTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, fourth)
 
+    def test_step3_direct_guidance_starts_with_preflight(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        step3 = skill.split("## Step 3 Handoff", 1)[1].split("## Step 4 Handoff", 1)[0]
+        self.assertIn("--mode step3-preflight --strict", step3)
+        self.assertIn("Then, after `Planner-docs/Sub-Planing-Audit.md` is written", step3)
+        self.assertLess(step3.index("--mode step3-preflight --strict"), step3.index("--mode step3 --strict"))
+
+    def test_step4_documents_apply_modes_and_review_loop(self) -> None:
+        fourth = (SKILL_ROOT / "references/handoffs/run-step4.md").read_text(encoding="utf-8")
+        for phrase in [
+            "Step 4 apply modes:",
+            "`direct`",
+            "`subagent_serial`",
+            "`external_superpowers`",
+            "`no_action`",
+            "fresh-slice implementer",
+            "`DONE_WITH_CONCERNS`",
+            "`NEEDS_CONTEXT`",
+            "`BLOCKED`",
+            "`spec_verdict: pass|fail`",
+            "`quality_verdict: pass|fail|with_fixes`",
+            "fix only the active slice and re-run spec review",
+            "fix only the active slice and re-run the relevant review",
+            "final review",
+            "Do not commit, push, open PRs, deploy, or mutate external systems unless the user explicitly opts into that action",
+        ]:
+            self.assertIn(phrase, fourth)
+
     def test_validate_script_covers_archive_and_secret_hygiene(self) -> None:
         validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
         for phrase in [
@@ -195,9 +223,9 @@ class SkillContentTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, validate_script)
 
-    def test_plugin_metadata_reflects_022_adaptive_quality_release(self) -> None:
+    def test_plugin_metadata_reflects_030_goal_apply_release(self) -> None:
         plugin_text = (REPO_ROOT / "plugins/codexqb/.codex-plugin/plugin.json").read_text(encoding="utf-8")
-        self.assertIn('"version": "0.2.2"', plugin_text)
+        self.assertIn('"version": "0.3.0"', plugin_text)
         for phrase in [
             "project comprehension",
             "evidence",
@@ -208,6 +236,8 @@ class SkillContentTests(unittest.TestCase):
             "gate",
             "semantic",
             "adaptive",
+            "goal",
+            "apply",
         ]:
             self.assertIn(phrase, plugin_text.lower())
 
@@ -345,9 +375,11 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("push:", workflow)
         self.assertIn("pull_request:", workflow)
         self.assertNotIn("branches: [main]", workflow)
-        self.assertIn("git diff --quiet", makefile)
-        self.assertIn("git diff --cached --quiet", makefile)
-        self.assertIn("--prefix=CodexQB/", makefile)
+        self.assertIn("scripts/export_sanitized.py", makefile)
+        export_script = (REPO_ROOT / "scripts/export_sanitized.py").read_text(encoding="utf-8")
+        self.assertIn("CodexQB-sanitized.zip", export_script)
+        self.assertIn("IGNORED_PARTS", export_script)
+        self.assertIn("BLOCKED_SUFFIXES", export_script)
 
     def test_fixture_corpus_infrastructure_is_present(self) -> None:
         runner = REPO_ROOT / "evals/run_fixture_corpus_checks.py"

@@ -8,14 +8,16 @@
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
-The current 0.2.2 release adds adaptive Step 2 planning horizons and semantic plan-quality gates on top of evidence-backed project comprehension while keeping repository marketplace distribution hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and tracked-file sanitized exports through `make export-sanitized`.
+The current 0.3.0 release adds deterministic Goal previews and an artifact-based Step 4 apply-run protocol on top of adaptive Step 2 planning horizons and semantic plan-quality gates. Repository marketplace distribution remains hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and current-worktree sanitized exports through `make export-sanitized`.
 
 Release contracts:
 
 ```text
-plugin_version: 0.2.2
+plugin_version: 0.3.0
 artifact_schema_version: 3
 handoff_contract_version: 2
+goal_run_schema_version: 1
+apply_run_schema_version: 1
 ```
 
 ## Why CodexQB
@@ -25,8 +27,11 @@ handoff_contract_version: 2
 - **Project Autopsy + Ontology + Comprehension:** Existing projects get a focused `Autopsy.md` report and may get `Project-Ontology.md` plus `Project-Comprehension.md` to capture evidence confidence, CQ/TRACE/ARC links, architecture reflexion, quality scenarios, and open validation probes.
 - **Adaptive phase decomposition:** The main plan can be expanded by active planning horizon in default `wave` mode, while later phases remain deferred roadmap cards unless the user explicitly requests `full` planning.
 - **Implementation-ready planning gates:** Active sub-plans keep the 13-section human-readable structure and add a machine-readable implementation contract with repo-relative paths, exact validation commands, parent acceptance signal IDs, dependency labels, concrete outputs, and security review flags.
+- **Structured command and risk contracts:** Step 2 contracts prefer `argv` validation commands with cwd, expected exit code, timeout, network, and probe tier fields. Strict validation rejects shell chaining, command substitution, mutation/deploy intent, and high-risk work without security review.
 - **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, ontology consistency, planning-history continuity, framework ownership, algorithmic invariants, security/governance, vibecoding slice quality, and implementation preparedness.
+- **Deterministic Goal previews:** `scripts/goal_run.py` compiles source snapshots and canonical handoffs into `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json` without executing commands.
 - **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin, then guides that run through the READY queue in small verified slices and asks Step 4 to append concise implementation summaries to `Planing-Ledger.md`.
+- **Artifact-based apply runs:** `scripts/apply_run.py` creates and validates `.codexqb/apply-runs/<apply-run-id>/` artifacts for `direct`, `subagent_serial`, `external_superpowers`, and `no_action` modes. Commit, push, PR, deploy, and external mutation remain opt-in.
 
 
 ## Vibecoding-First Behavior
@@ -46,6 +51,16 @@ When a project is large or ambiguous, CodexQB may recommend or explicitly reques
 | 4. Gated Handoff | Prints a copy-ready implementation Goal prompt when Step 3 passes and tracks implementation summaries through the optional ledger. | Text-only Goal mode prompt, optional `Planner-docs/Planing-Ledger.md` updates |
 
 Step 1 runs in the current Codex thread. Steps 2, 3, and 4 are intentionally handed off as text-only Goal mode prompts so the user stays in control of long-running work. Canonical Goal handoffs live under `references/handoffs/` and include the Goal Run Contract, resume/recovery protocol, validation gates, stop gates, context budget, and subagent policy.
+
+CodexQB 0.3.0 also includes optional local preview helpers:
+
+```bash
+python3 plugins/codexqb/skills/codexqb/scripts/goal_run.py --root /path/to/project --stage step2
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py init --root /path/to/project --mode subagent_serial
+```
+
+These helpers write deterministic artifacts inside the target repository and do not execute implementation, validation, commit, push, PR, deploy, dependency install, or global Codex configuration changes.
+`Goal-Run.json` uses `goal_run_schema_version: 1`; `Apply-Run.json` uses `apply_run_schema_version: 1`.
 
 ## Quick Start
 
@@ -98,6 +113,27 @@ Planner-docs/
 
 The `Planing` spelling is intentionally preserved because the bundled planner prompts and validators use these exact filenames.
 
+Optional 0.3.0 runtime artifacts are written outside `Planner-docs/`:
+
+```text
+Planner-docs/
+  Goal-Runs/<goal-run-id>/
+    Goal-Run.json
+    Goal-Prompt.md
+    Goal-Result.json
+.codexqb/
+  apply-runs/<apply-run-id>/
+    Apply-Run.json
+    Progress.json
+    task-<n>/Brief.md
+    task-<n>/Implementer-Report.json
+    task-<n>/Review-Package.patch
+    task-<n>/Task-Review.json
+    task-<n>/Fix-Report.json
+    Final-Review.json
+    Result.json
+```
+
 ## Evidence-Based Project Comprehension
 
 `Planner-docs/Project-Comprehension.md` is optional and intended for medium or large existing projects. It records question-driven comprehension, evidence registers, confidence, domain-to-code trace maps, intended-vs-implemented architecture relations, bounded history/hotspot signals, quality scenarios, and open hypotheses with next probes.
@@ -129,7 +165,7 @@ Validator modes:
 
 These commands are for manual validation from a CodexQB repository checkout. When running through an installed plugin, CodexQB should use the bundled validator path exposed by the active skill; if that path is unavailable, it should perform equivalent all-file validation and report the fallback clearly.
 
-The validator checks required sections, schema frontmatter, optional ontology/ledger/comprehension headings and content, planning scope manifests, active/deferred phase consistency, deferred roadmap cards, structured implementation contracts, execution waves, parent acceptance traceability, decision references, framework ownership matrices, algorithmic invariant registers, normalized duplicate ratios, uniform sub-plan count anomalies, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. Open P0/P1 audit findings block the implementation handoff. Open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`; resolved/not_applicable P2/P3 findings do not keep the audit in warning state forever.
+The validator checks required sections, schema frontmatter, optional ontology/ledger/comprehension headings and content, planning scope manifests, active/deferred phase consistency, deferred roadmap cards, structured implementation contracts, safe validation command schemas, risk/security review consistency, execution waves, parent acceptance traceability, decision references, framework ownership matrices, algorithmic invariant registers, normalized duplicate ratios, uniform sub-plan count anomalies, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. Open P0/P1 audit findings block the implementation handoff. Open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`; resolved/not_applicable P2/P3 findings do not keep the audit in warning state forever.
 
 Repository maintainers can run the dependency-free repo check with:
 
@@ -157,13 +193,13 @@ make check
 
 The repository also includes GitHub Actions at `.github/workflows/validate.yml`, which runs the same check on pushes to `main` and pull requests.
 
-For sanitized zip sharing, use the tracked-file archive target instead of Finder or generic directory compression:
+For sanitized zip sharing, use the sanitized export target instead of Finder or generic directory compression:
 
 ```bash
 make export-sanitized
 ```
 
-This creates `CodexQB-sanitized.zip` from `git archive`, excluding `.git/`, ignored Python caches, local env files, runtime folders, and other untracked local clutter. The default validation gate also checks that forbidden tracked archive entries are not present.
+This creates `CodexQB-sanitized.zip` from the current repository worktree, excluding `.git/`, ignored Python caches, local env files, runtime folders, local zips, and other local clutter. The default validation gate also checks that forbidden archive/package entries are not present.
 
 ## Safety Model
 
@@ -190,6 +226,8 @@ plugins/codexqb/
     SKILL.md
     agents/openai.yaml
     scripts/validate_planner_docs.py
+    scripts/goal_run.py
+    scripts/apply_run.py
     references/
       First-Planner.md
       Autopsy-Planner.md
@@ -210,6 +248,9 @@ plugins/codexqb/
       probe-policy.md
       assessment-and-budget.md
       engineering-principles.md
+      goal-compiler.md
+      apply-orchestrator.md
+      goal-specs/
 docs/
   INSTALLATION.md
   MAINTAINING.md

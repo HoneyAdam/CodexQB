@@ -5,9 +5,11 @@ This document covers validation and release maintenance for CodexQB.
 Current release contracts:
 
 ```text
-plugin_version: 0.2.2
+plugin_version: 0.3.0
 artifact_schema_version: 3
 handoff_contract_version: 2
+goal_run_schema_version: 1
+apply_run_schema_version: 1
 ```
 
 ## Dependency-Free Repo Check
@@ -83,6 +85,9 @@ When changing the validator, test at least:
 - Ledger v3 headings with split planning/execution status and split planning/implementation evidence, while v2 and legacy v1 ledgers remain accepted outside strict Step 4 execution with compatibility warnings;
 - Step 2 Planning Scope Manifest validation, including active/deferred phase consistency and `wave` vs explicit `full` planning behavior;
 - semantic Step 2 gates for implementation paths, exact validation commands, behavioral acceptance criteria, parent acceptance signals, dependency labels, concrete outputs, and domain-specific risks;
+- 0.3.0 security gates for structured `argv` validation commands, shell-metacharacter rejection, mutation/deploy intent rejection, risk/security review consistency, and meaningful framework/invariant rows;
+- Goal compiler artifacts from `scripts/goal_run.py`, including deterministic run IDs and repo-contained output directories;
+- Apply-run artifacts from `scripts/apply_run.py`, including `no_action` mode, default `commit_policy: none`, unsafe command rejection, and spec-before-quality review order;
 - normalized duplicate ratio and uniform sub-plan count anomaly checks;
 - Step 4 readiness gating for missing audit, headings-only audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, NO_ACTION_REQUIRED, unsafe readiness paths, duplicate conflicting rows, and prose such as `no P0/P1 findings`.
 
@@ -162,13 +167,13 @@ No public-facing stale references should remain.
 
 Do not create release zips with Finder or generic directory compression, because ignored files such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, or `tmp/` can be included.
 
-Use the tracked-file export target:
+Use the sanitized current-worktree export target:
 
 ```bash
 make export-sanitized
 ```
 
-This writes `CodexQB-sanitized.zip` with `git archive`.
+This writes `CodexQB-sanitized.zip` with `scripts/export_sanitized.py`, including repository-scope uncommitted changes while excluding `.git/`, caches, local env files, runtime folders, local zips, and blocked key/certificate suffixes.
 
 The default `make check` gate validates tracked archive contents in Git checkouts and fails if forbidden tracked paths such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, `tmp/`, `__MACOSX/`, `.pyc`, `.pem`, `.key`, or `.local` files would be included. In extracted packages, `make check` performs equivalent package-content hygiene where possible and labels the result as package validation.
 
@@ -181,25 +186,26 @@ The default `make check` gate validates tracked archive contents in Git checkout
 5. Update `plugins/codexqb/skills/codexqb/references/vibecoding-principles.md`, `subagent-playbook.md`, `planning-ledger.md`, `project-ontology.md`, `assessment-and-budget.md`, or `engineering-principles.md` when planning behavior changes.
 6. Update `plugins/codexqb/skills/codexqb/references/Fourth-Planner.md` if implementation handoff behavior changes.
 7. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure or readiness gates change.
-8. Run `make check`.
-9. Optionally run the Codex skill/plugin validator scripts if their Python dependencies are available.
-10. Optionally sync and compare the local global skill copy for manual testing.
-11. Commit with a focused message.
-12. Push to `main`.
-13. Reinstall the plugin in Codex:
+8. Update `plugins/codexqb/skills/codexqb/scripts/goal_run.py` or `apply_run.py` if Goal preview or Step 4 apply artifacts change.
+9. Run `make check`.
+10. Optionally run the Codex skill/plugin validator scripts if their Python dependencies are available.
+11. Optionally sync and compare the local global skill copy for manual testing only when the active task permits global cache changes.
+12. Commit with a focused message only when the active task permits commits.
+13. Push to `main` only when the active task permits pushing.
+14. Reinstall the plugin in Codex:
 
    ```bash
    codex plugin add codexqb@codexqb
    ```
 
-14. If Codex reports stale marketplace metadata, refresh the marketplace and retry:
+15. If Codex reports stale marketplace metadata, refresh the marketplace and retry:
 
    ```bash
    codex plugin marketplace upgrade
    codex plugin add codexqb@codexqb
    ```
 
-15. Start a new Codex thread before testing.
+16. Start a new Codex thread before testing.
 
 ## Public Directory Status
 

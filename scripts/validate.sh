@@ -33,6 +33,7 @@ required_files=(
   "plugins/codexqb/skills/codexqb/references/engineering-principles.md"
   "evals/run_fixture_corpus_checks.py"
   "evals/run_fixture_checks.py"
+  "scripts/export_sanitized.py"
   "README.md"
   "CHANGELOG.md"
   "docs/INSTALLATION.md"

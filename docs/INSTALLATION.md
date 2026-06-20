@@ -5,9 +5,11 @@ CodexQB is distributed as a Codex plugin repository with a repo-local marketplac
 Current package contracts:
 
 ```text
-plugin_version: 0.2.2
+plugin_version: 0.3.0
 artifact_schema_version: 3
 handoff_contract_version: 2
+goal_run_schema_version: 1
+apply_run_schema_version: 1
 ```
 
 ## Requirements
@@ -96,7 +98,7 @@ diff -ru -x __pycache__ plugins/codexqb/skills/codexqb "$HOME/.codex/skills/code
 
 ## Compatibility Notes
 
-CodexQB 0.2.2 keeps older planner artifacts readable outside strict execution gates. Legacy `Planing-Ledger.md` v1 and v2 files pass non-strict validation with compatibility warnings, but strict Step 4 execution requires Ledger v3 migration before implementation starts.
+CodexQB 0.3.0 keeps older planner artifacts readable outside strict execution gates. Legacy `Planing-Ledger.md` v1 and v2 files pass non-strict validation with compatibility warnings, but strict Step 4 execution requires Ledger v3 migration before implementation starts. New strict planner artifacts should use structured validation command contracts and explicit risk metadata.
 
 The old fixture checker command remains available as a compatibility wrapper:
 
