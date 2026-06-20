@@ -494,6 +494,30 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("main_plan_has_no_detected_phases=Planner-docs/Main-Planing.md", result.stdout)
 
+    def test_step1_rejects_empty_main_plan_section_bodies(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs = Path(temp_dir) / "Planner-docs"
+            docs.mkdir()
+            lines: list[str] = []
+            for heading in STEP1_HEADINGS:
+                lines += [heading, ""]
+                if heading == "## 6. Phase-Based Master Roadmap":
+                    lines += [
+                        "| Phase | Phase name | Goal | Approximate maturity | Main acceptance signals |",
+                        "|---|---|---|---|---|",
+                        "| 1 | Foundation | Stabilize planning. | M2 | Validator passes. |",
+                        "",
+                    ]
+            (docs / "Main-Planing.md").write_text("\n".join(lines), encoding="utf-8")
+
+            result = run_validator(Path(temp_dir), "step1")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(
+                "empty_or_too_short_section=Planner-docs/Main-Planing.md::## 1. Executive Summary",
+                result.stdout,
+            )
+
     def test_autopsy_mode_validates_main_autopsy_and_optional_ontology(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             docs = Path(temp_dir) / "Planner-docs"

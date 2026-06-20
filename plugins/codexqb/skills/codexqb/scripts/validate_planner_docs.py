@@ -626,6 +626,11 @@ def validate_step1(state: ValidationState) -> list[int]:
         return []
 
     validate_heading_order(text, STEP1_HEADINGS, main_path, state)
+    for required in STEP1_HEADINGS[1:]:
+        body = section_body(text, required)
+        if required in text and len(body) < 20:
+            state.error(f"empty_or_too_short_section={state.rel(main_path)}::{required}")
+
     phases = extract_main_phase_numbers(text)
     state.metrics["main_phase_count"] = len(phases)
     if not phases:
