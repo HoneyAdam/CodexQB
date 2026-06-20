@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added GitHub issue and pull request templates for evidence-backed contribution intake.
+- Added a README community supporters section for public issue and PR contributors.
 - Documented `make test` and pull request validation expectations in the README.
 - Clarified the default `$codexqb` prompt so it describes explicit planning steps instead of implying a single automatic full-workflow run.
 

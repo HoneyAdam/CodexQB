@@ -252,6 +252,13 @@ Then extract `CodexQB-sanitized.zip` into a temporary directory and run `make ch
 
 Pull requests should keep the existing compatibility contracts intact: preserve the `$codexqb` invocation, keep `Planing` filenames unchanged, keep validator checks dependency-free, avoid printing secret values, and do not weaken `export-sanitized` dirty-worktree guards.
 
+## Community Supporters
+
+CodexQB's hardening has benefited from concrete public feedback and PR proposals. Thank you to:
+
+- [@ozanturcan](https://github.com/ozanturcan) for detailed issue reports and acceptance criteria that strengthened Step 1 validation, Step 3/4 gate clarity, package fallback behavior, and prompt wording.
+- [@hsnyvsh](https://github.com/hsnyvsh) for PR proposals that helped shape the Step 1 validator test coverage, Step 4 handoff documentation, and the `make test` developer loop.
+
 ## Public Plugin Directory Status
 
 CodexQB currently uses repository marketplace distribution. Public directory or workspace sharing distribution can be revisited separately; this release focuses on repo-marketplace installation and local/team validation.
