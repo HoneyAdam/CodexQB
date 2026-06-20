@@ -1,0 +1,8 @@
+{
+  "id": "adaptive-wave-planning",
+  "description": "Adaptive Step 2 wave planning with active phases 0-4 and deferred phases 5-9.",
+  "expected_comprehension_signals": ["active planning horizon", "deferred roadmap cards", "scope manifest"],
+  "expected_trace_ids": ["TRACE-wave-active-phases", "TRACE-deferred-roadmap"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["planning_scope_manifest", "implementation_contracts", "deferred_card_coverage", "parent_acceptance_traceability"]
+}

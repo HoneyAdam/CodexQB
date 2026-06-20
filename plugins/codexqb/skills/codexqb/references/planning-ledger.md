@@ -23,7 +23,7 @@ Planner-docs/Planing-Ledger.md
 
 ## Recommended Headings
 
-Ledger v2 is the default structure for new files:
+Ledger v3 is the default structure for new files:
 
 ```markdown
 # Planing Ledger
@@ -32,13 +32,15 @@ Ledger v2 is the default structure for new files:
 ## 2. Planning Runs
 ## 3. Plan Snapshot Registry
 ## 4. Sub-Plan Status Matrix
-## 5. Implementation Runs
-## 6. Current State Snapshot
-## 7. Replanning Inputs
-## 8. Open Decisions and Follow-Ups
+## 5. Planning Evidence
+## 6. Implementation Evidence
+## 7. Implementation Runs
+## 8. Current State Snapshot
+## 9. Replanning Inputs
+## 10. Open Decisions and Follow-Ups
 ```
 
-Existing legacy v1 ledgers with the older six-section structure remain valid for compatibility. Non-strict validation accepts legacy v1 with a deprecation warning. Strict Step 4 execution requires migration to Ledger v2 before implementation starts.
+Existing Ledger v2 files and legacy v1 ledgers remain valid for compatibility outside strict Step 4 execution. Non-strict validation accepts v1/v2 with a compatibility warning. Strict Step 4 execution requires migration to Ledger v3 before implementation starts.
 
 ## Update Rules
 
@@ -60,23 +62,35 @@ Use this section to map major planning artifacts to their current status and evi
 
 ## Sub-Plan Status Matrix
 
-Allowed status values are `planned`, `ready`, `ready_with_warnings`, `in_progress`, `implemented`, `verified`, `blocked`, and `superseded`.
+Ledger v3 separates planning status from execution status.
 
-Use the Ledger v2 table shape:
+Allowed planning status values are `draft`, `audited`, `needs_repair`, `approved`, and `superseded`.
+
+Allowed execution status values are `not_started`, `ready`, `ready_with_warnings`, `in_progress`, `implemented`, `verified`, `blocked`, and `superseded`.
+
+Use the Ledger v3 table shape:
 
 ```markdown
-| Sub-plan Path | Status | Snapshot ID | Run ID | Validation Evidence | Blocker | Next Action | Superseded By | Updated At |
-|---|---|---|---|---|---|---|---|---|
+| Sub-plan Path | Planning Status | Execution Status | Snapshot ID | Run ID | Planning Evidence | Implementation Evidence | Blocker | Next Action | Superseded By | Updated At |
+|---|---|---|---|---|---|---|---|---|---|---|
 ```
 
-Status semantics:
+Planning status semantics:
 
-- `planned`: no execution run exists yet.
+- `draft`: planning artifact exists but has not been audited.
+- `audited`: Step 3 reviewed the artifact; Planning Evidence is required.
+- `needs_repair`: audit or validator found issues; Blocker and Next Action are required.
+- `approved`: planning artifact is ready for execution; Planning Evidence is required.
+- `superseded`: Superseded By is required.
+
+Execution status semantics:
+
+- `not_started`: no execution run exists yet.
 - `ready`: audit says the slice is executable.
 - `ready_with_warnings`: only open/accepted P2/P3 or accepted risks remain.
 - `in_progress`: Run ID is required. Next Action alone is not enough evidence.
-- `implemented`: targeted validation evidence is required; final acceptance/repo gate may still be pending.
-- `verified`: acceptance criteria and required repo gates passed; Validation Evidence is required.
+- `implemented`: Implementation Evidence is required; final acceptance/repo gate may still be pending.
+- `verified`: acceptance criteria and required repo gates passed; Implementation Evidence is required.
 - `blocked`: Blocker and Next Action are required.
 - `superseded`: Superseded By is required.
 

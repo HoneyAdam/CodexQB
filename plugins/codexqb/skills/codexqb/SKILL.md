@@ -111,7 +111,7 @@ When executing Step 2 directly:
    `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict`
    If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
 6. Do not modify files outside `Planner-docs/`.
-7. After the Step 2 summary, print the Step 3 Goal mode handoff block from this skill.
+7. After the Step 2 summary, read and print the exact canonical Step 3 Goal mode handoff from `references/handoffs/run-step3.md`.
 
 ## Step 3 Handoff
 

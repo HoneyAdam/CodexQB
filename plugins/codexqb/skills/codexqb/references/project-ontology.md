@@ -36,6 +36,10 @@ Planner-docs/Project-Ontology.md
 - integration points and external systems;
 - security, compliance, or business invariants;
 - ambiguous terms that require human confirmation.
+- provenance for important terms: `user_confirmed`, `plan_derived`, `framework_verified`, `code_confirmed`, or `runtime_confirmed`;
+- confidence for important terms: `confirmed`, `probable`, or `tentative`.
+
+Ontology entries are provisional unless they include provenance and confidence. Main Plan and user-confirmed intent describe product intent; source, test, and runtime evidence describe implemented reality.
 
 ## Competency Questions
 

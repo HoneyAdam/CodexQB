@@ -8,7 +8,7 @@ prompt; they clarify reliability practices observed from first real use.
 - Read the full active planner prompt before summarizing requirements.
 - Do not report phase, sub-plan, or section counts from memory.
 - Report section counts only after reading the prompt or running validation.
-- Step 2 sub-plan files require 13 top-level `##` sections after the H1.
+- Active Step 2 detailed sub-plan files require 13 top-level `##` sections after the H1. Deferred phases should remain roadmap cards in `Sub-Planing-Index.md` unless the user explicitly requests `full` planning.
 
 ## Step 1 Repo-Aware Intake
 
@@ -72,8 +72,10 @@ equivalent all-file validation and state that validator execution was
 unavailable.
 
 The validator is read-only. It checks required sections, phase folders,
-filename conventions, index references, duplicate numbering, missing or
-unindexed files, and length-bounded secret patterns.
+filename conventions, planning scope manifests, active/deferred phase
+consistency, implementation-ready sub-plan signals, normalized duplicate
+ratios, uniform quota anomalies, index references, duplicate numbering,
+missing or unindexed files, and length-bounded secret patterns.
 
 ## Keep Goal Mode Output Concise
 

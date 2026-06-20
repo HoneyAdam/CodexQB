@@ -5,9 +5,9 @@ CodexQB runs a vibecoding-first, repo-aware planning workflow with an optional S
 Release contracts:
 
 ```text
-plugin_version: 0.2.1
-artifact_schema_version: 2
-handoff_contract_version: 1
+plugin_version: 0.2.2
+artifact_schema_version: 3
+handoff_contract_version: 2
 ```
 
 
@@ -94,6 +94,12 @@ Planner-docs/Faz-<n>-Plans/Faz<n>.<m>-*.md
 Step 2 is allowed to modify only files under `Planner-docs/`.
 
 `Planner-docs/Main-Planing.md` remains the primary source of truth. `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, `Planner-docs/Project-Comprehension.md`, and `Planner-docs/Planing-Ledger.md`, when present, are supporting evidence that should influence sub-plan evidence, work breakdowns, acceptance criteria, risks, ontology consistency, traceability, confidence calibration, and replanning continuity.
+
+Step 2 defaults to `wave` mode: it details only the active planning horizon from explicit user intent, `Main-Planing.md` Step 2 Preparation Notes, active ledger state, or the next useful CodexQB wave. Later phases stay visible as deferred roadmap cards in `Sub-Planing-Index.md`. `full` mode requires an explicit user request. `refresh` updates existing planning artifacts incrementally, and `repair` updates audit-selected files only.
+
+`Sub-Planing-Index.md` includes a Planning Scope Manifest with `planning_mode`, `active_phases`, `deferred_phases`, `max_detailed_subplans`, `max_output_words`, `goal_token_risk`, and `review_checkpoint`. It also carries Execution Waves, Parent Acceptance Traceability, and a central Decision Register so repeated global blockers are not copied into every sub-plan.
+
+Active detailed sub-plans keep the 13-section structure and add a machine-readable `### Implementation Contract` JSON block with implementation paths, exact validation commands, parent acceptance signal IDs, dependency graph labels, concrete outputs, and security review flags. Rewritten public planning artifacts use `artifact_schema_version: 3`, `generated_by: codexqb`, and `plugin_version: 0.2.2` frontmatter.
 
 At the end of Step 2, CodexQB should run the bundled validator or an equivalent all-file validation, summarize the result, and print the Step 3 Goal mode handoff block. Do not rely on sampled reads alone for Step 2 structure checks.
 
@@ -209,7 +215,7 @@ warning_count=0
 error_count=0
 ```
 
-It uses stable exit codes: `0` means validation passed, `1` means document validation failed, and `2` means invocation/configuration/I/O error. With `--strict`, repeated or generic section warnings are treated as failures except documented legacy compatibility warnings. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, open P0/P1 audit findings block implementation readiness, open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`, resolved/not_applicable P2/P3 findings may coexist with `PASS`, and `NO_ACTION_REQUIRED` is valid when all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED.
+It uses stable exit codes: `0` means validation passed, `1` means document validation failed, and `2` means invocation/configuration/I/O error. With `--strict`, missing semantic readiness signals, repeated or generic section warnings, unsupported planning scope, and uniform quota anomalies are treated as failures except documented compatibility warnings. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, open P0/P1 audit findings block implementation readiness, open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`, resolved/not_applicable P2/P3 findings may coexist with `PASS`, and `NO_ACTION_REQUIRED` is valid when all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED.
 
 If `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, `Planner-docs/Project-Comprehension.md`, or `Planner-docs/Planing-Ledger.md` exists, the validator checks its required heading order and supported semantic fields during Step 2/3 validation. If these optional continuity docs do not exist, Step 2/3 validation continues without treating them as required. Use `--mode autopsy --strict` after Step 1.5 when `Autopsy.md` should be required.
 

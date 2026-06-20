@@ -195,9 +195,9 @@ class SkillContentTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, validate_script)
 
-    def test_plugin_metadata_reflects_021_gate_integrity_release(self) -> None:
+    def test_plugin_metadata_reflects_022_adaptive_quality_release(self) -> None:
         plugin_text = (REPO_ROOT / "plugins/codexqb/.codex-plugin/plugin.json").read_text(encoding="utf-8")
-        self.assertIn('"version": "0.2.1"', plugin_text)
+        self.assertIn('"version": "0.2.2"', plugin_text)
         for phrase in [
             "project comprehension",
             "evidence",
@@ -206,6 +206,8 @@ class SkillContentTests(unittest.TestCase):
             "ontology",
             "ledger",
             "gate",
+            "semantic",
+            "adaptive",
         ]:
             self.assertIn(phrase, plugin_text.lower())
 
@@ -270,7 +272,7 @@ class SkillContentTests(unittest.TestCase):
             path = handoff_root / name
             self.assertTrue(path.is_file(), name)
             text = path.read_text(encoding="utf-8")
-            self.assertIn("contract_version: 1", text)
+            self.assertIn("contract_version: 2", text)
             self.assertIn("Goal Run Contract", text)
             self.assertIn("Resume / Recovery Protocol", text)
             for phrase in [
@@ -296,6 +298,19 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn("references/handoffs/", text, name)
             self.assertNotIn("Goal Run Contract:\n- Outcome:", text, name)
 
+    def test_step2_adaptive_horizon_and_step3_handoff_do_not_regress(self) -> None:
+        step2_handoff = (SKILL_ROOT / "references/handoffs/run-step2.md").read_text(encoding="utf-8")
+        second = (SKILL_ROOT / "references/Second-Planner.md").read_text(encoding="utf-8")
+
+        self.assertIn("active planning horizon", step2_handoff)
+        self.assertIn("deferred roadmap cards", step2_handoff)
+        self.assertIn("Planning modes", step2_handoff)
+        self.assertNotIn("Do not stop until all phases are covered", step2_handoff)
+
+        self.assertIn("exact canonical Step 3 handoff from `references/handoffs/run-step3.md`", second)
+        self.assertNotIn("Use $codexqb. Run Step 3 according to references/Third-Planner.md.", second)
+        self.assertNotIn("Do not stop until all phases and sub-plans have been reviewed.", (SKILL_ROOT / "references/handoffs/run-step3.md").read_text(encoding="utf-8"))
+
     def test_comprehension_validator_contract_is_documented(self) -> None:
         validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")
         for phrase in [
@@ -316,8 +331,9 @@ class SkillContentTests(unittest.TestCase):
     def test_planning_ledger_v2_is_documented_and_legacy_remains_supported(self) -> None:
         ledger_ref = (SKILL_ROOT / "references/planning-ledger.md").read_text(encoding="utf-8")
         validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")
-        for phrase in ["Plan Snapshot Registry", "Sub-Plan Status Matrix", "Ledger v2", "legacy v1", "Superseded By", "Updated At"]:
+        for phrase in ["Plan Snapshot Registry", "Sub-Plan Status Matrix", "Ledger v3", "legacy v1", "Planning Evidence", "Implementation Evidence", "Superseded By", "Updated At"]:
             self.assertIn(phrase, ledger_ref)
+        self.assertIn("LEDGER_V3_HEADINGS", validator)
         self.assertIn("LEDGER_V2_HEADINGS", validator)
         self.assertIn("LEDGER_LEGACY_HEADINGS", validator)
         self.assertIn("ALLOWED_LEDGER_STATUSES", validator)
@@ -343,6 +359,7 @@ class SkillContentTests(unittest.TestCase):
         self.assertNotIn("fixture_eval_checks=passed", runner_text)
         fixture_root = REPO_ROOT / "evals/fixtures"
         for fixture in [
+            "adaptive-wave-planning",
             "clean-layered-service",
             "drifted-architecture",
             "distributed-domain-feature",
@@ -365,8 +382,8 @@ class SkillContentTests(unittest.TestCase):
 
         for path in [REPO_ROOT / "README.md", REPO_ROOT / "docs/USAGE.md", REPO_ROOT / "docs/MAINTAINING.md"]:
             text = path.read_text(encoding="utf-8")
-            self.assertIn("artifact_schema_version: 2", text, path.name)
-            self.assertIn("handoff_contract_version: 1", text, path.name)
+            self.assertIn("artifact_schema_version: 3", text, path.name)
+            self.assertIn("handoff_contract_version: 2", text, path.name)
             self.assertIn("fixture corpus", text.lower(), path.name)
 
     def test_local_skill_sync_docs_exclude_python_caches(self) -> None:

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added 0.2.2 adaptive Step 2 release notes covering wave/full planning, artifact schema v3, handoff contract v2, structured implementation contracts, and stricter semantic validator gates.
 - Added GitHub issue and pull request templates for evidence-backed contribution intake.
 - Added a README community supporters section for public issue and PR contributors.
 - Documented `make test` and pull request validation expectations in the README.

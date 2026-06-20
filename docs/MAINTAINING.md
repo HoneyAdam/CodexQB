@@ -5,9 +5,9 @@ This document covers validation and release maintenance for CodexQB.
 Current release contracts:
 
 ```text
-plugin_version: 0.2.1
-artifact_schema_version: 2
-handoff_contract_version: 1
+plugin_version: 0.2.2
+artifact_schema_version: 3
+handoff_contract_version: 2
 ```
 
 ## Dependency-Free Repo Check
@@ -20,7 +20,7 @@ make check
 
 This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology/comprehension prompt wiring, deterministic fixture corpus inputs, tracked-file secret hygiene, archive hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
 
-On a normal local development machine, `make check` is expected to complete well under 30 seconds. Validator CLI smoke tests have a 30-second timeout, and any timeout or hang is a release blocker. CI pins Python 3.12 with `actions/setup-python`.
+On a normal local development machine, `make check` is expected to complete under 45 seconds. Validator CLI smoke tests have a 30-second timeout for focused fixture runs, and any timeout or hang is a release blocker. CI pins Python 3.12 with `actions/setup-python`.
 
 Keep the language contract stable: required Planner-docs headings stay English for validator stability, while body content may use another language only when the user explicitly asks. If a future release adds language selection, document and test a `PLANNER_DOC_LANGUAGE` or equivalent intake-level setting before changing prompt behavior.
 
@@ -64,7 +64,7 @@ Mode contract:
 
 - `step3-preflight` validates Step 2 artifacts before `Sub-Planing-Audit.md` exists.
 - `step3` requires `Planner-docs/Sub-Planing-Audit.md` and validates post-audit structure.
-- `step4` enforces semantic readiness rows, finding status consistency, NO_ACTION_REQUIRED, and strict Ledger v2 execution gates.
+- `step4` enforces semantic readiness rows, finding status consistency, NO_ACTION_REQUIRED, and strict Ledger v3 execution gates.
 - Exit codes are stable: `0` passed, `1` document validation failed, `2` invocation/configuration/I/O error.
 - Output includes `validation_status=...`, `validation_mode=...`, `error_count=...`, and `warning_count=...`.
 
@@ -80,7 +80,10 @@ When changing the validator, test at least:
 - optional `Autopsy.md`, `Project-Ontology.md`, and `Planing-Ledger.md` validation when present, and no failure when they are absent;
 - optional `Project-Comprehension.md` validation when present, including evidence types, confidence values, architecture statuses, trace anchors, and open hypothesis probes;
 - fenced code block heading false positives and duplicate real headings;
-- Ledger v2 headings with `Plan Snapshot Registry` and `Sub-Plan Status Matrix`, while legacy v1 ledgers remain accepted outside strict Step 4 execution with a deprecation warning;
+- Ledger v3 headings with split planning/execution status and split planning/implementation evidence, while v2 and legacy v1 ledgers remain accepted outside strict Step 4 execution with compatibility warnings;
+- Step 2 Planning Scope Manifest validation, including active/deferred phase consistency and `wave` vs explicit `full` planning behavior;
+- semantic Step 2 gates for implementation paths, exact validation commands, behavioral acceptance criteria, parent acceptance signals, dependency labels, concrete outputs, and domain-specific risks;
+- normalized duplicate ratio and uniform sub-plan count anomaly checks;
 - Step 4 readiness gating for missing audit, headings-only audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, NO_ACTION_REQUIRED, unsafe readiness paths, duplicate conflicting rows, and prose such as `no P0/P1 findings`.
 
 Run the tracked validator test suite:

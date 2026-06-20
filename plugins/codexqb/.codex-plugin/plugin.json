@@ -1,7 +1,7 @@
 {
   "name": "codexqb",
-  "version": "0.2.1",
-  "description": "CodexQB packages evidence-backed repo planning with project comprehension, autopsy, ontology, ledger continuity, traceability, gate integrity, QA audit, and gated handoff.",
+  "version": "0.2.2",
+  "description": "CodexQB packages adaptive evidence-backed repo planning with project comprehension, autopsy, ontology, ledger continuity, traceability, semantic Step 2 quality gates, QA audit, and gated handoff.",
   "author": {
     "name": "Alican Kiraz",
     "email": "167613664+alicankiraz1@users.noreply.github.com",
@@ -20,6 +20,8 @@
     "ontology",
     "ledger",
     "gate-integrity",
+    "adaptive-planning",
+    "semantic-validation",
     "project-management",
     "skills",
     "goal-mode"
@@ -28,7 +30,7 @@
   "interface": {
     "displayName": "CodexQB",
     "shortDescription": "Run evidence-backed repo planning and gated handoff.",
-    "longDescription": "CodexQB helps Codex inspect a repository, ask repo-aware intake questions, create a master project plan, autopsy existing project state, capture optional project comprehension and ontology artifacts, decompose the plan into phase-level sub-plans, audit coverage, evidence quality, confidence, traceability, readiness, and governance, then print a gated Goal-mode implementation handoff when the audit allows it.",
+    "longDescription": "CodexQB helps Codex inspect a repository, ask repo-aware intake questions, create a master project plan, autopsy existing project state, capture optional project comprehension and ontology artifacts, decompose the active planning horizon into implementation-ready sub-plans while deferring later roadmap phases, audit coverage, evidence quality, confidence, traceability, readiness, and governance, then print a gated Goal-mode implementation handoff when the audit allows it.",
     "developerName": "Alican Kiraz",
     "category": "Productivity",
     "capabilities": [

@@ -8,14 +8,14 @@
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
-The current 0.2.1 release adds gate-integrity compatibility on top of evidence-backed project comprehension while keeping repository marketplace distribution hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and tracked-file sanitized exports through `make export-sanitized`.
+The current 0.2.2 release adds adaptive Step 2 planning horizons and semantic plan-quality gates on top of evidence-backed project comprehension while keeping repository marketplace distribution hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and tracked-file sanitized exports through `make export-sanitized`.
 
 Release contracts:
 
 ```text
-plugin_version: 0.2.1
-artifact_schema_version: 2
-handoff_contract_version: 1
+plugin_version: 0.2.2
+artifact_schema_version: 3
+handoff_contract_version: 2
 ```
 
 ## Why CodexQB
@@ -23,8 +23,9 @@ handoff_contract_version: 1
 - **Repo-aware intake:** CodexQB inspects the current repository before asking questions, then proposes evidence-backed defaults for project name, intent, target end state, constraints, autonomy/review cadence, and token/context budget assumptions.
 - **Durable planning docs:** Output is written under `Planner-docs/` so long planning work, ontology, and implementation history survive context changes and can be reviewed like normal project documentation.
 - **Project Autopsy + Ontology + Comprehension:** Existing projects get a focused `Autopsy.md` report and may get `Project-Ontology.md` plus `Project-Comprehension.md` to capture evidence confidence, CQ/TRACE/ARC links, architecture reflexion, quality scenarios, and open validation probes.
-- **Full phase decomposition:** The main plan can be expanded into ordered phase folders and detailed sub-plan files, using Autopsy feedback when available.
-- **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, ontology consistency, planning-history continuity, security/governance, vibecoding slice quality, and implementation preparedness.
+- **Adaptive phase decomposition:** The main plan can be expanded by active planning horizon in default `wave` mode, while later phases remain deferred roadmap cards unless the user explicitly requests `full` planning.
+- **Implementation-ready planning gates:** Active sub-plans keep the 13-section human-readable structure and add a machine-readable implementation contract with repo-relative paths, exact validation commands, parent acceptance signal IDs, dependency labels, concrete outputs, and security review flags.
+- **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, ontology consistency, planning-history continuity, framework ownership, algorithmic invariants, security/governance, vibecoding slice quality, and implementation preparedness.
 - **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin, then guides that run through the READY queue in small verified slices and asks Step 4 to append concise implementation summaries to `Planing-Ledger.md`.
 
 
@@ -40,7 +41,7 @@ When a project is large or ambiguous, CodexQB may recommend or explicitly reques
 | --- | --- | --- |
 | 1. Repo Scan + Main Plan | Reads the repository, asks four enriched intake questions, and creates the master plan. | `Planner-docs/Main-Planing.md` |
 | 1.5 Autopsy + Ontology + Comprehension | For existing projects, audits current project structure and may capture vocabulary, evidence confidence, concept-to-code traces, architecture reflexion, quality scenarios, and open hypotheses. | `Planner-docs/Autopsy.md`, optional `Planner-docs/Project-Ontology.md`, optional `Planner-docs/Project-Comprehension.md` |
-| 2. Phase Sub-Plans | Expands every main phase into detailed implementation-ready sub-plans. | `Planner-docs/Sub-Planing-Index.md`, `Planner-docs/Faz-*-Plans/*.md` |
+| 2. Phase Sub-Plans | Expands the active planning horizon into implementation-ready sub-plans and keeps later phases as deferred roadmap cards unless `full` planning is explicit. | `Planner-docs/Sub-Planing-Index.md`, `Planner-docs/Faz-*-Plans/*.md` |
 | 3. QA Audit | Audits coverage, structure, quality, readiness, and governance without repairing files. | `Planner-docs/Sub-Planing-Audit.md` |
 | 4. Gated Handoff | Prints a copy-ready implementation Goal prompt when Step 3 passes and tracks implementation summaries through the optional ledger. | Text-only Goal mode prompt, optional `Planner-docs/Planing-Ledger.md` updates |
 
@@ -124,11 +125,11 @@ Validator modes:
 | `step2` | Validate index, phase folders, sub-plans, and optional continuity docs. |
 | `step3-preflight` | Validate Step 2 artifacts before `Sub-Planing-Audit.md` exists. |
 | `step3` | Require and validate `Sub-Planing-Audit.md` after Step 3 writes it. |
-| `step4` | Enforce semantic readiness, finding status, NO_ACTION_REQUIRED, and Ledger v2 strict execution gates. |
+| `step4` | Enforce semantic readiness, finding status, NO_ACTION_REQUIRED, and Ledger v3 strict execution gates. |
 
 These commands are for manual validation from a CodexQB repository checkout. When running through an installed plugin, CodexQB should use the bundled validator path exposed by the active skill; if that path is unavailable, it should perform equivalent all-file validation and report the fallback clearly.
 
-The validator checks required sections, optional ontology/ledger/comprehension headings and content, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. Open P0/P1 audit findings block the implementation handoff. Open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`; resolved/not_applicable P2/P3 findings do not keep the audit in warning state forever.
+The validator checks required sections, schema frontmatter, optional ontology/ledger/comprehension headings and content, planning scope manifests, active/deferred phase consistency, deferred roadmap cards, structured implementation contracts, execution waves, parent acceptance traceability, decision references, framework ownership matrices, algorithmic invariant registers, normalized duplicate ratios, uniform sub-plan count anomalies, phase folders, filename conventions, index references, duplicate numbering, unindexed files, length-bounded secret patterns, and Step 4 readiness. Open P0/P1 audit findings block the implementation handoff. Open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`; resolved/not_applicable P2/P3 findings do not keep the audit in warning state forever.
 
 Repository maintainers can run the dependency-free repo check with:
 
@@ -144,7 +145,7 @@ For a faster local unit-test loop, run:
 make test
 ```
 
-On a normal local development machine, `make check` is expected to finish well under 30 seconds. A timeout or hang in validator tests is a release blocker, not a warning to ignore.
+On a normal local development machine, `make check` is expected to finish under 45 seconds. A timeout or hang in validator tests is a release blocker, not a warning to ignore.
 
 ## Release Validation
 
