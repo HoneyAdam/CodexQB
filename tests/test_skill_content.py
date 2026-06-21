@@ -237,9 +237,15 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("validator_output_sha256", step4_readiness["required"])
         self.assertIn("execution_queue_state", step4_readiness["required"])
         self.assertIn("workspace_baseline", schema_defs["ApplyRun"]["required"])
+        for name in ["workspace_requested", "workspace_detected", "workspace_verified", "workspace_mode", "worktree_path", "base_branch", "working_branch", "dirty_state"]:
+            self.assertIn(name, schema_defs["ApplyRun"]["required"])
         self.assertIn("user_approval", schema_defs["ApplyRun"]["required"])
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["workspace_baseline"]["$ref"], "#/$defs/WorkspaceBaseline")
-        self.assertEqual(schema_defs["ApplyRun"]["properties"]["workspace_mode"]["enum"], ["non_git_unsafe", "unverified_current_worktree"])
+        self.assertEqual(
+            schema_defs["ApplyRun"]["properties"]["workspace_mode"]["enum"],
+            ["non_git_unsafe", "unverified_current_worktree", "verified_isolated_worktree"],
+        )
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["dirty_state"]["enum"], ["clean", "dirty", "non_git", "unknown"])
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["user_approval"]["type"], "boolean")
         workspace_baseline = schema_defs["WorkspaceBaseline"]
         self.assertIn("git_status_porcelain_sha256", workspace_baseline["required"])
@@ -285,6 +291,9 @@ class SkillContentTests(unittest.TestCase):
             "security_strong",
             "allow-non-git-unsafe",
             "non_git_unsafe",
+            "allow-unverified-git-worktree",
+            "dirty_state",
+            "working_branch",
         ]:
             self.assertIn(phrase, apply_ref)
         for phrase in [

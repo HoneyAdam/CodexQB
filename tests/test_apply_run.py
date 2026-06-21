@@ -71,6 +71,7 @@ class ApplyRunTests(unittest.TestCase):
 
     def create_apply_run(self, root: Path, mode: str, *args, **kwargs) -> dict[str, object]:
         kwargs.setdefault("allow_non_git_unsafe", True)
+        kwargs.setdefault("allow_unverified_git_worktree", True)
         return APPLY_MODULE.create_apply_run(root, mode, *args, **kwargs)
 
     def first_task_id(self, run_dir: Path) -> str:
@@ -198,6 +199,9 @@ class ApplyRunTests(unittest.TestCase):
             self.assertEqual(run["max_subagent_depth"], 1)
             self.assertEqual(run["workspace_mode"], "non_git_unsafe")
             self.assertTrue(run["user_approval"])
+            self.assertEqual(run["worktree_path"], ".")
+            self.assertEqual(run["working_branch"], "unknown")
+            self.assertEqual(run["dirty_state"], "non_git")
             self.assertEqual(run["workspace_baseline"]["vcs"], "non_git")
             self.assertIn("git_status_porcelain_sha256", run["workspace_baseline"])
             self.assertIn("untracked_inventory_sha256", run["workspace_baseline"])
@@ -363,6 +367,30 @@ class ApplyRunTests(unittest.TestCase):
             errors = APPLY_MODULE.validate_apply_run(run_dir, root)
 
             self.assertIn("non_git_workspace_requires_user_approval", errors)
+
+    def test_apply_run_blocks_dirty_or_protected_git_without_explicit_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            self.init_git_repo(root)
+
+            with self.assertRaisesRegex(ValueError, "git_workspace_requires_explicit_current_worktree_approval"):
+                APPLY_MODULE.create_apply_run(root, "direct")
+
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
+            self.assertEqual(run["workspace_mode"], "unverified_current_worktree")
+            self.assertTrue(run["user_approval"])
+            self.assertEqual(run["worktree_path"], ".")
+            self.assertIn(run["dirty_state"], {"clean", "dirty"})
+            self.assertEqual(run["working_branch"], run["workspace_baseline"]["branch"])
+            run["user_approval"] = False
+            (run_dir / "Apply-Run.json").write_text(json.dumps(run), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("git_workspace_requires_user_approval", errors)
 
     def test_apply_run_rejects_unsafe_queue_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
