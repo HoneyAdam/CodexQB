@@ -237,7 +237,10 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("validator_output_sha256", step4_readiness["required"])
         self.assertIn("execution_queue_state", step4_readiness["required"])
         self.assertIn("workspace_baseline", schema_defs["ApplyRun"]["required"])
+        self.assertIn("user_approval", schema_defs["ApplyRun"]["required"])
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["workspace_baseline"]["$ref"], "#/$defs/WorkspaceBaseline")
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["workspace_mode"]["enum"], ["non_git_unsafe", "unverified_current_worktree"])
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["user_approval"]["type"], "boolean")
         workspace_baseline = schema_defs["WorkspaceBaseline"]
         self.assertIn("git_status_porcelain_sha256", workspace_baseline["required"])
         self.assertIn("untracked_inventory_sha256", workspace_baseline["required"])
@@ -280,6 +283,8 @@ class SkillContentTests(unittest.TestCase):
             "append-only transition truth",
             "agent_profiles",
             "security_strong",
+            "allow-non-git-unsafe",
+            "non_git_unsafe",
         ]:
             self.assertIn(phrase, apply_ref)
         for phrase in [

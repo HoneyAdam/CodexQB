@@ -149,7 +149,16 @@ def main() -> int:
         write_fixture(root)
 
         output = run_apply(
-            ["prepare", "--root", root.as_posix(), "--mode", "direct", "--run-id-suffix", "behavior-smoke"],
+            [
+                "prepare",
+                "--root",
+                root.as_posix(),
+                "--mode",
+                "direct",
+                "--run-id-suffix",
+                "behavior-smoke",
+                "--allow-non-git-unsafe",
+            ],
             cwd=root,
         )
         run_dir = Path(parse_key(output, "run_dir"))
@@ -212,7 +221,16 @@ def main() -> int:
             fail("non_contiguous_event_sequence")
 
         dispatch_output = run_apply(
-            ["prepare", "--root", root.as_posix(), "--mode", "subagent_serial", "--run-id-suffix", "dispatch-smoke"],
+            [
+                "prepare",
+                "--root",
+                root.as_posix(),
+                "--mode",
+                "subagent_serial",
+                "--run-id-suffix",
+                "dispatch-smoke",
+                "--allow-non-git-unsafe",
+            ],
             cwd=root,
         )
         dispatch_run_dir = Path(parse_key(dispatch_output, "run_dir"))
@@ -369,7 +387,16 @@ def main() -> int:
         run_apply(["validate", "--run-dir", dispatch_run_dir.as_posix(), "--root", root.as_posix()], cwd=root)
 
         recovery_output = run_apply(
-            ["prepare", "--root", root.as_posix(), "--mode", "direct", "--run-id-suffix", "recovery-smoke"],
+            [
+                "prepare",
+                "--root",
+                root.as_posix(),
+                "--mode",
+                "direct",
+                "--run-id-suffix",
+                "recovery-smoke",
+                "--allow-non-git-unsafe",
+            ],
             cwd=root,
         )
         recovery_run_dir = Path(parse_key(recovery_output, "run_dir"))

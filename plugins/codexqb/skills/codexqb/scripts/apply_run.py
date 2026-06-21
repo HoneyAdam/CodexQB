@@ -547,6 +547,7 @@ def create_apply_run(
     replace: bool = False,
     resume: bool = False,
     run_id_suffix: str | None = None,
+    allow_non_git_unsafe: bool = False,
 ) -> dict[str, object]:
     root = root.resolve()
     if mode not in APPLY_MODES:
@@ -576,6 +577,9 @@ def create_apply_run(
     if not is_inside(root, run_dir):
         raise ValueError("output_dir must be inside the target repository")
     step4_validation = validate_step4_queue(root, mode)
+    non_git_action_mode = baseline["vcs"] == "non_git" and mode != "no_action"
+    if non_git_action_mode and not allow_non_git_unsafe:
+        raise ValueError("non_git_workspace_requires_explicit_approval")
     if run_dir.exists() and not replace:
         raise ValueError(f"apply_run_already_exists={run_dir.relative_to(root).as_posix()}")
     if run_dir.exists() and replace:
@@ -598,7 +602,8 @@ def create_apply_run(
         "workspace_requested": "isolated_worktree",
         "workspace_detected": baseline["vcs"],
         "workspace_verified": False,
-        "workspace_mode": "unverified_current_worktree",
+        "workspace_mode": "non_git_unsafe" if non_git_action_mode else "unverified_current_worktree",
+        "user_approval": bool(non_git_action_mode and allow_non_git_unsafe),
         "workspace_baseline": baseline,
         "commit_policy": commit_policy,
         "push_allowed": False,
@@ -1642,6 +1647,8 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         errors.append("only_one_writer_permitted")
     if run.get("max_subagent_depth") != 1:
         errors.append("recursive_subagents_rejected")
+    if not isinstance(run.get("user_approval"), bool):
+        errors.append("user_approval_must_be_boolean")
     validate_agent_profiles(run, errors)
     external = run.get("external_superpowers", {})
     if run.get("mode") == "external_superpowers":
@@ -1686,6 +1693,15 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         for key in baseline_keys:
             if key not in baseline:
                 errors.append(f"workspace_baseline_missing={key}")
+        if run.get("workspace_detected") != baseline.get("vcs"):
+            errors.append("workspace_detected_baseline_mismatch")
+        if run.get("mode") != "no_action" and baseline.get("vcs") == "non_git":
+            if run.get("workspace_mode") != "non_git_unsafe":
+                errors.append("non_git_workspace_requires_non_git_unsafe_mode")
+            if run.get("user_approval") is not True:
+                errors.append("non_git_workspace_requires_user_approval")
+        if baseline.get("vcs") != "non_git" and run.get("workspace_mode") == "non_git_unsafe":
+            errors.append("non_git_unsafe_mode_requires_non_git_workspace")
         if root is not None:
             current_baseline = workspace_baseline(root)
             for key in baseline_keys:
@@ -1753,6 +1769,7 @@ def main(argv: list[str] | None = None) -> int:
         prepare.add_argument("--replace", action="store_true")
         prepare.add_argument("--resume", action="store_true")
         prepare.add_argument("--run-id-suffix")
+        prepare.add_argument("--allow-non-git-unsafe", action="store_true")
     check = sub.add_parser("validate", help="Validate an apply-run artifact directory.")
     check.add_argument("--run-dir", required=True)
     check.add_argument("--root")
@@ -1800,6 +1817,7 @@ def main(argv: list[str] | None = None) -> int:
                 replace=args.replace,
                 resume=args.resume,
                 run_id_suffix=args.run_id_suffix,
+                allow_non_git_unsafe=args.allow_non_git_unsafe,
             )
             print("apply_run_status=initialized")
             print(f"apply_run_id={result['apply_run_id']}")

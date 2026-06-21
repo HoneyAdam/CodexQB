@@ -69,6 +69,10 @@ class ApplyRunTests(unittest.TestCase):
     def init_git_repo(self, root: Path) -> None:
         subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True, text=True)
 
+    def create_apply_run(self, root: Path, mode: str, *args, **kwargs) -> dict[str, object]:
+        kwargs.setdefault("allow_non_git_unsafe", True)
+        return APPLY_MODULE.create_apply_run(root, mode, *args, **kwargs)
+
     def first_task_id(self, run_dir: Path) -> str:
         progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
         return progress["tasks"][0]["task_id"]
@@ -170,7 +174,7 @@ class ApplyRunTests(unittest.TestCase):
             root = Path(temp_dir)
             self.write_apply_fixture(root)
 
-            result = APPLY_MODULE.create_apply_run(root, "subagent_serial")
+            result = self.create_apply_run(root, "subagent_serial")
             run_dir = Path(result["run_dir"])
 
             self.assertTrue((run_dir / "Apply-Run.json").is_file())
@@ -192,6 +196,8 @@ class ApplyRunTests(unittest.TestCase):
             self.assertFalse(run["pr_allowed"])
             self.assertEqual(run["max_writer_agents"], 1)
             self.assertEqual(run["max_subagent_depth"], 1)
+            self.assertEqual(run["workspace_mode"], "non_git_unsafe")
+            self.assertTrue(run["user_approval"])
             self.assertEqual(run["workspace_baseline"]["vcs"], "non_git")
             self.assertIn("git_status_porcelain_sha256", run["workspace_baseline"])
             self.assertIn("untracked_inventory_sha256", run["workspace_baseline"])
@@ -219,7 +225,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "subagent_serial")
+            result = self.create_apply_run(root, "subagent_serial")
             run_dir = Path(result["run_dir"])
             task_id = self.first_task_id(run_dir)
 
@@ -272,7 +278,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "subagent_serial")
+            result = self.create_apply_run(root, "subagent_serial")
             run_dir = Path(result["run_dir"])
             task_id = self.first_task_id(run_dir)
 
@@ -320,7 +326,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_no_action_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "no_action")
+            result = self.create_apply_run(root, "no_action")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
@@ -331,18 +337,38 @@ class ApplyRunTests(unittest.TestCase):
     def test_apply_run_rejects_output_dir_outside_repo(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside:
             with self.assertRaises(ValueError):
-                APPLY_MODULE.create_apply_run(Path(temp_dir), "direct", Path(outside))
+                self.create_apply_run(Path(temp_dir), "direct", Path(outside))
 
     def test_apply_run_requires_step4_audit_for_action_modes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             with self.assertRaisesRegex(ValueError, "missing_step4_audit"):
-                APPLY_MODULE.create_apply_run(Path(temp_dir), "direct")
+                self.create_apply_run(Path(temp_dir), "direct")
+
+    def test_apply_run_blocks_non_git_action_without_explicit_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+
+            with self.assertRaisesRegex(ValueError, "non_git_workspace_requires_explicit_approval"):
+                APPLY_MODULE.create_apply_run(root, "direct")
+
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
+            self.assertEqual(run["workspace_mode"], "non_git_unsafe")
+            self.assertTrue(run["user_approval"])
+            run["user_approval"] = False
+            (run_dir / "Apply-Run.json").write_text(json.dumps(run), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("non_git_workspace_requires_user_approval", errors)
 
     def test_apply_run_rejects_unsafe_queue_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             task_id = progress["tasks"][0]["task_id"]
@@ -357,7 +383,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
             run["agent_profiles"]["task_reviewer"]["sandbox"] = "workspace-write"
@@ -371,7 +397,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
 
             code = APPLY_MODULE.main(
@@ -415,7 +441,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             task_id = progress["tasks"][0]["task_id"]
@@ -430,7 +456,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             task_id = self.first_task_id(run_dir)
             APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
@@ -444,7 +470,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             task_id = self.first_task_id(run_dir)
             APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
@@ -479,7 +505,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             task_id = progress["tasks"][0]["task_id"]
@@ -499,7 +525,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "subagent_serial")
+            result = self.create_apply_run(root, "subagent_serial")
             run_dir = Path(result["run_dir"])
             run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
             run["max_writer_agents"] = 2
@@ -522,7 +548,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "subagent_serial")
+            result = self.create_apply_run(root, "subagent_serial")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             progress["tasks"][0]["state"] = "VERIFIED"
@@ -547,7 +573,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
 
             with self.assertRaisesRegex(ValueError, "finalize_requires_all_tasks_verified"):
@@ -567,7 +593,7 @@ class ApplyRunTests(unittest.TestCase):
             root = Path(temp_dir)
             self.write_apply_fixture(root)
             docs = root / "Planner-docs"
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             (docs / "Sub-Planing-Audit.md").write_text("changed\n", encoding="utf-8")
 
@@ -581,7 +607,7 @@ class ApplyRunTests(unittest.TestCase):
             self.write_apply_fixture(root)
             (root / "src").mkdir()
             (root / "src" / "example.py").write_text("print('before')\n", encoding="utf-8")
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             (root / "src" / "example.py").write_text("print('after')\n", encoding="utf-8")
 
@@ -594,7 +620,7 @@ class ApplyRunTests(unittest.TestCase):
             root = Path(temp_dir)
             self.write_apply_fixture(root)
             self.init_git_repo(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir, root), [])
             (root / "notes.txt").write_text("new local note\n", encoding="utf-8")
@@ -608,7 +634,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             progress["tasks"][0]["state"] = "VERIFIED"
@@ -624,7 +650,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "external_superpowers")
+            result = self.create_apply_run(root, "external_superpowers")
             run_dir = Path(result["run_dir"])
             self.assertIn("external_superpowers_readiness_not_checked", APPLY_MODULE.validate_apply_run(run_dir))
             run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
@@ -650,7 +676,7 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_no_action_fixture(root)
-            no_action = APPLY_MODULE.create_apply_run(root, "no_action")
+            no_action = self.create_apply_run(root, "no_action")
             run_dir = Path(no_action["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             progress["tasks"] = [{"task_id": "../../outside-task", "state": "BRIEFED", "readiness_status": "READY"}]
@@ -665,8 +691,8 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            first = APPLY_MODULE.create_apply_run(root, "direct", run_id_suffix="one")
-            second = APPLY_MODULE.create_apply_run(root, "direct", run_id_suffix="two")
+            first = self.create_apply_run(root, "direct", run_id_suffix="one")
+            second = self.create_apply_run(root, "direct", run_id_suffix="two")
             first_run = json.loads((Path(first["run_dir"]) / "Apply-Run.json").read_text(encoding="utf-8"))
             second_run = json.loads((Path(second["run_dir"]) / "Apply-Run.json").read_text(encoding="utf-8"))
 
@@ -674,18 +700,18 @@ class ApplyRunTests(unittest.TestCase):
             self.assertNotEqual(first["apply_run_id"], second["apply_run_id"])
 
             fixed = root / ".codexqb" / "apply-runs" / "fixed"
-            fixed_result = APPLY_MODULE.create_apply_run(root, "direct", fixed)
+            fixed_result = self.create_apply_run(root, "direct", fixed)
             with self.assertRaises(ValueError):
-                APPLY_MODULE.create_apply_run(root, "direct", fixed)
+                self.create_apply_run(root, "direct", fixed)
 
-            resumed = APPLY_MODULE.create_apply_run(root, "direct", fixed, resume=True)
+            resumed = self.create_apply_run(root, "direct", fixed, resume=True)
             self.assertEqual(resumed["run_dir"], fixed_result["run_dir"])
 
     def test_verified_task_requires_evidence_bearing_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            result = APPLY_MODULE.create_apply_run(root, "direct")
+            result = self.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             progress["tasks"][0]["state"] = "VERIFIED"
@@ -711,7 +737,7 @@ class ApplyRunTests(unittest.TestCase):
             (root / "Planner-docs" / "Sub-Planing-Audit.md").write_text("# broken audit\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "step4_validator_failed="):
-                APPLY_MODULE.create_apply_run(root, "direct")
+                self.create_apply_run(root, "direct")
 
 
 if __name__ == "__main__":
