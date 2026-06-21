@@ -1,0 +1,8 @@
+{
+  "id": "dynamic-step4-goal",
+  "description": "Step 4 Goal preview should compile the READY queue and stop on missing readiness evidence.",
+  "expected_comprehension_signals": ["READY queue", "READY_WITH_WARNINGS", "NO_ACTION_REQUIRED"],
+  "expected_trace_ids": ["TRACE-goal-step4-queue"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["ready_queue_collection", "blocked_missing_audit", "step4_validation_checkpoint"]
+}

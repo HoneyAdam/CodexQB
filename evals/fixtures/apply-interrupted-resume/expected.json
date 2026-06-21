@@ -1,0 +1,8 @@
+{
+  "id": "apply-interrupted-resume",
+  "description": "Interrupted apply runs should resume from durable progress and event state.",
+  "expected_comprehension_signals": ["resume cursor", "Events.jsonl", "Writer-Lock.json"],
+  "expected_trace_ids": ["TRACE-apply-resume"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["no_silent_overwrite", "event_sequence_contiguous", "writer_lock_consistency"]
+}

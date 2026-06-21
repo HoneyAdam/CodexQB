@@ -1,0 +1,8 @@
+{
+  "id": "dynamic-step3-goal",
+  "description": "Step 3 Goal preview should include preflight, audit validation, and active sub-plan inventory.",
+  "expected_comprehension_signals": ["step3-preflight", "post-audit validation", "sub-plan inventory"],
+  "expected_trace_ids": ["TRACE-goal-step3-audit"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["dual_step3_checkpoints", "active_subplan_inventory", "audit_output_boundary"]
+}

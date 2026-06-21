@@ -23,6 +23,18 @@ REQUIRED_FIXTURES = [
     "stale-ledger",
     "runtime-only-behavior",
     "security-boundary-risk",
+    "dynamic-step2-goal",
+    "dynamic-step3-goal",
+    "dynamic-step4-goal",
+    "apply-happy-path",
+    "apply-review-fix-rereview",
+    "apply-security-gate",
+    "apply-interrupted-resume",
+    "apply-stale-snapshot",
+    "apply-run-id-collision",
+    "apply-no-action",
+    "export-untracked-secret",
+    "export-external-symlink",
 ]
 REQUIRED_EXPECTATION_KEYS = {
     "id",

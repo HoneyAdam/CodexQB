@@ -31,7 +31,25 @@ class ApplyRunTests(unittest.TestCase):
         (docs / "Faz-1-Plans").mkdir(parents=True)
         (docs / "Main-Planing.md").write_text("# Main Planing\n", encoding="utf-8")
         (docs / "Sub-Planing-Index.md").write_text("# Sub-Planing Index\n", encoding="utf-8")
-        (docs / "Faz-1-Plans" / "Faz1.1-local-contract.md").write_text("# Faz 1.1 - Local Contract\n", encoding="utf-8")
+        (docs / "Faz-1-Plans" / "Faz1.1-local-contract.md").write_text(
+            "\n".join(
+                [
+                    "# Faz 1.1 - Local Contract",
+                    "",
+                    "## Implementation Contract",
+                    "- behavioral acceptance: API returns durable state.",
+                    "- allowed write paths: src/example.py",
+                    "- forbidden paths: .env",
+                    "- parent acceptance signal: PAS-1",
+                    "- depends_on: none",
+                    "- validation command argv: python3 -m unittest",
+                    "- security review: not required",
+                    "- algorithmic invariant: state transition order remains monotonic.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
         (docs / "Sub-Planing-Audit.md").write_text(
             "# Sub-Planing Audit\n\nREADY: Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md\n",
             encoding="utf-8",
@@ -40,17 +58,32 @@ class ApplyRunTests(unittest.TestCase):
     def mark_task_verified(self, run_dir: Path, security: str = "not_required") -> None:
         progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
         task = progress["tasks"][0]
-        task["state"] = "VERIFIED"
-        task["brief_sha256"] = "a" * 64
+        task_id = task["task_id"]
+        task["state"] = "BRIEFED"
         task["security_review_required"] = security == "pass"
-        progress["verified_task_ids"] = [task["task_id"]]
+        task["writer_lock"] = None
+        progress["active_writer_locks"] = []
         (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
-        (run_dir / "task-1" / "Implementer-Report.json").write_text(
+        APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started implementation"])
+        APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["implementation report ready"])
+        APPLY_MODULE.transition_task_state(run_dir, task_id, "TASK_REVIEW", "review-1", ["review package ready"])
+        if security == "pass":
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "SECURITY_REVIEW", "review-1", ["security review required"])
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "VERIFIED", "review-1", ["security review passed"])
+        else:
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "VERIFIED", "review-1", ["task review passed"])
+
+        progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+        task = progress["tasks"][0]
+        progress["verified_task_ids"] = [task_id]
+        (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
+        brief_hash = task["brief_sha256"]
+        (run_dir / task_id / "Implementer-Report.json").write_text(
             json.dumps(
                 {
                     "status": "DONE",
-                    "task_id": task["task_id"],
-                    "brief_sha256": "a" * 64,
+                    "task_id": task_id,
+                    "brief_sha256": brief_hash,
                     "implementer_agent_id": "impl-1",
                     "files_changed": ["src/example.py"],
                     "validation_evidence": [{"id": "VAL-01", "argv": ["python3", "-m", "unittest"], "exit_code": 0}],
@@ -59,11 +92,11 @@ class ApplyRunTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        (run_dir / "task-1" / "Task-Review.json").write_text(
+        (run_dir / task_id / "Task-Review.json").write_text(
             json.dumps(
                 {
-                    "task_id": task["task_id"],
-                    "brief_sha256": "a" * 64,
+                    "task_id": task_id,
+                    "brief_sha256": brief_hash,
                     "reviewer_agent_id": "review-1",
                     "spec_compliance": "pass",
                     "task_quality": "approved",
@@ -77,7 +110,7 @@ class ApplyRunTests(unittest.TestCase):
             json.dumps(
                 {
                     "status": "pass",
-                    "reviewed_task_ids": [task["task_id"]],
+                    "reviewed_task_ids": [task_id],
                     "global_validations": [{"id": "VAL-REPO", "argv": ["make", "check"], "exit_code": 0}],
                     "evidence": ["repo gate passed"],
                 }
@@ -110,6 +143,9 @@ class ApplyRunTests(unittest.TestCase):
             self.assertFalse(run["pr_allowed"])
             self.assertEqual(run["max_writer_agents"], 1)
             self.assertEqual(run["max_subagent_depth"], 1)
+            self.assertEqual(run["agent_profiles"]["implementer"]["model_profile"], "balanced")
+            self.assertEqual(run["agent_profiles"]["task_reviewer"]["sandbox"], "read-only")
+            self.assertEqual(run["agent_profiles"]["security_reviewer"]["model_profile"], "security_strong")
             self.assertFalse(run["safety"]["executes_implementation"])
             self.assertFalse(run["safety"]["allows_commit_push_pr_deploy"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
@@ -117,8 +153,13 @@ class ApplyRunTests(unittest.TestCase):
                 progress["tasks"][0]["source_subplan_path"],
                 "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
             )
+            contract = progress["tasks"][0]["fresh_context_contract"]
+            self.assertIn("behavioral acceptance", contract["acceptance_criteria"][0])
+            self.assertIn("allowed write paths", contract["allowed_paths"][0])
+            self.assertIn("validation command argv", contract["structured_validation_commands"][0])
             brief = (run_dir / "task-1" / "Brief.md").read_text(encoding="utf-8")
             self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", brief)
+            self.assertIn("fresh_context_contract", brief)
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
 
     def test_no_action_mode_has_no_queue(self) -> None:
@@ -153,6 +194,90 @@ class ApplyRunTests(unittest.TestCase):
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
             errors = APPLY_MODULE.validate_apply_run(run_dir)
             self.assertIn("unsafe_validation_command=task-1", errors)
+
+    def test_apply_run_rejects_agent_profile_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
+            run["agent_profiles"]["task_reviewer"]["sandbox"] = "workspace-write"
+            (run_dir / "Apply-Run.json").write_text(json.dumps(run), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir)
+
+            self.assertIn("agent_profile_mismatch=task_reviewer:sandbox", errors)
+
+    def test_transition_cli_appends_events_and_manages_writer_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+
+            code = APPLY_MODULE.main(
+                [
+                    "transition",
+                    "--run-dir",
+                    str(run_dir),
+                    "--task-id",
+                    "task-1",
+                    "--to",
+                    "IMPLEMENTING",
+                    "--actor",
+                    "impl-1",
+                    "--evidence",
+                    "brief accepted",
+                ]
+            )
+            self.assertEqual(code, 0)
+            self.assertTrue((run_dir / "Writer-Lock.json").is_file())
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            self.assertEqual(progress["tasks"][0]["state"], "IMPLEMENTING")
+            self.assertEqual(progress["active_writer_locks"][0]["task_id"], "task-1")
+
+            with self.assertRaisesRegex(ValueError, "invalid_transition=IMPLEMENTING->VERIFIED"):
+                APPLY_MODULE.transition_task_state(run_dir, "task-1", "VERIFIED", "impl-1", [])
+
+            APPLY_MODULE.transition_task_state(run_dir, "task-1", "IMPLEMENTED", "impl-1", ["implementation complete"])
+            self.assertFalse((run_dir / "Writer-Lock.json").exists())
+            events = [
+                json.loads(line)
+                for line in (run_dir / "Events.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual([event["sequence"] for event in events], [1, 2, 3])
+            self.assertEqual(events[-1]["from"], "IMPLEMENTING")
+            self.assertEqual(events[-1]["to"], "IMPLEMENTED")
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
+
+    def test_validate_rejects_state_without_transition_event(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            progress["tasks"][0]["state"] = "IMPLEMENTED"
+            (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir)
+
+            self.assertIn("task_state_missing_transition_event=task-1", errors)
+
+    def test_validate_rejects_missing_writer_lock_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            APPLY_MODULE.transition_task_state(run_dir, "task-1", "IMPLEMENTING", "impl-1", ["started"])
+            (run_dir / "Writer-Lock.json").unlink()
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir)
+
+            self.assertIn("active_writer_lock_missing_file", errors)
 
     def test_apply_run_enforces_review_order(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

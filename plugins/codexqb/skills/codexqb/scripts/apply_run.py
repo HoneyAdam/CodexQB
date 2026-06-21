@@ -9,8 +9,10 @@ systems.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -51,15 +53,92 @@ QUALITY_VERDICTS = {"approved", "needs_fixes"}
 SECURITY_VERDICTS = {"pass", "fail", "not_required"}
 COMMIT_POLICIES = {"none", "local_per_slice", "user_managed"}
 READY_STATUSES = {"READY", "READY_WITH_WARNINGS"}
-SHELL_METACHAR_RE = re.compile(r"(?:&&|\|\||[;&|<>`]|[$]\(|\n|\r)")
-MUTATING_INTENT_RE = re.compile(
-    r"\b(?:deploy|release|publish|push|merge|destroy|delete|remove|prune|reset|install|prod|production|live)\b",
-    re.IGNORECASE,
-)
+AGENT_PROFILES = {
+    "controller": {"agent_type": "default", "model_profile": "balanced", "sandbox": "workspace-write"},
+    "explorer": {"agent_type": "explorer", "model_profile": "fast", "sandbox": "read-only"},
+    "implementer": {"agent_type": "worker", "model_profile": "balanced", "sandbox": "workspace-write"},
+    "task_reviewer": {"agent_type": "default", "model_profile": "strong", "sandbox": "read-only"},
+    "security_reviewer": {"agent_type": "default", "model_profile": "security_strong", "sandbox": "read-only"},
+    "fixer": {"agent_type": "worker", "model_profile": "balanced", "sandbox": "workspace-write"},
+    "final_reviewer": {"agent_type": "default", "model_profile": "strong", "sandbox": "read-only"},
+}
+STATE_TRANSITIONS = {
+    "PREFLIGHT": {"BRIEFED"},
+    "BRIEFED": {"IMPLEMENTING", "BLOCKED", "NEEDS_CONTEXT"},
+    "IMPLEMENTING": {"IMPLEMENTED", "BLOCKED", "NEEDS_CONTEXT"},
+    "IMPLEMENTED": {"TASK_REVIEW"},
+    "TASK_REVIEW": {"SECURITY_REVIEW", "FIXING", "VERIFIED"},
+    "FIXING": {"RE_REVIEW", "BLOCKED", "NEEDS_CONTEXT"},
+    "RE_REVIEW": {"SECURITY_REVIEW", "VERIFIED", "FIXING"},
+    "SECURITY_REVIEW": {"VERIFIED", "FIXING", "BLOCKED", "NEEDS_CONTEXT"},
+    "VERIFIED": set(),
+    "BLOCKED": set(),
+    "NEEDS_CONTEXT": set(),
+}
+WRITER_LOCK_NAME = "Writer-Lock.json"
 
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def atomic_write_json(path: Path, payload: object) -> None:
+    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def append_event(run_dir: Path, event: dict[str, object]) -> dict[str, object]:
+    path = run_dir / "Events.jsonl"
+    sequence = 1
+    if path.is_file():
+        with path.open("r", encoding="utf-8") as handle:
+            sequence += sum(1 for line in handle if line.strip())
+    record = {
+        "sequence": sequence,
+        "timestamp": utc_now(),
+        **event,
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+    return record
+
+
+def load_events(run_dir: Path, errors: list[str]) -> list[dict[str, object]]:
+    path = run_dir / "Events.jsonl"
+    if not path.is_file():
+        errors.append("missing_events_jsonl")
+        return []
+    events: list[dict[str, object]] = []
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            errors.append(f"invalid_event_json=line-{line_no}")
+            continue
+        if not isinstance(event, dict):
+            errors.append(f"invalid_event_object=line-{line_no}")
+            continue
+        events.append(event)
+    for expected, event in enumerate(events, start=1):
+        if event.get("sequence") != expected:
+            errors.append(f"invalid_event_sequence={event.get('sequence')}")
+    return events
+
+
+def safe_task_id(value: str) -> bool:
+    return bool(re.fullmatch(r"task-\d+", value))
 
 
 def is_inside(parent: Path, child: Path) -> bool:
@@ -154,6 +233,37 @@ def validate_step4_queue(root: Path, mode: str) -> None:
         raise ValueError("missing_step4_ready_queue")
 
 
+def extract_contract_signals(text: str) -> dict[str, list[str]]:
+    patterns = {
+        "acceptance_criteria": r"(?:acceptance|behavior)",
+        "allowed_paths": r"(?:allowed.*path|implementation path|write path)",
+        "forbidden_paths": r"(?:forbidden.*path|must not modify|do not modify)",
+        "parent_signals": r"(?:parent acceptance|acceptance signal|signal id)",
+        "dependencies": r"(?:depends_on|dependency|blocks|can_run_in_parallel|activation_conditions)",
+        "framework_ownership": r"(?:framework ownership|ownership matrix|trl|vllm|peft)",
+        "algorithmic_invariants": r"(?:invariant|rollout|policy fingerprint|trainer-step|stateful)",
+        "structured_validation_commands": r"(?:validation command|argv|expected_exit_code|probe_tier)",
+        "security_requirements": r"(?:security review|required security|risk domain|secret|credential)",
+    }
+    signals = {key: [] for key in patterns}
+    for line in text.splitlines():
+        stripped = line.strip().strip("|").strip()
+        if not stripped or len(stripped) > 240:
+            continue
+        lowered = stripped.lower()
+        for key, pattern in patterns.items():
+            if re.search(pattern, lowered):
+                signals[key].append(stripped)
+    return signals
+
+
+def extract_subplan_contract(root: Path, subplan_path: str) -> dict[str, list[str]]:
+    path = root / subplan_path
+    if not path.is_file():
+        return {key: [] for key in extract_contract_signals("").keys()}
+    return extract_contract_signals(path.read_text(encoding="utf-8", errors="replace"))
+
+
 def default_tasks(root: Path, mode: str) -> list[dict[str, object]]:
     if mode == "no_action":
         return []
@@ -162,6 +272,7 @@ def default_tasks(root: Path, mode: str) -> list[dict[str, object]]:
     for index, item in enumerate(queue, start=1):
         subplan_path = item["subplan_path"]
         subplan = root / subplan_path
+        contract = extract_subplan_contract(root, subplan_path)
         tasks.append(
             {
                 "task_id": f"task-{index}",
@@ -169,6 +280,7 @@ def default_tasks(root: Path, mode: str) -> list[dict[str, object]]:
                 "readiness_status": item["readiness_status"],
                 "source_subplan_path": subplan_path,
                 "source_subplan_sha256": sha256_bytes(subplan.read_bytes()) if subplan.is_file() else None,
+                "fresh_context_contract": contract,
                 "finding_ids": [],
                 "security_review_required": False,
                 "writer_lock": None,
@@ -224,6 +336,7 @@ def create_apply_run(
         "pr_allowed": False,
         "max_writer_agents": 1,
         "max_subagent_depth": 1,
+        "agent_profiles": AGENT_PROFILES,
         "source_snapshot": snapshot,
         "source_snapshot_digest": snapshot_digest(snapshot),
         "external_superpowers": {
@@ -256,33 +369,46 @@ def create_apply_run(
         "blocked_tasks": [],
         "next_action": "Use the Step 4 handoff to execute tasks; update Progress.json after each state transition.",
     }
-    (run_dir / "Apply-Run.json").write_text(json.dumps(run, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (run_dir / "Progress.json").write_text(json.dumps(progress, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (run_dir / "Final-Review.json").write_text(json.dumps({"status": "not_started" if mode != "no_action" else "not_required"}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (run_dir / "Result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    atomic_write_json(run_dir / "Apply-Run.json", run)
+    atomic_write_json(run_dir / "Final-Review.json", {"status": "not_started" if mode != "no_action" else "not_required"})
+    atomic_write_json(run_dir / "Result.json", result)
     for index, task in enumerate(tasks, start=1):
         task_dir = run_dir / f"task-{index}"
         task_dir.mkdir(parents=True, exist_ok=True)
-        (task_dir / "Brief.md").write_text(
-            "\n".join(
-                [
-                    f"# Task {index} Brief",
-                    "",
-                    f"- task_id: {task['task_id']}",
-                    f"- mode: {mode}",
-                    "- commit_policy: none",
-                    f"- source_subplan_path: {task.get('source_subplan_path')}",
-                    f"- source_subplan_sha256: {task.get('source_subplan_sha256')}",
-                    f"- readiness_status: {task.get('readiness_status')}",
-                    "",
-                ]
-            ),
-            encoding="utf-8",
+        brief = "\n".join(
+            [
+                f"# Task {index} Brief",
+                "",
+                f"- task_id: {task['task_id']}",
+                f"- mode: {mode}",
+                "- commit_policy: none",
+                f"- source_subplan_path: {task.get('source_subplan_path')}",
+                f"- source_subplan_sha256: {task.get('source_subplan_sha256')}",
+                f"- readiness_status: {task.get('readiness_status')}",
+                f"- fresh_context_contract: {json.dumps(task.get('fresh_context_contract', {}), sort_keys=True, separators=(',', ':'))}",
+                "- state_machine: BRIEFED -> IMPLEMENTING -> IMPLEMENTED -> TASK_REVIEW -> VERIFIED",
+                "- report_paths: Implementer-Report.json, Task-Review.json, Fix-Report.json",
+                "- stop_conditions: unsafe path, failing validation, missing evidence, required security review failure, snapshot mismatch",
+                "",
+            ]
         )
-        (task_dir / "Implementer-Report.json").write_text(json.dumps({"status": "PENDING"}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        (task_dir / "Review-Package.patch").write_text("", encoding="utf-8")
-        (task_dir / "Task-Review.json").write_text(json.dumps({"status": "PENDING"}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        (task_dir / "Fix-Report.json").write_text(json.dumps({"status": "PENDING"}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        task["brief_sha256"] = sha256_bytes(brief.encode("utf-8"))
+        atomic_write_text(task_dir / "Brief.md", brief)
+        atomic_write_json(task_dir / "Implementer-Report.json", {"status": "PENDING"})
+        atomic_write_text(task_dir / "Review-Package.patch", "")
+        atomic_write_json(task_dir / "Task-Review.json", {"status": "PENDING"})
+        atomic_write_json(task_dir / "Fix-Report.json", {"status": "PENDING"})
+    atomic_write_json(run_dir / "Progress.json", progress)
+    append_event(
+        run_dir,
+        {
+            "event_type": "apply_run_initialized",
+            "apply_run_id": run_id,
+            "mode": mode,
+            "task_ids": [task["task_id"] for task in tasks],
+            "actor": "apply_run.py",
+        },
+    )
     return {"apply_run_id": run_id, "run_dir": run_dir.as_posix(), "state": result["status"]}
 
 
@@ -295,6 +421,101 @@ def load_json(path: Path, errors: list[str], label: str) -> object:
     except json.JSONDecodeError:
         errors.append(f"invalid_json={label}")
         return {}
+
+
+def load_json_strict(path: Path) -> dict[str, object]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"expected JSON object: {path.name}")
+    return data
+
+
+def find_task(progress: dict[str, object], task_id: str) -> dict[str, object]:
+    tasks = progress.get("tasks", [])
+    if not isinstance(tasks, list):
+        raise ValueError("progress_tasks_must_be_list")
+    for task in tasks:
+        if isinstance(task, dict) and task.get("task_id") == task_id:
+            return task
+    raise ValueError(f"unknown_task_id={task_id}")
+
+
+def lock_payload(run_dir: Path, task_id: str, owner: str) -> dict[str, object]:
+    return {
+        "lock_id": sha256_bytes(f"{run_dir}:{task_id}:{owner}".encode("utf-8"))[:16],
+        "task_id": task_id,
+        "owner": owner,
+        "acquired_at": utc_now(),
+        "expires_in_seconds": 3600,
+    }
+
+
+def acquire_writer_lock(run_dir: Path, progress: dict[str, object], task: dict[str, object], owner: str) -> dict[str, object]:
+    locks = progress.get("active_writer_locks", [])
+    if locks:
+        raise ValueError("active_writer_lock_exists")
+    lock = lock_payload(run_dir, str(task["task_id"]), owner)
+    path = run_dir / WRITER_LOCK_NAME
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        os.write(fd, (json.dumps(lock, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
+    progress["active_writer_locks"] = [lock]
+    task["writer_lock"] = lock
+    return lock
+
+
+def release_writer_lock(run_dir: Path, progress: dict[str, object], task: dict[str, object], owner: str | None = None) -> dict[str, object] | None:
+    path = run_dir / WRITER_LOCK_NAME
+    lock: dict[str, object] | None = None
+    if path.is_file():
+        lock = load_json_strict(path)
+        if owner and lock.get("owner") != owner:
+            raise ValueError("writer_lock_owner_mismatch")
+        path.unlink()
+    progress["active_writer_locks"] = []
+    task["writer_lock"] = None
+    return lock
+
+
+def transition_task_state(run_dir: Path, task_id: str, to_state: str, actor: str, evidence: list[str] | None = None) -> dict[str, object]:
+    run_dir = run_dir.resolve()
+    if not safe_task_id(task_id):
+        raise ValueError(f"invalid_task_id={task_id or 'missing'}")
+    if to_state not in TASK_STATES:
+        raise ValueError(f"invalid_target_state={to_state}")
+    if not actor.strip():
+        raise ValueError("transition_actor_required")
+    progress = load_json_strict(run_dir / "Progress.json")
+    task = find_task(progress, task_id)
+    from_state = str(task.get("state", ""))
+    if to_state not in STATE_TRANSITIONS.get(from_state, set()):
+        raise ValueError(f"invalid_transition={from_state}->{to_state}")
+
+    lock_event: dict[str, object] | None = None
+    if to_state == "IMPLEMENTING":
+        lock_event = acquire_writer_lock(run_dir, progress, task, actor)
+    elif from_state == "IMPLEMENTING":
+        lock_event = release_writer_lock(run_dir, progress, task, actor)
+
+    task["state"] = to_state
+    event = append_event(
+        run_dir,
+        {
+            "event_type": "task_transition",
+            "task_id": task_id,
+            "from": from_state,
+            "to": to_state,
+            "actor": actor,
+            "evidence": evidence or [],
+            "writer_lock": lock_event,
+        },
+    )
+    progress["resume_cursor"] = {"task_id": task_id, "state": to_state, "event_sequence": event["sequence"]}
+    progress["events"] = [{"sequence": event["sequence"], "event_type": "task_transition", "task_id": task_id, "to": to_state}]
+    atomic_write_json(run_dir / "Progress.json", progress)
+    return event
 
 
 def command_is_safe(command: object) -> bool:
@@ -310,7 +531,7 @@ def command_is_safe(command: object) -> bool:
 def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list[str]) -> None:
     task_id = str(task.get("task_id", ""))
     state = str(task.get("state", ""))
-    if not re.fullmatch(r"task-\d+", task_id):
+    if not safe_task_id(task_id):
         errors.append(f"invalid_task_id={task_id or 'missing'}")
         return
     if state not in TASK_STATES:
@@ -324,9 +545,8 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
         if not command_is_safe(command):
             errors.append(f"unsafe_validation_command={task_id}")
 
-    match = re.fullmatch(r"task-(\d+)", task_id)
     task_dir = (run_dir / task_id).resolve()
-    if not match or not is_inside(run_dir, task_dir):
+    if not is_inside(run_dir, task_dir):
         errors.append(f"invalid_task_id={task_id or 'missing'}")
         return
     if not task_dir.is_dir():
@@ -400,6 +620,86 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
             errors.append(f"verified_requires_security_pass={task_id}")
 
 
+def validate_events(events: list[dict[str, object]], tasks: list[object], errors: list[str]) -> None:
+    if events and events[0].get("event_type") != "apply_run_initialized":
+        errors.append("first_event_must_initialize_apply_run")
+    last_state: dict[str, str] = {}
+    for event in events:
+        if event.get("event_type") != "task_transition":
+            continue
+        task_id = str(event.get("task_id", ""))
+        from_state = str(event.get("from", ""))
+        to_state = str(event.get("to", ""))
+        if not safe_task_id(task_id):
+            errors.append(f"invalid_event_task_id={task_id or 'missing'}")
+            continue
+        if to_state not in STATE_TRANSITIONS.get(from_state, set()):
+            errors.append(f"invalid_transition_event={task_id}:{from_state}->{to_state}")
+        if task_id in last_state and last_state[task_id] != from_state:
+            errors.append(f"non_contiguous_transition_event={task_id}")
+        last_state[task_id] = to_state
+        evidence = event.get("evidence", [])
+        if not isinstance(evidence, list):
+            errors.append(f"transition_evidence_must_be_list={task_id}")
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("task_id", ""))
+        state = str(task.get("state", ""))
+        if state != "BRIEFED" and last_state.get(task_id) != state:
+            errors.append(f"task_state_missing_transition_event={task_id}")
+
+
+def validate_writer_lock(run_dir: Path, progress: dict[str, object], tasks: list[object], errors: list[str]) -> None:
+    locks = progress.get("active_writer_locks", [])
+    if not isinstance(locks, list):
+        errors.append("active_writer_locks_must_be_list")
+        locks = []
+    if len(locks) > 1:
+        errors.append("only_one_active_writer_lock_permitted")
+    path = run_dir / WRITER_LOCK_NAME
+    if locks and not path.is_file():
+        errors.append("active_writer_lock_missing_file")
+    if path.is_file():
+        lock = load_json(path, errors, "writer_lock_json")
+        if not isinstance(lock, dict):
+            return
+        if not locks:
+            errors.append("writer_lock_file_without_progress_lock")
+        elif lock != locks[0]:
+            errors.append("writer_lock_file_progress_mismatch")
+        task_id = str(lock.get("task_id", ""))
+        owner = str(lock.get("owner", ""))
+        if not safe_task_id(task_id):
+            errors.append(f"invalid_writer_lock_task_id={task_id or 'missing'}")
+        if not owner:
+            errors.append("writer_lock_owner_required")
+        matching = [task for task in tasks if isinstance(task, dict) and task.get("task_id") == task_id]
+        if not matching:
+            errors.append(f"writer_lock_unknown_task={task_id}")
+            return
+        task = matching[0]
+        if task.get("writer_lock") != lock:
+            errors.append(f"task_writer_lock_mismatch={task_id}")
+        if task.get("state") != "IMPLEMENTING":
+            errors.append(f"writer_lock_requires_implementing_state={task_id}")
+
+
+def validate_agent_profiles(run: dict[str, object], errors: list[str]) -> None:
+    profiles = run.get("agent_profiles")
+    if not isinstance(profiles, dict):
+        errors.append("agent_profiles_missing")
+        return
+    for role, expected in AGENT_PROFILES.items():
+        actual = profiles.get(role)
+        if not isinstance(actual, dict):
+            errors.append(f"agent_profile_missing={role}")
+            continue
+        for key, value in expected.items():
+            if actual.get(key) != value:
+                errors.append(f"agent_profile_mismatch={role}:{key}")
+
+
 def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
     errors: list[str] = []
     run_dir = run_dir.resolve()
@@ -407,7 +707,8 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
     run = load_json(run_dir / "Apply-Run.json", errors, "apply_run_json")
     progress = load_json(run_dir / "Progress.json", errors, "progress_json")
     final_review = load_json(run_dir / "Final-Review.json", errors, "final_review_json")
-    load_json(run_dir / "Result.json", errors, "result_json")
+    result = load_json(run_dir / "Result.json", errors, "result_json")
+    events = load_events(run_dir, errors)
     if errors or not isinstance(run, dict) or not isinstance(progress, dict):
         return errors
 
@@ -429,6 +730,7 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         errors.append("only_one_writer_permitted")
     if run.get("max_subagent_depth") != 1:
         errors.append("recursive_subagents_rejected")
+    validate_agent_profiles(run, errors)
     external = run.get("external_superpowers", {})
     if run.get("mode") == "external_superpowers":
         if not isinstance(external, dict):
@@ -446,6 +748,11 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
     task_ids: set[str] = set()
     if run.get("mode") == "no_action" and tasks:
         errors.append("no_action_must_not_have_tasks")
+    if run.get("mode") == "no_action":
+        if progress.get("final_review_required") is not False:
+            errors.append("no_action_final_review_must_be_false")
+        if isinstance(result, dict) and result.get("status") != "no_action":
+            errors.append("no_action_result_status_mismatch")
     for task in tasks:
         if not isinstance(task, dict):
             errors.append("progress_task_must_be_object")
@@ -458,9 +765,8 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
             errors.append(f"verified_task_not_redispatched={task_id}")
         validate_task_artifacts(run_dir, task, errors)
 
-    locks = progress.get("active_writer_locks", [])
-    if isinstance(locks, list) and len(locks) > 1:
-        errors.append("only_one_active_writer_lock_permitted")
+    validate_events(events, tasks, errors)
+    validate_writer_lock(run_dir, progress, tasks, errors)
     if progress.get("final_review_required") is True:
         if not isinstance(final_review, dict) or final_review.get("status") not in {"pass", "not_started"}:
             errors.append("final_review_required")
@@ -484,19 +790,26 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Manage CodexQB apply-run artifact contracts.")
     sub = parser.add_subparsers(dest="command", required=True)
-    init = sub.add_parser("init", help="Create an apply-run artifact directory.")
-    init.add_argument("--root", default=".")
-    init.add_argument("--mode", default="subagent_serial", choices=sorted(APPLY_MODES))
-    init.add_argument("--output-dir")
-    init.add_argument("--replace", action="store_true")
-    init.add_argument("--resume", action="store_true")
+    for command_name in ("init", "prepare"):
+        prepare = sub.add_parser(command_name, help="Create an apply-run artifact directory.")
+        prepare.add_argument("--root", default=".")
+        prepare.add_argument("--mode", default="subagent_serial", choices=sorted(APPLY_MODES))
+        prepare.add_argument("--output-dir")
+        prepare.add_argument("--replace", action="store_true")
+        prepare.add_argument("--resume", action="store_true")
     check = sub.add_parser("validate", help="Validate an apply-run artifact directory.")
     check.add_argument("--run-dir", required=True)
     check.add_argument("--root")
+    transition = sub.add_parser("transition", help="Apply one checked task state transition and append Events.jsonl.")
+    transition.add_argument("--run-dir", required=True)
+    transition.add_argument("--task-id", required=True)
+    transition.add_argument("--to", required=True, choices=sorted(TASK_STATES))
+    transition.add_argument("--actor", required=True)
+    transition.add_argument("--evidence", action="append", default=[])
     args = parser.parse_args(argv)
 
     try:
-        if args.command == "init":
+        if args.command in {"init", "prepare"}:
             result = create_apply_run(
                 Path(args.root),
                 args.mode,
@@ -507,6 +820,13 @@ def main(argv: list[str] | None = None) -> int:
             print("apply_run_status=initialized")
             print(f"apply_run_id={result['apply_run_id']}")
             print(f"run_dir={result['run_dir']}")
+            return 0
+        if args.command == "transition":
+            event = transition_task_state(Path(args.run_dir), args.task_id, args.to, args.actor, args.evidence)
+            print("apply_run_status=transitioned")
+            print(f"event_sequence={event['sequence']}")
+            print(f"task_id={args.task_id}")
+            print(f"state={args.to}")
             return 0
         errors = validate_apply_run(Path(args.run_dir), Path(args.root) if args.root else None)
     except Exception as exc:

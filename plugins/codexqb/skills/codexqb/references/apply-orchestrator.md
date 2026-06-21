@@ -10,6 +10,8 @@ Target repositories store apply artifacts under:
 .codexqb/apply-runs/<apply-run-id>/
   Apply-Run.json
   Progress.json
+  Events.jsonl
+  Writer-Lock.json
   task-<n>/Brief.md
   task-<n>/Implementer-Report.json
   task-<n>/Review-Package.patch
@@ -21,6 +23,8 @@ Target repositories store apply artifacts under:
 
 These runtime directories are created in the target repository, not in the CodexQB source tree except for tests and examples.
 Non-`no_action` runs derive initial task briefs from Step 4 READY or READY_WITH_WARNINGS entries in `Planner-docs/Sub-Planing-Audit.md` when available. The audit-derived source sub-plan path and hash are recorded in both `Progress.json` and `Brief.md`.
+When present in the active sub-plan, the controller also copies fresh-context contract signals into each task: acceptance criteria, allowed/forbidden paths, parent signals, dependencies, framework ownership, algorithmic invariants, structured validation commands, and security requirements.
+Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. Use `apply_run.py transition` for state changes so `Events.jsonl` remains the append-only transition truth. `Progress.json` is the current state snapshot.
 
 ## Modes
 
@@ -48,6 +52,34 @@ Allowed task states:
 Each active slice must pass spec review before quality/security review. Failed review requires same-slice fix and re-review before completion.
 Existing apply-run directories are not overwritten by default. Use explicit resume/replace behavior when continuing or intentionally regenerating artifacts.
 
+Transitions must follow:
+
+```text
+PREFLIGHT -> BRIEFED
+BRIEFED -> IMPLEMENTING | BLOCKED | NEEDS_CONTEXT
+IMPLEMENTING -> IMPLEMENTED | BLOCKED | NEEDS_CONTEXT
+IMPLEMENTED -> TASK_REVIEW
+TASK_REVIEW -> SECURITY_REVIEW | FIXING | VERIFIED
+FIXING -> RE_REVIEW | BLOCKED | NEEDS_CONTEXT
+RE_REVIEW -> SECURITY_REVIEW | VERIFIED | FIXING
+SECURITY_REVIEW -> VERIFIED | FIXING | BLOCKED | NEEDS_CONTEXT
+```
+
+`IMPLEMENTING` acquires `Writer-Lock.json` atomically. Leaving `IMPLEMENTING` releases it. Validation rejects state snapshots that are not backed by a contiguous transition event.
+
+## Role Templates and Model Profiles
+
+Fresh-context role templates live under `references/apply/`:
+
+- `controller.md`
+- `implementer.md`
+- `task-reviewer.md`
+- `security-reviewer.md`
+- `fixer.md`
+- `final-reviewer.md`
+
+`Apply-Run.json` includes role-level `agent_profiles` with stable model profiles instead of hardcoded model names: `fast`, `balanced`, `strong`, `security_strong`, and `inherit` when a user explicitly asks to inherit the active session. Reviewers default to read-only sandboxes; the implementer and fixer are the only default workspace-write roles.
+
 ## Review Result Shape
 
 ```json
@@ -72,6 +104,8 @@ Existing apply-run directories are not overwritten by default. Use explicit resu
 - Only one writer modifies files per slice unless the user explicitly requests separate branches or worktrees.
 - Subagents are read-only by default except the selected fresh-slice implementer.
 - `Progress.json` is the authoritative operational state for resume.
+- `Events.jsonl` is the append-only transition truth.
+- JSON snapshots are written with temp-file plus replace; writer lock uses create-exclusive semantics.
 - `no_action` runs must not contain queued tasks.
 - Task IDs must use the controller-generated `task-<n>` format and resolve inside the apply-run directory.
 - VERIFIED tasks require matching brief hashes, implementer identity, changed-file inventory, passing validation evidence, independent reviewer identity, review evidence, and final repo-level validation evidence.

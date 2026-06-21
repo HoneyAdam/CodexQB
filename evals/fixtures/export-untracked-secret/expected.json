@@ -1,0 +1,8 @@
+{
+  "id": "export-untracked-secret",
+  "description": "Sanitized export should scan optional untracked files and reject secret-like content.",
+  "expected_comprehension_signals": ["include-untracked", "secret scan", "export rejected"],
+  "expected_trace_ids": ["TRACE-export-untracked-secret"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["untracked_content_scan", "secret_like_rejection", "ignored_file_exclusion"]
+}

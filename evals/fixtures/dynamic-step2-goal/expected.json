@@ -1,0 +1,8 @@
+{
+  "id": "dynamic-step2-goal",
+  "description": "Step 2 Goal preview should compile adaptive active/deferred planning scope from current Planner-docs.",
+  "expected_comprehension_signals": ["dynamic goal scope", "active phases", "deferred roadmap"],
+  "expected_trace_ids": ["TRACE-goal-step2-scope"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["goal_scope_manifest", "strict_step2_checkpoint", "no_static_only_handoff"]
+}

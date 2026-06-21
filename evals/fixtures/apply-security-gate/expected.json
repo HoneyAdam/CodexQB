@@ -1,0 +1,8 @@
+{
+  "id": "apply-security-gate",
+  "description": "Security-sensitive apply tasks should require security review pass evidence.",
+  "expected_comprehension_signals": ["security review required", "security_strong", "independent reviewer"],
+  "expected_trace_ids": ["TRACE-apply-security-gate"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["security_review_required", "reviewer_independence", "security_evidence"]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "apply-no-action",
+  "description": "no_action apply runs should preserve empty queue and no implementation final review.",
+  "expected_comprehension_signals": ["NO_ACTION_REQUIRED", "empty queue", "no final review"],
+  "expected_trace_ids": ["TRACE-apply-no-action"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["no_action_empty_tasks", "no_action_result_status", "no_action_final_review_false"]
+}

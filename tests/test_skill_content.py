@@ -201,9 +201,45 @@ class SkillContentTests(unittest.TestCase):
             "fix only the active slice and re-run spec review",
             "fix only the active slice and re-run the relevant review",
             "final review",
-            "Do not commit, push, open PRs, deploy, or mutate external systems unless the user explicitly opts into that action",
+                "Do not commit, push, open PRs, deploy, or mutate external systems unless the user explicitly opts into that action",
         ]:
             self.assertIn(phrase, fourth)
+
+    def test_apply_role_templates_and_durable_controller_contract_are_wired(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        apply_ref = (SKILL_ROOT / "references/apply-orchestrator.md").read_text(encoding="utf-8")
+        validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        usage = (REPO_ROOT / "docs/USAGE.md").read_text(encoding="utf-8")
+        role_files = [
+            "controller.md",
+            "implementer.md",
+            "task-reviewer.md",
+            "security-reviewer.md",
+            "fixer.md",
+            "final-reviewer.md",
+        ]
+        for name in role_files:
+            rel = f"references/apply/{name}"
+            path = SKILL_ROOT / rel
+            self.assertTrue(path.is_file(), rel)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("model_profile", text, rel)
+            self.assertIn(rel, skill)
+            self.assertIn(f"plugins/codexqb/skills/codexqb/{rel}", validate_script)
+        for phrase in [
+            "Events.jsonl",
+            "Writer-Lock.json",
+            "apply_run.py prepare",
+            "apply_run.py transition",
+            "append-only transition truth",
+            "agent_profiles",
+            "security_strong",
+        ]:
+            self.assertIn(phrase, apply_ref)
+        for phrase in ["prepare --root", "transition --run-dir", "Events.jsonl", "agent profile drift"]:
+            self.assertIn(phrase, readme)
+            self.assertIn(phrase, usage)
 
     def test_validate_script_covers_archive_and_secret_hygiene(self) -> None:
         validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
@@ -414,6 +450,18 @@ class SkillContentTests(unittest.TestCase):
             "stale-ledger",
             "runtime-only-behavior",
             "security-boundary-risk",
+            "dynamic-step2-goal",
+            "dynamic-step3-goal",
+            "dynamic-step4-goal",
+            "apply-happy-path",
+            "apply-review-fix-rereview",
+            "apply-security-gate",
+            "apply-interrupted-resume",
+            "apply-stale-snapshot",
+            "apply-run-id-collision",
+            "apply-no-action",
+            "export-untracked-secret",
+            "export-external-symlink",
         ]:
             self.assertTrue((fixture_root / fixture / "expected.json").is_file(), fixture)
 

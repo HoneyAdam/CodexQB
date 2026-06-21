@@ -1,0 +1,8 @@
+{
+  "id": "export-external-symlink",
+  "description": "Sanitized export should reject symlinks and path-boundary escapes.",
+  "expected_comprehension_signals": ["symlink rejected", "path boundary", "outside content blocked"],
+  "expected_trace_ids": ["TRACE-export-external-symlink"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["symlink_rejection", "resolved_path_inside_repo", "archive_boundary"]
+}

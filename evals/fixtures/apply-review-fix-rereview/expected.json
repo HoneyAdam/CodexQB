@@ -1,0 +1,8 @@
+{
+  "id": "apply-review-fix-rereview",
+  "description": "Apply review failures should route through FIXING and RE_REVIEW before VERIFIED.",
+  "expected_comprehension_signals": ["failed review", "same-slice fix", "re-review"],
+  "expected_trace_ids": ["TRACE-apply-fix-rereview"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["transition_map_enforced", "fix_report_required", "review_evidence_required"]
+}

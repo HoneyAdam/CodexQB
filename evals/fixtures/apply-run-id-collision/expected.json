@@ -1,0 +1,8 @@
+{
+  "id": "apply-run-id-collision",
+  "description": "Apply prepare should reject existing run directories unless resume or replace is explicit.",
+  "expected_comprehension_signals": ["apply_run_already_exists", "explicit resume", "no overwrite"],
+  "expected_trace_ids": ["TRACE-apply-run-id-collision"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["no_silent_progress_reset", "resume_required", "replace_required"]
+}

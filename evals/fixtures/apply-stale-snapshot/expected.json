@@ -1,0 +1,8 @@
+{
+  "id": "apply-stale-snapshot",
+  "description": "Apply validation should stop when plan snapshot or workspace baseline no longer matches.",
+  "expected_comprehension_signals": ["snapshot mismatch", "workspace baseline", "stale plan"],
+  "expected_trace_ids": ["TRACE-apply-stale-snapshot"],
+  "expected_architecture_statuses": ["uncertain"],
+  "expected_quality_checks": ["source_snapshot_mismatch", "git_status_hash", "resume_stop_gate"]
+}

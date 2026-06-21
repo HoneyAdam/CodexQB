@@ -1,0 +1,8 @@
+{
+  "id": "apply-happy-path",
+  "description": "Apply run should move one READY task through evidence-backed VERIFIED completion.",
+  "expected_comprehension_signals": ["READY task", "implementation evidence", "final validation"],
+  "expected_trace_ids": ["TRACE-apply-happy-path"],
+  "expected_architecture_statuses": ["convergent"],
+  "expected_quality_checks": ["events_jsonl_sequence", "writer_lock_release", "verified_evidence_schema"]
+}
