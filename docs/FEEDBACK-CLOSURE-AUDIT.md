@@ -6,7 +6,7 @@ Review baseline head: current `main` plus in-flight feedback hardening changes
 
 This audit maps the external feedback items to current repository evidence. It is not a release tag decision; it records what is closed, what is partially covered, and what still needs stronger evidence before declaring the full feedback objective complete.
 
-Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feedback-closure.md`.
+Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feedback-closure.md`. Live subagent smoke evidence is recorded in `docs/release-evidence/0.3.0-live-subagent-smoke.md`.
 
 ## Summary
 
@@ -16,7 +16,7 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 | Goal compiler project-specificity | Mostly closed for preview artifacts | `plugins/codexqb/skills/codexqb/scripts/goal_run.py`, `tests/test_goal_run.py::test_step2_goal_collects_main_plan_horizon_before_subplans_exist`, `tests/test_goal_run.py::test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue` |
 | Apply orchestrator durability | Mostly closed for artifact controller semantics | `plugins/codexqb/skills/codexqb/scripts/apply_run.py`, `plugins/codexqb/skills/codexqb/references/apply-run-schema.json`, `evals/run_apply_behavior_smoke.py` |
 | Subagent methodology contracts | Mostly closed at artifact/prompt level | `plugins/codexqb/skills/codexqb/references/apply/*.md`, `tests/test_skill_content.py::test_apply_role_templates_and_durable_controller_contract_are_wired` |
-| Live release-grade orchestration proof | Remaining risk | `evals/run_downstream_goal_apply_dry_run.py` now proves the Step 2 -> Step 3 -> Step 4 -> Goal -> Apply artifact chain in a disposable git-backed downstream project. It still does not call live Codex tools or prove real model-backed child-thread execution. |
+| Live release-grade orchestration proof | Partial - live spawn smoke observed; full e2e still remaining | `evals/run_downstream_goal_apply_dry_run.py` proves the Step 2 -> Step 3 -> Step 4 -> Goal -> Apply artifact chain in a disposable git-backed downstream project. `docs/release-evidence/0.3.0-live-subagent-smoke.md` records live read-only exploration, bounded docs-scope writing, independent read-only review, and re-review through `multi_agent_v1.spawn_agent`. This still does not prove full downstream Apply/Ralph multi-role execution. |
 
 ## Release Blocker Items
 
@@ -72,7 +72,7 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 | Model profiles instead of hardcoded models | Closed | `AGENT_PROFILES` in `apply_run.py` and `GOAL_AGENT_PROFILES` in `goal_run.py`; schema enum in `apply-run-schema.json`. |
 | Review independence | Closed for artifacts | `reviewer_agent_id != implementer_agent_id` and security reviewer independence are validated. Covered by `test_apply_run_requires_security_review_and_final_review_for_verified_task`. |
 | One reviewer with two verdicts, separate security reviewer only for high risk | Closed | `Task-Review.json` requires spec and quality verdicts; security reviewer identity required only when security review is required/performed. |
-| Fresh-context brief enforcement | Mostly closed | Briefs carry source sub-plan path/hash, fresh context signals, structured implementation contract, validation commands, security flag, and dispatch packets use `fork_context: false`. The live Codex child thread creation is still manual/adapter-driven and is not executed by tests. |
+| Fresh-context brief enforcement | Mostly closed; live spawn smoke observed | Briefs carry source sub-plan path/hash, fresh context signals, structured implementation contract, validation commands, security flag, and dispatch packets use `fork_context: false`. A live read-only explorer spawn completed with `fork_context: false`, but tests still do not execute live Codex child threads. |
 
 ## Eval And Release Evidence
 
@@ -81,14 +81,15 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 | Add Goal/Apply/export fixture names | Closed for corpus presence | `evals/run_fixture_corpus_checks.py` requires 20 fixtures including all named Goal/Apply/export fixtures. |
 | Behavioral Apply controller smoke | Closed for local artifact lifecycle | `evals/run_apply_behavior_smoke.py` drives prepare, dispatch, record-agent, transition, validate, finalize, and stale-lock recovery. |
 | Representative downstream Step 2 -> Step 4 Goal/Apply dry run | Closed for artifact dry run | `evals/run_downstream_goal_apply_dry_run.py` builds a disposable git-backed project with source and unit tests, runs strict Step 2, Step 3 preflight, Step 3, and Step 4 validators, compiles Step 2/3/4 Goal previews, prepares a `subagent_serial` Apply run, records fresh-context dispatch and agent lifecycle artifacts, finalizes the run, and prints `downstream_goal_apply_dry_run=passed`. |
+| Live subagent spawn smoke | Partial evidence only | On 2026-06-21, `docs/release-evidence/0.3.0-live-subagent-smoke.md` recorded live read-only explorer, docs-scope worker, spec reviewer, re-reviewer, and quality reviewer agents through `multi_agent_v1.spawn_agent`. This is live spawn/docs-scope evidence, not a full downstream Apply/Ralph multi-role e2e. |
 | Token metrics for static vs dynamic prompts and single-agent vs subagent Step 4 | Closed for local estimates | `evals/run_goal_apply_metric_checks.py` emits deterministic approximate-token metrics for static Step 4 handoff text, dynamic direct/subagent Goal prompts, direct Apply briefs, and subagent dispatch prompts, ending with `goal_apply_metric_checks=passed` on success. Live model billing/use remains outside dependency-free CI. |
 | Extracted package smoke | Closed for current closeout | On 2026-06-21, this closeout ran `make export-sanitized` and then `bash scripts/validate.sh` from an extracted package without `.git`; package mode printed `package_secret_hygiene_mode=filesystem`, `sanitized_zip_hygiene=passed`, `goal_apply_metric_checks=passed`, and the full unit suite OK. Repeat this gate before a final release tag if more changes land. |
 | Release tag/changelog finalization | Remaining | `CHANGELOG.md` still has `0.3.0` under `Unreleased`, which is acceptable before tagging but blocks final release packaging. |
 
 ## Current Decision
 
-The original release-blocker list has been substantially addressed in code, docs, tests, and CI. The current closeout has run the full repo gate, sanitized export, extracted-package validation, local Goal/Apply prompt-size metrics, and a repeatable downstream artifact dry run. The remaining release-quality work is:
+The original release-blocker list has been substantially addressed in code, docs, tests, and CI. The current closeout has run the full repo gate, sanitized export, extracted-package validation, local Goal/Apply prompt-size metrics, a repeatable downstream artifact dry run, and live docs-scope subagent smoke. The remaining release-quality work is:
 
-1. Run a live Codex-backed downstream exercise that actually spawns child agents or execute an accepted manual release waiver for that external runtime gate.
+1. Run a live Codex-backed downstream exercise that spawns implementer, task reviewer, required security reviewer, and final reviewer agents, captures interruption/resume evidence, and binds those runs to Apply artifacts; otherwise execute an accepted manual release waiver for that external runtime gate.
 2. Review `evals/run_goal_apply_metric_checks.py` output for unexpected prompt-size regressions on any later prompt changes.
 3. Move `CHANGELOG.md` from `Unreleased` to a dated `0.3.0` section only after those release gates pass.
