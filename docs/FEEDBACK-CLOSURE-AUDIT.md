@@ -14,7 +14,7 @@ This audit maps the external feedback items to current repository evidence. It i
 | Goal compiler project-specificity | Mostly closed for preview artifacts | `plugins/codexqb/skills/codexqb/scripts/goal_run.py`, `tests/test_goal_run.py::test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue` |
 | Apply orchestrator durability | Mostly closed for artifact controller semantics | `plugins/codexqb/skills/codexqb/scripts/apply_run.py`, `plugins/codexqb/skills/codexqb/references/apply-run-schema.json`, `evals/run_apply_behavior_smoke.py` |
 | Subagent methodology contracts | Mostly closed at artifact/prompt level | `plugins/codexqb/skills/codexqb/references/apply/*.md`, `tests/test_skill_content.py::test_apply_role_templates_and_durable_controller_contract_are_wired` |
-| Live release-grade orchestration proof | Remaining risk | Current tests are deterministic artifact/controller smoke tests; they do not prove live multi-agent execution across real downstream projects. |
+| Live release-grade orchestration proof | Remaining risk | `evals/run_downstream_goal_apply_dry_run.py` now proves the Step 2 -> Step 3 -> Step 4 -> Goal -> Apply artifact chain in a disposable git-backed downstream project. It still does not call live Codex tools or prove real model-backed child-thread execution. |
 
 ## Release Blocker Items
 
@@ -77,14 +77,15 @@ This audit maps the external feedback items to current repository evidence. It i
 |---|---|---|
 | Add Goal/Apply/export fixture names | Closed for corpus presence | `evals/run_fixture_corpus_checks.py` requires 20 fixtures including all named Goal/Apply/export fixtures. |
 | Behavioral Apply controller smoke | Closed for local artifact lifecycle | `evals/run_apply_behavior_smoke.py` drives prepare, dispatch, record-agent, transition, validate, finalize, and stale-lock recovery. |
+| Representative downstream Step 2 -> Step 4 Goal/Apply dry run | Closed for artifact dry run | `evals/run_downstream_goal_apply_dry_run.py` builds a disposable git-backed project with source and unit tests, runs strict Step 2, Step 3 preflight, Step 3, and Step 4 validators, compiles Step 2/3/4 Goal previews, prepares a `subagent_serial` Apply run, records fresh-context dispatch and agent lifecycle artifacts, finalizes the run, and prints `downstream_goal_apply_dry_run=passed`. |
 | Token metrics for static vs dynamic prompts and single-agent vs subagent Step 4 | Closed for local estimates | `evals/run_goal_apply_metric_checks.py` emits deterministic approximate-token metrics for static Step 4 handoff text, dynamic direct/subagent Goal prompts, direct Apply briefs, and subagent dispatch prompts, ending with `goal_apply_metric_checks=passed` on success. Live model billing/use remains outside dependency-free CI. |
 | Extracted package smoke | Closed for current closeout | On 2026-06-21, this closeout ran `make export-sanitized` and then `bash scripts/validate.sh` from an extracted package without `.git`; package mode printed `package_secret_hygiene_mode=filesystem`, `sanitized_zip_hygiene=passed`, `goal_apply_metric_checks=passed`, and 140 tests OK. Repeat this gate before a final release tag if more changes land. |
 | Release tag/changelog finalization | Remaining | `CHANGELOG.md` still has `0.3.0` under `Unreleased`, which is acceptable before tagging but blocks final release packaging. |
 
 ## Current Decision
 
-The original release-blocker list has been substantially addressed in code, docs, tests, and CI. The current closeout has run the full repo gate, sanitized export, extracted-package validation, and local Goal/Apply prompt-size metrics. The remaining release-quality work is:
+The original release-blocker list has been substantially addressed in code, docs, tests, and CI. The current closeout has run the full repo gate, sanitized export, extracted-package validation, local Goal/Apply prompt-size metrics, and a repeatable downstream artifact dry run. The remaining release-quality work is:
 
-1. Run at least one real downstream Step 2 -> Step 3 -> Step 4 Goal/Apply dry run against a representative project.
+1. Run a live Codex-backed downstream exercise that actually spawns child agents or execute an accepted manual release waiver for that external runtime gate.
 2. Review `evals/run_goal_apply_metric_checks.py` output for unexpected prompt-size regressions on any later prompt changes.
 3. Move `CHANGELOG.md` from `Unreleased` to a dated `0.3.0` section only after those release gates pass.

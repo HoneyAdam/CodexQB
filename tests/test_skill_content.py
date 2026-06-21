@@ -353,6 +353,8 @@ class SkillContentTests(unittest.TestCase):
             "sanitized_zip_hygiene=passed",
             "sanitized_zip_hygiene_failed",
             "evals/run_apply_behavior_smoke.py",
+            "evals/run_downstream_goal_apply_dry_run.py",
+            "downstream_goal_apply_dry_run=passed",
             "evals/run_goal_apply_metric_checks.py",
             "goal_apply_metric_checks=passed",
             "apply_behavior_smoke=passed",
@@ -369,6 +371,7 @@ class SkillContentTests(unittest.TestCase):
             "Eval And Release Evidence",
             "Remaining",
             "goal_apply_metric_checks=passed",
+            "downstream_goal_apply_dry_run=passed",
         ]:
             self.assertIn(phrase, closure_audit)
 
@@ -546,17 +549,28 @@ class SkillContentTests(unittest.TestCase):
         runner = REPO_ROOT / "evals/run_fixture_corpus_checks.py"
         wrapper = REPO_ROOT / "evals/run_fixture_checks.py"
         apply_smoke = REPO_ROOT / "evals/run_apply_behavior_smoke.py"
+        downstream_smoke = REPO_ROOT / "evals/run_downstream_goal_apply_dry_run.py"
         metric_smoke = REPO_ROOT / "evals/run_goal_apply_metric_checks.py"
         self.assertTrue(runner.is_file())
         self.assertTrue(wrapper.is_file())
         self.assertTrue(apply_smoke.is_file())
+        self.assertTrue(downstream_smoke.is_file())
         self.assertTrue(metric_smoke.is_file())
         runner_text = runner.read_text(encoding="utf-8")
         smoke_text = apply_smoke.read_text(encoding="utf-8")
+        downstream_text = downstream_smoke.read_text(encoding="utf-8")
         metric_text = metric_smoke.read_text(encoding="utf-8")
         self.assertIn("fixture_corpus_checks=passed", runner_text)
         self.assertIn("apply_behavior_smoke=passed", smoke_text)
         self.assertIn("apply_run_finalized", smoke_text)
+        for phrase in [
+            "downstream_goal_apply_dry_run=passed",
+            "step3-preflight",
+            "subagent_serial",
+            "Use only this fresh task context",
+            "Structured Implementation Contract",
+        ]:
+            self.assertIn(phrase, downstream_text)
         for phrase in [
             "goal_apply_metric_checks=passed",
             "static_step4_handoff",

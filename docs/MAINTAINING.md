@@ -20,7 +20,7 @@ Run the default repository validation before every release:
 make check
 ```
 
-This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology/comprehension prompt wiring, deterministic fixture corpus inputs, Goal/Apply prompt-size metric checks, tracked-file secret hygiene, archive hygiene, sanitized zip path/content hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
+This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology/comprehension prompt wiring, deterministic fixture corpus inputs, downstream Step 2 -> Step 4 Goal/Apply dry-run coverage, Goal/Apply prompt-size metric checks, tracked-file secret hygiene, archive hygiene, sanitized zip path/content hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
 
 On a normal local development machine, `make check` is expected to complete under 45 seconds. Validator CLI smoke tests have a 30-second timeout for focused fixture runs, and any timeout or hang is a release blocker. CI pins Python 3.12 with `actions/setup-python`.
 
@@ -148,6 +148,14 @@ python3 evals/run_goal_apply_metric_checks.py
 ```
 
 This emits approximate token counts for the static Step 4 handoff, dynamic direct and `subagent_serial` Goal prompts, direct Apply briefs, and subagent dispatch messages. These estimates are for regression tracking only; they are not exact model billing.
+
+CodexQB also keeps a repeatable downstream artifact dry run:
+
+```bash
+python3 evals/run_downstream_goal_apply_dry_run.py
+```
+
+This builds a disposable git-backed project with small source and test files, runs strict Step 2, Step 3 preflight, Step 3, and Step 4 validation, compiles Goal previews, prepares a `subagent_serial` Apply run, records artifact-level agent lifecycle evidence, and finalizes the run. It does not call live Codex tools or prove real multi-agent model execution.
 
 ## Optional Local Skill Copy Parity
 
