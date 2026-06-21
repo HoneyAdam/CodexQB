@@ -22,6 +22,7 @@ build/
 dist/
 
 # Generated/runtime
+.codexqb/
 CodexQB-sanitized.zip
 artifacts/
 logs/

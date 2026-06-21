@@ -197,3 +197,9 @@ Result:
 - 2026-06-21: `git diff --check` passed.
 - 2026-06-21: `make export-sanitized` passed; `CodexQB-sanitized.zip` created from 94 files.
 - 2026-06-21: Extracted `CodexQB-sanitized.zip` into a temporary directory and ran `make check` without `.git`; package fallback hygiene labels appeared and validation passed.
+- 2026-06-21: Follow-up feedback pass added shared safety contracts, exporter symlink/untracked-secret protection, stricter Goal path/render/prerequisite/overwrite checks, and Apply no-action/task/evidence/overwrite checks.
+- 2026-06-21: Full unit suite passed with 119 tests after release-blocker hardening.
+- 2026-06-21: `make check` passed after release-blocker hardening; fixture corpus passed with 8 fixtures.
+- 2026-06-21: `git diff --check` passed after release-blocker hardening.
+- 2026-06-21: `make export-sanitized` passed after release-blocker hardening; `CodexQB-sanitized.zip` created from 96 files with explicit untracked-file scanning.
+- 2026-06-21: Extracted hardened `CodexQB-sanitized.zip` into a temporary directory and ran `make check` without `.git`; package fallback hygiene labels appeared and validation passed.

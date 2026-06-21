@@ -16,6 +16,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from safety_contracts import (  # noqa: E402
+    path_is_inside,
+    safe_validation_command_item,
+)
+
 
 ARTIFACT_SCHEMA_VERSION = 3
 HANDOFF_CONTRACT_VERSION = 2
@@ -54,11 +63,7 @@ def sha256_bytes(value: bytes) -> str:
 
 
 def is_inside(parent: Path, child: Path) -> bool:
-    try:
-        child.resolve().relative_to(parent.resolve())
-        return True
-    except ValueError:
-        return False
+    return path_is_inside(parent, child)
 
 
 def run_git(root: Path, args: list[str]) -> str:
@@ -82,12 +87,18 @@ def collect_snapshot(root: Path) -> list[dict[str, str]]:
     snapshot = [
         {"path": path.relative_to(root).as_posix(), "sha256": sha256_bytes(path.read_bytes())}
         for path in files
-        if path.is_file()
+        if path.is_file() and path.name != "Planing-Ledger.md"
     ]
     branch = run_git(root, ["branch", "--show-current"]) or "unknown"
     commit = run_git(root, ["rev-parse", "HEAD"]) or "unknown"
+    status = run_git(root, ["status", "--short"]) or ""
+    staged = run_git(root, ["diff", "--cached", "--binary"]) or ""
+    unstaged = run_git(root, ["diff", "--binary"]) or ""
     snapshot.append({"path": "git:branch", "sha256": sha256_bytes(branch.encode("utf-8")), "value": branch})
     snapshot.append({"path": "git:commit", "sha256": sha256_bytes(commit.encode("utf-8")), "value": commit})
+    snapshot.append({"path": "git:status", "sha256": sha256_bytes(status.encode("utf-8"))})
+    snapshot.append({"path": "git:staged_diff", "sha256": sha256_bytes(staged.encode("utf-8"))})
+    snapshot.append({"path": "git:unstaged_diff", "sha256": sha256_bytes(unstaged.encode("utf-8"))})
     return snapshot
 
 
@@ -106,24 +117,77 @@ def infer_root(run_dir: Path) -> Path | None:
     return None
 
 
-def default_tasks(mode: str) -> list[dict[str, object]]:
+def extract_ready_queue(root: Path) -> list[dict[str, str]]:
+    audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
+    if not audit.is_file():
+        return []
+    text = audit.read_text(encoding="utf-8", errors="replace")
+    items: list[dict[str, str]] = []
+    for match in re.finditer(
+        r"\b(READY_WITH_WARNINGS|READY)\b\s*:?\s*`?((?:Planner-docs/)?Faz-\d+-Plans/Faz\d+\.\d+-[a-z0-9-]+\.md)`?",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        path = match.group(2)
+        if not path.startswith("Planner-docs/"):
+            path = f"Planner-docs/{path}"
+        items.append({"readiness_status": match.group(1).upper(), "subplan_path": path})
+    return items
+
+
+def audit_text(root: Path) -> str:
+    audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
+    if not audit.is_file():
+        return ""
+    return audit.read_text(encoding="utf-8", errors="replace")
+
+
+def validate_step4_queue(root: Path, mode: str) -> None:
+    if mode == "no_action":
+        return
+    audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
+    if not audit.is_file():
+        raise ValueError("missing_step4_audit=Planner-docs/Sub-Planing-Audit.md")
+    if not extract_ready_queue(root):
+        if "NO_ACTION_REQUIRED" in audit_text(root):
+            raise ValueError("no_action_required_use_no_action_mode")
+        raise ValueError("missing_step4_ready_queue")
+
+
+def default_tasks(root: Path, mode: str) -> list[dict[str, object]]:
     if mode == "no_action":
         return []
-    return [
-        {
-            "task_id": "task-1",
-            "state": "BRIEFED",
-            "readiness_status": "READY",
-            "finding_ids": [],
-            "security_review_required": False,
-            "writer_lock": None,
-            "validation_commands": [],
-            "redispatch_count": 0,
-        }
-    ]
+    queue = extract_ready_queue(root)
+    tasks: list[dict[str, object]] = []
+    for index, item in enumerate(queue, start=1):
+        subplan_path = item["subplan_path"]
+        subplan = root / subplan_path
+        tasks.append(
+            {
+                "task_id": f"task-{index}",
+                "state": "BRIEFED",
+                "readiness_status": item["readiness_status"],
+                "source_subplan_path": subplan_path,
+                "source_subplan_sha256": sha256_bytes(subplan.read_bytes()) if subplan.is_file() else None,
+                "finding_ids": [],
+                "security_review_required": False,
+                "writer_lock": None,
+                "validation_commands": [],
+                "redispatch_count": 0,
+            }
+        )
+    return tasks
 
 
-def create_apply_run(root: Path, mode: str, output_dir: Path | None = None, commit_policy: str = "none") -> dict[str, object]:
+def create_apply_run(
+    root: Path,
+    mode: str,
+    output_dir: Path | None = None,
+    commit_policy: str = "none",
+    *,
+    replace: bool = False,
+    resume: bool = False,
+) -> dict[str, object]:
     root = root.resolve()
     if mode not in APPLY_MODES:
         raise ValueError(f"unsupported apply mode: {mode}")
@@ -136,9 +200,14 @@ def create_apply_run(root: Path, mode: str, output_dir: Path | None = None, comm
     run_dir = (output_dir or root / ".codexqb" / "apply-runs" / run_id).resolve()
     if not is_inside(root, run_dir):
         raise ValueError("output_dir must be inside the target repository")
+    validate_step4_queue(root, mode)
+    if run_dir.exists() and not replace and not resume:
+        raise ValueError(f"apply_run_already_exists={run_dir.relative_to(root).as_posix()}")
+    if resume:
+        return {"apply_run_id": run_id, "run_dir": run_dir.as_posix(), "state": "resumed"}
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    tasks = default_tasks(mode)
+    tasks = default_tasks(root, mode)
     run = {
         "apply_run_schema_version": APPLY_RUN_SCHEMA_VERSION,
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -146,7 +215,10 @@ def create_apply_run(root: Path, mode: str, output_dir: Path | None = None, comm
         "plugin_version": PLUGIN_VERSION,
         "apply_run_id": run_id,
         "mode": mode,
-        "workspace_mode": "isolated_worktree",
+        "workspace_requested": "isolated_worktree",
+        "workspace_detected": "git" if run_git(root, ["rev-parse", "--is-inside-work-tree"]) == "true" else "non_git",
+        "workspace_verified": False,
+        "workspace_mode": "unverified_current_worktree",
         "commit_policy": commit_policy,
         "push_allowed": False,
         "pr_allowed": False,
@@ -192,7 +264,19 @@ def create_apply_run(root: Path, mode: str, output_dir: Path | None = None, comm
         task_dir = run_dir / f"task-{index}"
         task_dir.mkdir(parents=True, exist_ok=True)
         (task_dir / "Brief.md").write_text(
-            f"# Task {index} Brief\n\n- task_id: {task['task_id']}\n- mode: {mode}\n- commit_policy: none\n",
+            "\n".join(
+                [
+                    f"# Task {index} Brief",
+                    "",
+                    f"- task_id: {task['task_id']}",
+                    f"- mode: {mode}",
+                    "- commit_policy: none",
+                    f"- source_subplan_path: {task.get('source_subplan_path')}",
+                    f"- source_subplan_sha256: {task.get('source_subplan_sha256')}",
+                    f"- readiness_status: {task.get('readiness_status')}",
+                    "",
+                ]
+            ),
             encoding="utf-8",
         )
         (task_dir / "Implementer-Report.json").write_text(json.dumps({"status": "PENDING"}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -214,17 +298,21 @@ def load_json(path: Path, errors: list[str], label: str) -> object:
 
 
 def command_is_safe(command: object) -> bool:
-    if isinstance(command, str):
-        return not SHELL_METACHAR_RE.search(command) and not MUTATING_INTENT_RE.search(command)
     if isinstance(command, list):
-        joined = " ".join(str(item) for item in command)
-        return not SHELL_METACHAR_RE.search(joined) and not MUTATING_INTENT_RE.search(joined)
+        return safe_validation_command_item({"argv": command})
+    if isinstance(command, str):
+        return safe_validation_command_item({"command": command})
+    if isinstance(command, dict):
+        return safe_validation_command_item(command)
     return False
 
 
 def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list[str]) -> None:
     task_id = str(task.get("task_id", ""))
     state = str(task.get("state", ""))
+    if not re.fullmatch(r"task-\d+", task_id):
+        errors.append(f"invalid_task_id={task_id or 'missing'}")
+        return
     if state not in TASK_STATES:
         errors.append(f"invalid_task_state={task_id}:{state or 'missing'}")
     if task.get("readiness_status") not in READY_STATUSES:
@@ -233,12 +321,14 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
     if "P0" in severities or "P1" in severities:
         errors.append(f"p0_p1_queue_item_rejected={task_id}")
     for command in task.get("validation_commands", []):
-        candidate = command.get("argv", command.get("command")) if isinstance(command, dict) else command
-        if not command_is_safe(candidate):
+        if not command_is_safe(command):
             errors.append(f"unsafe_validation_command={task_id}")
 
     match = re.fullmatch(r"task-(\d+)", task_id)
-    task_dir = run_dir / task_id if match else run_dir / task_id
+    task_dir = (run_dir / task_id).resolve()
+    if not match or not is_inside(run_dir, task_dir):
+        errors.append(f"invalid_task_id={task_id or 'missing'}")
+        return
     if not task_dir.is_dir():
         errors.append(f"missing_task_dir={task_id}")
         return
@@ -280,10 +370,32 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
     if state == "VERIFIED":
         if impl_status != "DONE":
             errors.append(f"verified_requires_done_implementer={task_id}")
+        if not implementer.get("brief_sha256") or implementer.get("brief_sha256") != task.get("brief_sha256"):
+            errors.append(f"verified_requires_matching_brief_hash={task_id}")
+        if not implementer.get("implementer_agent_id"):
+            errors.append(f"verified_requires_implementer_agent_id={task_id}")
+        if not isinstance(implementer.get("files_changed"), list) or not implementer.get("files_changed"):
+            errors.append(f"verified_requires_files_changed={task_id}")
+        evidence = implementer.get("validation_evidence")
+        if not isinstance(evidence, list) or not evidence:
+            errors.append(f"verified_requires_validation_evidence={task_id}")
+        else:
+            for item in evidence:
+                if not isinstance(item, dict) or item.get("exit_code") != 0 or not command_is_safe(item):
+                    errors.append(f"verified_requires_safe_passing_validation_evidence={task_id}")
+                    break
         if spec != "pass":
             errors.append(f"verified_requires_spec_pass={task_id}")
         if quality != "approved":
             errors.append(f"verified_requires_quality_approved={task_id}")
+        if review.get("brief_sha256") != task.get("brief_sha256"):
+            errors.append(f"verified_requires_review_brief_hash={task_id}")
+        if not review.get("reviewer_agent_id"):
+            errors.append(f"verified_requires_reviewer_agent_id={task_id}")
+        if review.get("reviewer_agent_id") and review.get("reviewer_agent_id") == implementer.get("implementer_agent_id"):
+            errors.append(f"reviewer_must_be_independent={task_id}")
+        if not isinstance(review.get("evidence"), list) or not review.get("evidence"):
+            errors.append(f"verified_requires_review_evidence={task_id}")
         if task.get("security_review_required") is True and security != "pass":
             errors.append(f"verified_requires_security_pass={task_id}")
 
@@ -332,6 +444,8 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         errors.append("progress_tasks_must_be_list")
         tasks = []
     task_ids: set[str] = set()
+    if run.get("mode") == "no_action" and tasks:
+        errors.append("no_action_must_not_have_tasks")
     for task in tasks:
         if not isinstance(task, dict):
             errors.append("progress_task_must_be_object")
@@ -352,6 +466,18 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
             errors.append("final_review_required")
         if all(isinstance(task, dict) and task.get("state") == "VERIFIED" for task in tasks) and final_review.get("status") != "pass":
             errors.append("final_review_required")
+        if all(isinstance(task, dict) and task.get("state") == "VERIFIED" for task in tasks) and final_review.get("status") == "pass":
+            reviewed = set(final_review.get("reviewed_task_ids", [])) if isinstance(final_review, dict) else set()
+            if reviewed != task_ids:
+                errors.append("final_review_must_cover_verified_tasks")
+            global_validations = final_review.get("global_validations") if isinstance(final_review, dict) else None
+            if not isinstance(global_validations, list) or not global_validations:
+                errors.append("final_review_requires_global_validations")
+            else:
+                for item in global_validations:
+                    if not isinstance(item, dict) or item.get("exit_code") != 0 or not command_is_safe(item):
+                        errors.append("final_review_requires_safe_passing_global_validations")
+                        break
     return errors
 
 
@@ -362,6 +488,8 @@ def main(argv: list[str] | None = None) -> int:
     init.add_argument("--root", default=".")
     init.add_argument("--mode", default="subagent_serial", choices=sorted(APPLY_MODES))
     init.add_argument("--output-dir")
+    init.add_argument("--replace", action="store_true")
+    init.add_argument("--resume", action="store_true")
     check = sub.add_parser("validate", help="Validate an apply-run artifact directory.")
     check.add_argument("--run-dir", required=True)
     check.add_argument("--root")
@@ -369,7 +497,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "init":
-            result = create_apply_run(Path(args.root), args.mode, Path(args.output_dir) if args.output_dir else None)
+            result = create_apply_run(
+                Path(args.root),
+                args.mode,
+                Path(args.output_dir) if args.output_dir else None,
+                replace=args.replace,
+                resume=args.resume,
+            )
             print("apply_run_status=initialized")
             print(f"apply_run_id={result['apply_run_id']}")
             print(f"run_dir={result['run_dir']}")

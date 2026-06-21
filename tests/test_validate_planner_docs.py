@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import re
 import subprocess
 import sys
@@ -985,6 +986,29 @@ class ValidatePlannerDocsTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
+
+    def test_strict_step2_rejects_arbitrary_python_bash_make_and_npm_commands(self) -> None:
+        unsafe_commands = [
+            ["python3", "-c", "open('/tmp/codexqb-owned','w').write('x')"],
+            ["uv", "run", "python3", "-c", "open('/tmp/codexqb-owned','w').write('x')"],
+            ["bash", "scripts/verify.sh"],
+            ["make", "clean"],
+            ["npm", "run", "custom-destructive-script"],
+            ["python3", "-m", "pytest", "--rootdir=/tmp"],
+        ]
+        for argv in unsafe_commands:
+            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as temp_dir:
+                docs = write_valid_step2_fixture(Path(temp_dir))
+                subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+                text = subplan.read_text(encoding="utf-8")
+                safe = json.dumps(["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"])
+                text = text.replace(safe, json.dumps(argv))
+                subplan.write_text(text, encoding="utf-8")
+
+                result = run_validator(Path(temp_dir), "step2", strict=True)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
 
     def test_strict_step2_rejects_mutating_validation_command_intent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

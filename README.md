@@ -8,7 +8,7 @@
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
-The current 0.3.0 release adds deterministic Goal previews and an artifact-based Step 4 apply-run protocol on top of adaptive Step 2 planning horizons and semantic plan-quality gates. Repository marketplace distribution remains hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and current-worktree sanitized exports through `make export-sanitized`.
+The current 0.3.0 release adds deterministic Goal previews and an artifact-based Step 4 apply-run protocol on top of adaptive Step 2 planning horizons and semantic plan-quality gates. Repository marketplace distribution remains hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and sanitized exports through `make export-sanitized`.
 
 Release contracts:
 
@@ -27,11 +27,11 @@ apply_run_schema_version: 1
 - **Project Autopsy + Ontology + Comprehension:** Existing projects get a focused `Autopsy.md` report and may get `Project-Ontology.md` plus `Project-Comprehension.md` to capture evidence confidence, CQ/TRACE/ARC links, architecture reflexion, quality scenarios, and open validation probes.
 - **Adaptive phase decomposition:** The main plan can be expanded by active planning horizon in default `wave` mode, while later phases remain deferred roadmap cards unless the user explicitly requests `full` planning.
 - **Implementation-ready planning gates:** Active sub-plans keep the 13-section human-readable structure and add a machine-readable implementation contract with repo-relative paths, exact validation commands, parent acceptance signal IDs, dependency labels, concrete outputs, and security review flags.
-- **Structured command and risk contracts:** Step 2 contracts prefer `argv` validation commands with cwd, expected exit code, timeout, network, and probe tier fields. Strict validation rejects shell chaining, command substitution, mutation/deploy intent, and high-risk work without security review.
+- **Structured command and risk contracts:** Step 2 contracts prefer `argv` validation commands with cwd, expected exit code, timeout, network, and probe tier fields. Strict validation uses shared safe command profiles and rejects shell chaining, command substitution, arbitrary `python -c`, unchecked shell scripts, unsafe path arguments, mutation/deploy intent, and high-risk work without security review.
 - **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, ontology consistency, planning-history continuity, framework ownership, algorithmic invariants, security/governance, vibecoding slice quality, and implementation preparedness.
-- **Deterministic Goal previews:** `scripts/goal_run.py` compiles source snapshots and canonical handoffs into `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json` without executing commands.
+- **Deterministic Goal previews:** `scripts/goal_run.py` compiles source snapshots, active sub-plan inventory, Step 4 READY queues, and canonical handoffs into `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json` without executing commands. Missing stage prerequisites produce a blocked result instead of an execution prompt.
 - **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin, then guides that run through the READY queue in small verified slices and asks Step 4 to append concise implementation summaries to `Planing-Ledger.md`.
-- **Artifact-based apply runs:** `scripts/apply_run.py` creates and validates `.codexqb/apply-runs/<apply-run-id>/` artifacts for `direct`, `subagent_serial`, `external_superpowers`, and `no_action` modes. Commit, push, PR, deploy, and external mutation remain opt-in.
+- **Artifact-based apply runs:** `scripts/apply_run.py` creates and validates `.codexqb/apply-runs/<apply-run-id>/` artifacts for `direct`, `subagent_serial`, `external_superpowers`, and `no_action` modes. It derives task briefs from Step 4 READY audit entries and rejects unsafe task IDs, no-action queues, unsafe validation commands, silent progress overwrite, and VERIFIED tasks without implementation/review/final-validation evidence. Commit, push, PR, deploy, and external mutation remain opt-in.
 
 
 ## Vibecoding-First Behavior
@@ -199,7 +199,7 @@ For sanitized zip sharing, use the sanitized export target instead of Finder or 
 make export-sanitized
 ```
 
-This creates `CodexQB-sanitized.zip` from the current repository worktree, excluding `.git/`, ignored Python caches, local env files, runtime folders, local zips, and other local clutter. The default validation gate also checks that forbidden archive/package entries are not present.
+The underlying exporter defaults to tracked files only. The `make export-sanitized` target explicitly includes untracked, non-ignored files so pre-commit package checks can cover new files, but every included file is rejected if it is a symlink, resolves outside the repository, matches blocked local/runtime paths, or contains a length-bounded secret pattern. The default validation gate also checks that forbidden archive/package entries are not present.
 
 ## Safety Model
 
@@ -226,6 +226,7 @@ plugins/codexqb/
     SKILL.md
     agents/openai.yaml
     scripts/validate_planner_docs.py
+    scripts/safety_contracts.py
     scripts/goal_run.py
     scripts/apply_run.py
     references/
@@ -292,7 +293,7 @@ make export-sanitized
 
 Then extract `CodexQB-sanitized.zip` into a temporary directory and run `make check` there to prove package-level validation still works without `.git/`.
 
-Pull requests should keep the existing compatibility contracts intact: preserve the `$codexqb` invocation, keep `Planing` filenames unchanged, keep validator checks dependency-free, avoid printing secret values, and do not weaken `export-sanitized` dirty-worktree guards.
+Pull requests should keep the existing compatibility contracts intact: preserve the `$codexqb` invocation, keep `Planing` filenames unchanged, keep validator checks dependency-free, avoid printing secret values, and do not weaken `export-sanitized` symlink, path-boundary, untracked-file, or content secret-scan guards.
 
 ## Community Supporters
 

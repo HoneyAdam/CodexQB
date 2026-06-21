@@ -190,7 +190,8 @@ Compile a deterministic Goal preview:
 python3 plugins/codexqb/skills/codexqb/scripts/goal_run.py --root /path/to/project --stage step2
 ```
 
-Supported stages are `step15`, `step2`, `step3`, and `step4`. Output is written under `Planner-docs/Goal-Runs/<goal-run-id>/` as `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json`.
+Supported stages are `step15`, `step2`, `step3`, and `step4`. Output is written under `Planner-docs/Goal-Runs/<goal-run-id>/` as `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json`. Step 2/3 previews include active sub-plan inventory when present; Step 4 previews include READY/READY_WITH_WARNINGS audit queue entries when present.
+If a stage prerequisite is missing, `Goal-Result.json` is written with `status: blocked` and no `Goal-Prompt.md` execution prompt is produced. Rendering an existing `Goal-Run.json` validates schema, source snapshot, path policy, and secret hygiene before writing prompt text. Existing run directories are not overwritten unless `--replace` or `--resume` is explicit.
 
 Create or validate an apply-run artifact directory:
 
@@ -199,7 +200,8 @@ python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py init --root /path/to
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py validate --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
 ```
 
-Output is written under `.codexqb/apply-runs/<apply-run-id>/` as `Apply-Run.json`, `Progress.json`, per-task brief/report/review/fix artifacts, `Final-Review.json`, and `Result.json`. The default commit policy is `none`.
+Output is written under `.codexqb/apply-runs/<apply-run-id>/` as `Apply-Run.json`, `Progress.json`, per-task brief/report/review/fix artifacts, `Final-Review.json`, and `Result.json`. Non-`no_action` modes derive initial task briefs from Step 4 READY/READY_WITH_WARNINGS audit entries when available. The default commit policy is `none`.
+Apply validation rejects unsafe validation commands, path-traversal task IDs, no-action runs with queued tasks, recursive subagent depth, multiple writers, silent progress overwrite, and VERIFIED tasks that lack files changed, validation evidence, independent review evidence, and final repo-level validation evidence.
 `Goal-Run.json` records `goal_run_schema_version: 1`; `Apply-Run.json` records `apply_run_schema_version: 1`.
 
 ## Direct Step Invocation
@@ -243,7 +245,7 @@ warning_count=0
 error_count=0
 ```
 
-It uses stable exit codes: `0` means validation passed, `1` means document validation failed, and `2` means invocation/configuration/I/O error. With `--strict`, missing semantic readiness signals, repeated or generic section warnings, unsafe validation commands, high-risk security-review bypasses, unsupported planning scope, and uniform quota anomalies are treated as failures except documented compatibility warnings. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, open P0/P1 audit findings block implementation readiness, open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`, resolved/not_applicable P2/P3 findings may coexist with `PASS`, and `NO_ACTION_REQUIRED` is valid when all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED.
+It uses stable exit codes: `0` means validation passed, `1` means document validation failed, and `2` means invocation/configuration/I/O error. With `--strict`, missing semantic readiness signals, repeated or generic section warnings, unsafe validation commands, high-risk security-review bypasses, unsupported planning scope, and uniform quota anomalies are treated as failures except documented compatibility warnings. Validation command safety is shared with Goal/Apply helpers and allows only known-safe command families such as `python -m pytest`, `python -m unittest`, safe `make` targets, safe package-manager scripts, `cargo test`, `go test`, `ruff check`, and `mypy`; arbitrary `python -c`, unchecked shell scripts, absolute/traversal path arguments, and mutating targets are rejected. Secret scanning uses length-bounded token patterns so normal filenames such as `task-spec.yaml` are not flagged. In `--mode step4`, open P0/P1 audit findings block implementation readiness, open or accepted P2/P3 findings require `PASS_WITH_WARNINGS`, resolved/not_applicable P2/P3 findings may coexist with `PASS`, and `NO_ACTION_REQUIRED` is valid when all in-scope rows are COMPLETE, SUPERSEDED, or DEFERRED.
 
 If `Planner-docs/Autopsy.md`, `Planner-docs/Project-Ontology.md`, `Planner-docs/Project-Comprehension.md`, or `Planner-docs/Planing-Ledger.md` exists, the validator checks its required heading order and supported semantic fields during Step 2/3 validation. If these optional continuity docs do not exist, Step 2/3 validation continues without treating them as required. Use `--mode autopsy --strict` after Step 1.5 when `Autopsy.md` should be required.
 

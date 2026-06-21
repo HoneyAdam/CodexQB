@@ -26,13 +26,16 @@ Planner-docs/Goal-Runs/<goal-run-id>/
 
 `Goal-Run.json` records source snapshot hashes, stage, handoff contract version, artifact schema version, output paths, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked.
 
-`Goal-Prompt.md` must be rendered deterministically from `Goal-Run.json`. The same valid `Goal-Run.json` must produce byte-identical prompt text.
+`Goal-Prompt.md` must be rendered deterministically from a valid `Goal-Run.json`. Rendering must first validate schema version, secret hygiene, source snapshot integrity, current snapshot match, allowed/forbidden path policy, and glob overlap.
 
 ## Security Rules
 
 - Output directory must be inside the target repository.
 - Default output is `Planner-docs/Goal-Runs/<goal-run-id>/`.
 - Source snapshots include hashes and relative paths only.
+- Active scope must use portable repo-relative roots such as `"."`, not local absolute paths.
+- Allowed and forbidden write patterns must be repo-relative. Absolute paths, traversal, unsafe wildcards, and overlapping allowed/forbidden patterns are blockers.
+- Existing run directories must not be overwritten unless `--replace` or `--resume` is explicit.
 - The compiler must never include secrets, environment values, local credentials, or full logs.
 - The compiler must never execute validation commands from planner docs.
 - Step 4 prompts must preserve no-commit/no-push/no-PR/no-deploy defaults unless the user explicitly opts in during the implementation run.
@@ -40,6 +43,8 @@ Planner-docs/Goal-Runs/<goal-run-id>/
 ## Stage Behavior
 
 - `step15`: prepare Step 1.5 Autopsy context for existing projects.
-- `step2`: prepare adaptive wave/full/refresh/repair planning handoff.
-- `step3`: prepare Step 3 preflight and audit handoff.
-- `step4`: prepare gated apply handoff only as a prompt preview; actual implementation remains user-triggered.
+- `step2`: prepare adaptive wave/full/refresh/repair planning handoff with active sub-plan inventory.
+- `step3`: prepare Step 3 preflight and audit handoff with active sub-plan inventory.
+- `step4`: prepare gated apply handoff with READY/READY_WITH_WARNINGS audit queue entries only as a prompt preview; actual implementation remains user-triggered.
+
+If required stage inputs are missing, the compiler writes `Goal-Result.json` with `status: blocked` and blocker IDs. It must not write an execution `Goal-Prompt.md` for blocked prerequisites.

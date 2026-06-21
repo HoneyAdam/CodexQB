@@ -26,17 +26,27 @@ GOAL_MODULE = load_goal_module()
 
 
 class GoalRunTests(unittest.TestCase):
+    def write_goal_fixture(self, root: Path) -> None:
+        docs = root / "Planner-docs"
+        (docs / "Faz-1-Plans").mkdir(parents=True)
+        (docs / "Main-Planing.md").write_text("# Main Planing\n\n## 1. Executive Summary\n\nExample.\n", encoding="utf-8")
+        (docs / "Sub-Planing-Index.md").write_text("# Sub-Planing Index\n\nREADY queue for tests.\n", encoding="utf-8")
+        (docs / "Faz-1-Plans" / "Faz1.1-local-contract.md").write_text("# Faz 1.1 - Local Contract\n", encoding="utf-8")
+        (docs / "Sub-Planing-Audit.md").write_text(
+            "# Sub-Planing Audit\n\nREADY_WITH_WARNINGS: Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md\n",
+            encoding="utf-8",
+        )
+
     def test_compile_goal_writes_deterministic_step2_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            docs = root / "Planner-docs"
-            docs.mkdir()
-            (docs / "Main-Planing.md").write_text("# Main Planing\n\n## 1. Executive Summary\n\nExample.\n", encoding="utf-8")
+            self.write_goal_fixture(root)
 
             first = GOAL_MODULE.compile_goal(root, "step2")
-            second = GOAL_MODULE.compile_goal(root, "step2")
+            second = GOAL_MODULE.compile_goal(root, "step2", replace=True)
 
             self.assertEqual(first["result"]["goal_run_id"], second["result"]["goal_run_id"])
+            self.assertEqual(first["run"]["goal_spec_id"], second["run"]["goal_spec_id"])
             out_dir = Path(first["output_dir"])
             self.assertIn("Planner-docs/Goal-Runs", out_dir.as_posix())
             self.assertTrue((out_dir / "Goal-Run.json").is_file())
@@ -56,6 +66,7 @@ class GoalRunTests(unittest.TestCase):
             self.assertIn("forbidden_writes", run)
             self.assertIn("validation_checkpoints", run)
             self.assertIn("stop_gates", run)
+            self.assertEqual(run["active_scope"]["project_root"], ".")
             self.assertFalse(run["safety"]["executes_commands"])
             self.assertFalse(run["safety"]["allows_commit_push_pr_deploy"])
             self.assertEqual(result["status"], "ready")
@@ -72,6 +83,7 @@ class GoalRunTests(unittest.TestCase):
     def test_compile_goal_supports_all_declared_stages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            self.write_goal_fixture(root)
             for stage in ["step15", "step2", "step3", "step4"]:
                 compiled = GOAL_MODULE.compile_goal(root, stage)
                 prompt = Path(compiled["output_dir"]) / "Goal-Prompt.md"
@@ -105,6 +117,97 @@ class GoalRunTests(unittest.TestCase):
 
             self.assertIn("secret_like_content", errors)
             self.assertIn("overlapping_allowed_forbidden_writes", errors)
+
+    def test_goal_run_rejects_unsafe_wildcards_and_glob_overlap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step3")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            run["allowed_writes"] = ["/tmp/**", "../outside/**", "Planner-docs/**"]
+            run["forbidden_writes"] = ["Planner-docs/Main-Planing.md"]
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("unsafe_path=/tmp/**", errors)
+            self.assertIn("unsafe_path=../outside/**", errors)
+            self.assertIn("overlapping_allowed_forbidden_writes", errors)
+
+    def test_goal_render_validates_before_writing_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2")
+            run_path = Path(compiled["output_dir"]) / "Goal-Run.json"
+            run = json.loads(run_path.read_text(encoding="utf-8"))
+            run["objective"] = "leak sk-" + "A" * 40
+            run_path.write_text(json.dumps(run), encoding="utf-8")
+
+            code = GOAL_MODULE.main(["render", "--root", str(root), "--goal-run", str(run_path)])
+
+            self.assertEqual(code, 1)
+
+    def test_goal_prepare_blocks_missing_stage_prerequisites(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            out_dir = Path(compiled["output_dir"])
+
+            self.assertEqual(compiled["result"]["status"], "blocked")
+            self.assertFalse((out_dir / "Goal-Prompt.md").exists())
+            self.assertIn("missing_prerequisite=Planner-docs/Sub-Planing-Audit.md", compiled["result"]["blockers"])
+
+    def test_goal_run_id_includes_mode_and_objective_and_does_not_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            first = GOAL_MODULE.compile_goal(root, "step2", mode="wave", objective="A")
+            second = GOAL_MODULE.compile_goal(root, "step2", mode="full", objective="B")
+
+            self.assertNotEqual(first["result"]["goal_run_id"], second["result"]["goal_run_id"])
+            with self.assertRaises(ValueError):
+                GOAL_MODULE.compile_goal(root, "step2", mode="wave", objective="A")
+
+    def test_goal_run_detects_tampered_stored_snapshot_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            run["source_snapshot"][0]["sha256"] = "0" * 64
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("stored_source_snapshot_digest_mismatch", errors)
+
+    def test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+
+            step2 = GOAL_MODULE.compile_goal(root, "step2")
+            step4 = GOAL_MODULE.compile_goal(root, "step4")
+
+            self.assertIn(
+                "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
+                step2["run"]["active_scope"]["detailed_subplans"],
+            )
+            self.assertEqual(
+                step4["run"]["active_scope"]["ready_queue"][0]["subplan_path"],
+                "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
+            )
+            self.assertTrue(any("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md" in step for step in step4["run"]["work_steps"]))
+
+    def test_step3_goal_includes_preflight_and_post_audit_checkpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+
+            compiled = GOAL_MODULE.compile_goal(root, "step3")
+            modes = [checkpoint["argv"][-1] for checkpoint in compiled["run"]["validation_checkpoints"]]
+
+            self.assertIn("step3-preflight", modes)
+            self.assertIn("step3", modes)
 
 
 if __name__ == "__main__":

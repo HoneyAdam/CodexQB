@@ -85,9 +85,9 @@ When changing the validator, test at least:
 - Ledger v3 headings with split planning/execution status and split planning/implementation evidence, while v2 and legacy v1 ledgers remain accepted outside strict Step 4 execution with compatibility warnings;
 - Step 2 Planning Scope Manifest validation, including active/deferred phase consistency and `wave` vs explicit `full` planning behavior;
 - semantic Step 2 gates for implementation paths, exact validation commands, behavioral acceptance criteria, parent acceptance signals, dependency labels, concrete outputs, and domain-specific risks;
-- 0.3.0 security gates for structured `argv` validation commands, shell-metacharacter rejection, mutation/deploy intent rejection, risk/security review consistency, and meaningful framework/invariant rows;
-- Goal compiler artifacts from `scripts/goal_run.py`, including deterministic run IDs and repo-contained output directories;
-- Apply-run artifacts from `scripts/apply_run.py`, including `no_action` mode, default `commit_policy: none`, unsafe command rejection, and spec-before-quality review order;
+- shared 0.3.0 command safety gates for structured `argv` validation commands, shell-metacharacter rejection, arbitrary `python -c` rejection, unchecked shell-script rejection, unsafe path argument rejection, mutation/deploy intent rejection, safe target/script allowlists, risk/security review consistency, and meaningful framework/invariant rows;
+- Goal compiler artifacts from `scripts/goal_run.py`, including spec/run IDs, project-specific active sub-plan and READY queue collectors, repo-contained output directories, stage prerequisite blockers, render-time validation, unsafe glob/path overlap rejection, source snapshot digest integrity, and no silent overwrite;
+- Apply-run artifacts from `scripts/apply_run.py`, including audit-derived task briefs, `no_action` mode, default `commit_policy: none`, unsafe command rejection, no-action queue rejection, task ID traversal rejection, VERIFIED evidence requirements, final review validation evidence, no silent progress overwrite, and spec-before-quality review order;
 - normalized duplicate ratio and uniform sub-plan count anomaly checks;
 - Step 4 readiness gating for missing audit, headings-only audit, `BLOCKED`, `PASS`, `PASS_WITH_WARNINGS`, NO_ACTION_REQUIRED, unsafe readiness paths, duplicate conflicting rows, and prose such as `no P0/P1 findings`.
 
@@ -167,13 +167,13 @@ No public-facing stale references should remain.
 
 Do not create release zips with Finder or generic directory compression, because ignored files such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, or `tmp/` can be included.
 
-Use the sanitized current-worktree export target:
+Use the sanitized export target:
 
 ```bash
 make export-sanitized
 ```
 
-This writes `CodexQB-sanitized.zip` with `scripts/export_sanitized.py`, including repository-scope uncommitted changes while excluding `.git/`, caches, local env files, runtime folders, local zips, and blocked key/certificate suffixes.
+This writes `CodexQB-sanitized.zip` with `scripts/export_sanitized.py`. The script default includes only tracked files. The Makefile target passes `--include-untracked` explicitly so release/package smoke tests can include new pre-commit files after safety checks. Export candidates are rejected when they are symlinks, resolve outside the repository, match blocked local/runtime paths such as `.git/`, `.codexqb/`, caches, local env files, runtime folders, local zips, or blocked key/certificate suffixes, or contain a length-bounded secret pattern.
 
 The default `make check` gate validates tracked archive contents in Git checkouts and fails if forbidden tracked paths such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, `tmp/`, `__MACOSX/`, `.pyc`, `.pem`, `.key`, or `.local` files would be included. In extracted packages, `make check` performs equivalent package-content hygiene where possible and labels the result as package validation.
 

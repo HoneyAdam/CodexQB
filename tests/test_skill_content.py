@@ -220,8 +220,23 @@ class SkillContentTests(unittest.TestCase):
             "CODEXQB_VALIDATE_SKIP_UNITTESTS",
             "__MACOSX",
             ".local",
+            "safety_contracts.py",
+            "goal-compiler.md",
+            "apply-orchestrator.md",
         ]:
             self.assertIn(phrase, validate_script)
+
+    def test_shared_safety_contracts_are_wired(self) -> None:
+        safety = SKILL_ROOT / "scripts/safety_contracts.py"
+        self.assertTrue(safety.is_file())
+        for path in [
+            REPO_ROOT / "scripts/export_sanitized.py",
+            SKILL_ROOT / "scripts/validate_planner_docs.py",
+            SKILL_ROOT / "scripts/goal_run.py",
+            SKILL_ROOT / "scripts/apply_run.py",
+        ]:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("safety_contracts", text, path.as_posix())
 
     def test_plugin_metadata_reflects_030_goal_apply_release(self) -> None:
         plugin_text = (REPO_ROOT / "plugins/codexqb/.codex-plugin/plugin.json").read_text(encoding="utf-8")

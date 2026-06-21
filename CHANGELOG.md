@@ -7,6 +7,11 @@
 - Added `references/apply-orchestrator.md` and dependency-free `scripts/apply_run.py` for `.codexqb/apply-runs/<apply-run-id>/` artifacts, apply modes, `no_action` mode, review-order validation, and default `commit_policy: none`.
 - Added `goal_run_schema_version: 1` and `apply_run_schema_version: 1` runtime artifact contracts.
 - Hardened strict planner validation against shell chaining, command substitution, mutation/deploy validation commands, high-risk security-review bypasses, and empty framework/invariant rows.
+- Added shared safety contracts for planner, Goal, Apply, and export helpers; safe command profiles now reject arbitrary `python -c`, unchecked shell scripts, unsafe path arguments, mutating `make` targets, and custom package-manager scripts.
+- Hardened sanitized export against symlink traversal and untracked secret leakage. The helper defaults to tracked files; `make export-sanitized` explicitly includes untracked files only after symlink and content secret scanning.
+- Hardened Goal previews with stage prerequisite blockers, relative project scope, unsafe glob/path overlap checks, stored snapshot digest validation, render-time validation, and no silent overwrite of existing Goal run artifacts.
+- Added project-specific Goal scope collectors for active sub-plans and Step 4 READY queues.
+- Hardened Apply artifacts with audit-derived task queues, no silent progress overwrite, no-action queue consistency, task ID traversal rejection, shared validation-command policy, immutable plan snapshot separation from `Planing-Ledger.md`, workspace baseline hashes, and evidence-bearing VERIFIED/final-review gates.
 - Added 0.2.2 adaptive Step 2 release notes covering wave/full planning, artifact schema v3, handoff contract v2, structured implementation contracts, and stricter semantic validator gates.
 - Added GitHub issue and pull request templates for evidence-backed contribution intake.
 - Added a README community supporters section for public issue and PR contributors.

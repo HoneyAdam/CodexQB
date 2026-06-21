@@ -7,4 +7,4 @@ test:
 	python3 -m unittest discover -s tests -v
 
 export-sanitized:
-	python3 scripts/export_sanitized.py --root . --output CodexQB-sanitized.zip
+	python3 scripts/export_sanitized.py --root . --output CodexQB-sanitized.zip --include-untracked

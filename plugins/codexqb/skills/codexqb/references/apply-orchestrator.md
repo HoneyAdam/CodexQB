@@ -20,6 +20,7 @@ Target repositories store apply artifacts under:
 ```
 
 These runtime directories are created in the target repository, not in the CodexQB source tree except for tests and examples.
+Non-`no_action` runs derive initial task briefs from Step 4 READY or READY_WITH_WARNINGS entries in `Planner-docs/Sub-Planing-Audit.md` when available. The audit-derived source sub-plan path and hash are recorded in both `Progress.json` and `Brief.md`.
 
 ## Modes
 
@@ -45,6 +46,7 @@ Allowed task states:
 - `NEEDS_CONTEXT`
 
 Each active slice must pass spec review before quality/security review. Failed review requires same-slice fix and re-review before completion.
+Existing apply-run directories are not overwritten by default. Use explicit resume/replace behavior when continuing or intentionally regenerating artifacts.
 
 ## Review Result Shape
 
@@ -54,6 +56,8 @@ Each active slice must pass spec review before quality/security review. Failed r
   "spec_compliance": "pass",
   "task_quality": "approved",
   "security_review": "pass",
+  "reviewer_agent_id": "reviewer-1",
+  "brief_sha256": "<sha256>",
   "blocking_findings": [],
   "fixes_required": [],
   "evidence": ["targeted validation passed"],
@@ -68,3 +72,6 @@ Each active slice must pass spec review before quality/security review. Failed r
 - Only one writer modifies files per slice unless the user explicitly requests separate branches or worktrees.
 - Subagents are read-only by default except the selected fresh-slice implementer.
 - `Progress.json` is the authoritative operational state for resume.
+- `no_action` runs must not contain queued tasks.
+- Task IDs must use the controller-generated `task-<n>` format and resolve inside the apply-run directory.
+- VERIFIED tasks require matching brief hashes, implementer identity, changed-file inventory, passing validation evidence, independent reviewer identity, review evidence, and final repo-level validation evidence.

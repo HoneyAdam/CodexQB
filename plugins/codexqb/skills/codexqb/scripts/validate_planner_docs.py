@@ -10,11 +10,20 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shlex
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from safety_contracts import (  # noqa: E402
+    exact_validation_command as shared_exact_validation_command,
+    safe_validation_argv as shared_safe_validation_argv,
+    safe_validation_command_item as shared_safe_validation_command_item,
+)
 
 
 STEP1_HEADINGS = [
@@ -331,51 +340,6 @@ IMPLEMENTATION_PATH_RE = re.compile(
     r"|[A-Za-z0-9_.-]+(?:/[\w.-]+)+\.(?:py|ts|tsx|js|json|ya?ml|toml|md|sql|sh)",
     re.IGNORECASE | re.DOTALL,
 )
-VALIDATION_COMMAND_RE = re.compile(
-    r"\b(?:uv run|python3 -m|python -m|pytest|make|bash scripts/|npm run|pnpm|yarn|cargo test|go test|ruff|mypy)\b",
-    re.IGNORECASE,
-)
-SHELL_METACHAR_RE = re.compile(r"(?:&&|\|\||[;&|<>`]|[$]\(|\n|\r)")
-MUTATING_COMMAND_WORDS = {
-    "rm",
-    "rmdir",
-    "mv",
-    "cp",
-    "chmod",
-    "chown",
-    "sudo",
-    "su",
-    "ssh",
-    "scp",
-    "rsync",
-    "curl",
-    "wget",
-    "kubectl",
-    "terraform",
-    "docker",
-    "gh",
-    "git",
-}
-MUTATING_COMMAND_INTENT_RE = re.compile(
-    r"\b(?:deploy|release|publish|push|merge|destroy|delete|remove|prune|reset|checkout|apply|install|upgrade|"
-    r"migrate|seed|prod|production|live|remote)\b",
-    re.IGNORECASE,
-)
-SAFE_VALIDATION_EXECUTABLES = {
-    "python3",
-    "python",
-    "pytest",
-    "make",
-    "bash",
-    "npm",
-    "pnpm",
-    "yarn",
-    "cargo",
-    "go",
-    "ruff",
-    "mypy",
-    "uv",
-}
 PARENT_SIGNAL_RE = re.compile(r"\bMP-PH\d+-AS-\d{2}\b", re.IGNORECASE)
 DEPENDENCY_LABELS = ("depends_on", "blocks", "can_run_in_parallel_with", "activation_conditions")
 DEFERRED_CARD_HEADERS = ["Phase", "Status", "Deferral Reason", "Activation Trigger", "Earliest Wave"]
@@ -711,68 +675,15 @@ def implementation_surface_path(value: str) -> str | None:
 
 
 def exact_validation_command(value: str) -> bool:
-    command = value.strip().strip("`")
-    if command in {"make", "pytest", "python", "python3", "npm", "pnpm", "yarn"}:
-        return False
-    if len(command.split()) < 2:
-        return False
-    if SHELL_METACHAR_RE.search(command):
-        return False
-    try:
-        argv = shlex.split(command)
-    except ValueError:
-        return False
-    if not safe_validation_argv(argv):
-        return False
-    return bool(VALIDATION_COMMAND_RE.search(command))
+    return shared_exact_validation_command(value)
 
 
 def safe_validation_argv(argv: object) -> bool:
-    if not isinstance(argv, list) or len(argv) < 2:
-        return False
-    normalized: list[str] = []
-    for item in argv:
-        if not isinstance(item, str):
-            return False
-        value = item.strip()
-        if not value or SHELL_METACHAR_RE.search(value):
-            return False
-        if ".." in Path(value).parts or Path(value).is_absolute():
-            return False
-        if any(pattern.search(value) for _, pattern in SECRET_PATTERNS):
-            return False
-        normalized.append(value)
-
-    executable = Path(normalized[0]).name
-    if executable not in SAFE_VALIDATION_EXECUTABLES:
-        return False
-    if executable in MUTATING_COMMAND_WORDS:
-        return False
-
-    joined = " ".join(normalized)
-    if MUTATING_COMMAND_INTENT_RE.search(joined):
-        return False
-
-    if executable == "bash":
-        if len(normalized) < 2 or safe_repo_path(normalized[1]) is None:
-            return False
-        if not normalized[1].startswith("scripts/"):
-            return False
-    if executable == "npm" and normalized[:2] != ["npm", "run"]:
-        return False
-    if executable in {"pnpm", "yarn"} and len(normalized) >= 2 and normalized[1] in {"add", "install", "upgrade"}:
-        return False
-    if executable == "uv" and len(normalized) >= 2 and normalized[1] not in {"run"}:
-        return False
-    return True
+    return shared_safe_validation_argv(argv)
 
 
 def safe_validation_command_item(item: dict[str, object]) -> bool:
-    argv = item.get("argv")
-    if argv is not None:
-        return safe_validation_argv(argv)
-    command = item.get("command")
-    return isinstance(command, str) and exact_validation_command(command)
+    return shared_safe_validation_command_item(item)
 
 
 def validation_probe_is_safe(value: str) -> bool:
