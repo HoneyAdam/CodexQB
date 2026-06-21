@@ -236,6 +236,9 @@ class SkillContentTests(unittest.TestCase):
         step4_readiness = schema_defs["ApplyRun"]["properties"]["step4_readiness"]
         self.assertIn("validator_output_sha256", step4_readiness["required"])
         self.assertIn("execution_queue_state", step4_readiness["required"])
+        apply_spec_inputs = schema_defs["ApplyRun"]["properties"]["apply_spec_inputs"]
+        self.assertIn("workspace_baseline", apply_spec_inputs["required"])
+        self.assertEqual(apply_spec_inputs["properties"]["workspace_baseline"]["$ref"], "#/$defs/WorkspaceBaseline")
         self.assertIn("workspace_baseline", schema_defs["ApplyRun"]["required"])
         for name in ["workspace_requested", "workspace_detected", "workspace_verified", "workspace_mode", "worktree_path", "base_branch", "working_branch", "dirty_state"]:
             self.assertIn(name, schema_defs["ApplyRun"]["required"])

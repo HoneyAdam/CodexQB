@@ -193,12 +193,13 @@
         "apply_spec_digest": { "$ref": "#/$defs/Sha256" },
         "apply_spec_inputs": {
           "type": "object",
-          "required": ["ready_queue"],
+          "required": ["ready_queue", "workspace_baseline"],
           "properties": {
             "ready_queue": {
               "type": "array",
               "items": { "$ref": "#/$defs/ReadyQueueItem" }
-            }
+            },
+            "workspace_baseline": { "$ref": "#/$defs/WorkspaceBaseline" }
           },
           "additionalProperties": true
         },

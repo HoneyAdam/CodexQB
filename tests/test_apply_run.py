@@ -738,6 +738,7 @@ class ApplyRunTests(unittest.TestCase):
             first_run = json.loads((Path(first["run_dir"]) / "Apply-Run.json").read_text(encoding="utf-8"))
             second_run = json.loads((Path(second["run_dir"]) / "Apply-Run.json").read_text(encoding="utf-8"))
 
+            self.assertEqual(first_run["apply_spec_inputs"]["workspace_baseline"], first_run["workspace_baseline"])
             self.assertEqual(first_run["apply_spec_id"], second_run["apply_spec_id"])
             self.assertNotEqual(first["apply_run_id"], second["apply_run_id"])
 
@@ -748,6 +749,24 @@ class ApplyRunTests(unittest.TestCase):
 
             resumed = self.create_apply_run(root, "direct", fixed, resume=True)
             self.assertEqual(resumed["run_dir"], fixed_result["run_dir"])
+
+    def test_apply_spec_digest_includes_workspace_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            run_path = run_dir / "Apply-Run.json"
+            run = json.loads(run_path.read_text(encoding="utf-8"))
+            run["apply_spec_inputs"]["workspace_baseline"]["untracked_count"] = 999
+            run_path.write_text(json.dumps(run), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir)
+
+            self.assertIn("stored_apply_spec_digest_mismatch", errors)
+            self.assertIn("stored_apply_spec_id_mismatch", errors)
+            self.assertIn("stored_apply_run_id_mismatch", errors)
+            self.assertIn("apply_spec_workspace_baseline_mismatch=untracked_count", errors)
 
     def test_verified_task_requires_evidence_bearing_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

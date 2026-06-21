@@ -42,6 +42,18 @@ WORKSPACE_BASELINE_EXCLUDED_PREFIXES = (
     ".pytest_cache/",
     "__pycache__/",
 )
+WORKSPACE_BASELINE_KEYS = [
+    "vcs",
+    "branch",
+    "base_commit",
+    "git_status_porcelain_sha256",
+    "staged_diff_sha256",
+    "unstaged_diff_sha256",
+    "untracked_inventory_sha256",
+    "untracked_count",
+    "workspace_file_inventory_sha256",
+    "workspace_file_count",
+]
 TASK_STATES = {
     "PREFLIGHT",
     "BRIEFED",
@@ -348,10 +360,22 @@ def invocation_suffix(value: str | None = None) -> str:
     return suffix[:64]
 
 
-def apply_spec_digest(mode: str, snapshot: list[dict[str, str]], ready_queue: list[dict[str, str]]) -> str:
+def normalize_spec_baseline(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: value.get(key, "") for key in WORKSPACE_BASELINE_KEYS}
+
+
+def apply_spec_digest(
+    mode: str,
+    snapshot: list[dict[str, str]],
+    workspace_baseline_value: object,
+    ready_queue: list[dict[str, str]],
+) -> str:
     payload = {
         "mode": mode,
         "source_snapshot": snapshot,
+        "workspace_baseline": normalize_spec_baseline(workspace_baseline_value),
         "ready_queue": ready_queue,
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
         "handoff_contract_version": HANDOFF_CONTRACT_VERSION,
@@ -360,8 +384,14 @@ def apply_spec_digest(mode: str, snapshot: list[dict[str, str]], ready_queue: li
     return sha256_bytes(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
-def apply_run_id(mode: str, snapshot: list[dict[str, str]], ready_queue: list[dict[str, str]] | None = None, run_id_suffix: str | None = None) -> str:
-    digest = apply_spec_digest(mode, snapshot, ready_queue or [])
+def apply_run_id(
+    mode: str,
+    snapshot: list[dict[str, str]],
+    workspace_baseline_value: object,
+    ready_queue: list[dict[str, str]] | None = None,
+    run_id_suffix: str | None = None,
+) -> str:
+    digest = apply_spec_digest(mode, snapshot, workspace_baseline_value, ready_queue or [])
     return f"apply-{mode}-{digest[:12]}-{invocation_suffix(run_id_suffix)}"
 
 
@@ -598,9 +628,9 @@ def create_apply_run(
     baseline = workspace_baseline(root)
     snapshot = collect_snapshot(root)
     ready_queue = [] if mode == "no_action" else extract_ready_queue(root)
-    spec_digest = apply_spec_digest(mode, snapshot, ready_queue)
+    spec_digest = apply_spec_digest(mode, snapshot, baseline, ready_queue)
     suffix = invocation_suffix(run_id_suffix)
-    run_id = apply_run_id(mode, snapshot, ready_queue, suffix)
+    run_id = apply_run_id(mode, snapshot, baseline, ready_queue, suffix)
     run_dir = (output_dir or root / ".codexqb" / "apply-runs" / run_id).resolve()
     if not is_inside(root, run_dir):
         raise ValueError("output_dir must be inside the target repository")
@@ -627,7 +657,7 @@ def create_apply_run(
         "apply_requested_mode": mode,
         "apply_spec_id": f"apply-spec-{mode}-{spec_digest[:16]}",
         "apply_spec_digest": spec_digest,
-        "apply_spec_inputs": {"ready_queue": ready_queue},
+        "apply_spec_inputs": {"ready_queue": ready_queue, "workspace_baseline": baseline},
         "apply_run_id": run_id,
         "apply_run_invocation_id": suffix,
         "mode": mode,
@@ -1653,6 +1683,7 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         source_snapshot = []
     spec_inputs = run.get("apply_spec_inputs")
     ready_queue: list[dict[str, str]] = []
+    spec_workspace_baseline: object = {}
     if isinstance(spec_inputs, dict) and isinstance(spec_inputs.get("ready_queue"), list):
         for item in spec_inputs["ready_queue"]:
             if isinstance(item, dict):
@@ -1660,9 +1691,15 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
             else:
                 errors.append("invalid_apply_spec_ready_queue")
                 break
+        spec_workspace_baseline = spec_inputs.get("workspace_baseline", {})
+        if not isinstance(spec_workspace_baseline, dict):
+            errors.append("invalid_apply_spec_workspace_baseline")
+            spec_workspace_baseline = {}
+        elif not spec_workspace_baseline:
+            errors.append("missing_apply_spec_workspace_baseline")
     else:
         errors.append("missing_apply_spec_inputs")
-    spec_digest = apply_spec_digest(requested_mode, source_snapshot, ready_queue)
+    spec_digest = apply_spec_digest(requested_mode, source_snapshot, spec_workspace_baseline, ready_queue)
     if run.get("apply_spec_digest") != spec_digest:
         errors.append("stored_apply_spec_digest_mismatch")
     if run.get("apply_spec_id") != f"apply-spec-{requested_mode}-{spec_digest[:16]}":
@@ -1736,24 +1773,16 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
             errors.append("external_superpowers_unavailable_must_reconcile_mode")
 
     baseline = run.get("workspace_baseline")
-    baseline_keys = [
-        "vcs",
-        "branch",
-        "base_commit",
-        "git_status_porcelain_sha256",
-        "staged_diff_sha256",
-        "unstaged_diff_sha256",
-        "untracked_inventory_sha256",
-        "untracked_count",
-        "workspace_file_inventory_sha256",
-        "workspace_file_count",
-    ]
     if not isinstance(baseline, dict):
         errors.append("workspace_baseline_missing")
     else:
-        for key in baseline_keys:
+        for key in WORKSPACE_BASELINE_KEYS:
             if key not in baseline:
                 errors.append(f"workspace_baseline_missing={key}")
+        if isinstance(spec_workspace_baseline, dict):
+            for key in WORKSPACE_BASELINE_KEYS:
+                if key in baseline and spec_workspace_baseline.get(key) != baseline.get(key):
+                    errors.append(f"apply_spec_workspace_baseline_mismatch={key}")
         if run.get("workspace_detected") != baseline.get("vcs"):
             errors.append("workspace_detected_baseline_mismatch")
         expected_dirty_state = workspace_dirty_state(baseline)
@@ -1775,7 +1804,7 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
                 errors.append("git_workspace_requires_user_approval")
         if root is not None:
             current_baseline = workspace_baseline(root)
-            for key in baseline_keys:
+            for key in WORKSPACE_BASELINE_KEYS:
                 if key in baseline and baseline.get(key) != current_baseline.get(key):
                     errors.append(f"workspace_baseline_mismatch={key}")
 
