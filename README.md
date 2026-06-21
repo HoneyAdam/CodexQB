@@ -214,6 +214,8 @@ make export-sanitized
 
 The underlying exporter defaults to tracked files only. The `make export-sanitized` target explicitly includes untracked, non-ignored files so pre-commit package checks can cover new files, but every included file is rejected if it is a symlink, resolves outside the repository, matches blocked local/runtime paths, or contains a length-bounded secret pattern. The default validation gate also checks that forbidden archive/package entries are not present.
 
+The feedback closure status for the 0.3.0 Goal/Apply hardening pass is tracked in `docs/FEEDBACK-CLOSURE-AUDIT.md`. Treat remaining release-audit items in that file as blockers before moving `CHANGELOG.md` from `Unreleased` to a dated final release section.
+
 ## Safety Model
 
 CodexQB is planning-first. Steps 1-3 should not:

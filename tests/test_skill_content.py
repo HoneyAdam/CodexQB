@@ -354,8 +354,20 @@ class SkillContentTests(unittest.TestCase):
             "sanitized_zip_hygiene_failed",
             "evals/run_apply_behavior_smoke.py",
             "apply_behavior_smoke=passed",
+            "docs/FEEDBACK-CLOSURE-AUDIT.md",
         ]:
             self.assertIn(phrase, validate_script)
+
+        closure_audit = (REPO_ROOT / "docs/FEEDBACK-CLOSURE-AUDIT.md").read_text(encoding="utf-8")
+        for phrase in [
+            "Release Blocker Items",
+            "Goal Compiler Items",
+            "Apply Orchestrator Items",
+            "Subagent Methodology Items",
+            "Eval And Release Evidence",
+            "Remaining",
+        ]:
+            self.assertIn(phrase, closure_audit)
 
     def test_shared_safety_contracts_are_wired(self) -> None:
         safety = SKILL_ROOT / "scripts/safety_contracts.py"

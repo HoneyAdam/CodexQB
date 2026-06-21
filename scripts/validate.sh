@@ -58,6 +58,7 @@ required_files=(
   "docs/INSTALLATION.md"
   "docs/USAGE.md"
   "docs/MAINTAINING.md"
+  "docs/FEEDBACK-CLOSURE-AUDIT.md"
   "LICENSE"
 )
 
