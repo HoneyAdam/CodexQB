@@ -381,6 +381,7 @@ class SkillContentTests(unittest.TestCase):
             "docs/release-evidence/0.3.0-live-subagent-smoke.md",
             "0.3.0-live-subagent-smoke.md",
             "live docs-scope subagent smoke",
+            "bounded live multi-role Apply e2e fixture",
         ]:
             self.assertIn(phrase, closure_audit)
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
@@ -392,32 +393,37 @@ class SkillContentTests(unittest.TestCase):
             "artifact validated",
             "behavior smoke passed",
             "live Codex behavior observed",
+            "bounded live Apply e2e passed",
             "FB-001",
             "FB-006",
             "FB-007",
             "FB-012",
             "collect_step2_planning_horizon",
             "contract_driven_work_steps",
-            "PARTIAL - live spawn smoke observed",
-            "Full live downstream Apply/Ralph multi-role e2e remains missing",
+            "CLOSED for bounded live Apply e2e",
+            "apply-subagent_serial-f794e63b5a53-downstream-dry-run",
+            "full Ralph 40-plan live regression",
             "0.3.0 feature-complete candidate",
         ]:
             self.assertIn(phrase, matrix)
 
-    def test_live_subagent_smoke_audit_records_partial_gate_without_closing_e2e(self) -> None:
+    def test_live_subagent_smoke_audit_records_bounded_e2e_without_release_tag(self) -> None:
         smoke_path = REPO_ROOT / "docs/release-evidence/0.3.0-live-subagent-smoke.md"
         self.assertTrue(smoke_path.is_file())
 
         smoke = smoke_path.read_text(encoding="utf-8")
         for phrase in [
             "Evidence date: 2026-06-21",
-            "Baseline commit at capture start",
+            "Baseline commit for docs-scope smoke",
+            "Repo commit at live Apply e2e capture start",
             "Plugin version: `0.3.0`",
             "Codex CLI version: `codex-cli 0.141.0`",
             "Sandbox / approval mode",
             "Goal / Apply Run IDs",
-            "Live Goal run ID: not produced for this smoke",
-            "Live Apply run ID: not produced for this smoke",
+            "Docs-scope smoke Goal run ID: not produced for the initial smoke",
+            "Live Apply run ID: `apply-subagent_serial-f794e63b5a53-downstream-dry-run`",
+            "Live Apply task ID: `AR-apply-subagent_serial-f794e63b5a53-downstream-dry-run-T001`",
+            "Security review required: `true`",
             "`multi_agent_v1.spawn_agent`",
             "`019eeb62-31b2-7442-939a-5efca138380b`",
             "Nash",
@@ -431,26 +437,38 @@ class SkillContentTests(unittest.TestCase):
             "Euclid",
             "`STATUS: DONE`",
             "Wrote docs and content test files",
-            "`python3 -m unittest tests.test_skill_content -v`: passed",
-            "`make check`: passed",
-            "`FB-011` remains `PARTIAL - live spawn smoke observed`",
-            "No live Apply run was produced",
-            "No Apply-bound implementation writer was used",
-            "No live security reviewer gate was exercised",
-            "No Apply-bound fixer/re-review cycle was exercised",
-            "No interrupted/resume evidence was captured",
-            "This evidence does not close full multi-role Apply orchestration",
+            "Live Multi-Role Apply E2E Evidence",
+            "`019eeb8c-227a-7b60-94d3-9965c9129fc6`",
+            "Ampere",
+            "`019eeb8e-19a6-7740-b643-db85eb2ecd5b`",
+            "Raman",
+            "`019eeb8f-3e43-7a03-972a-50e094536ba7`",
+            "Erdos",
+            "`019eeb9e-2f2c-7fe3-bcdd-d856a3c9bcc7`",
+            "Galileo",
+            "`019eeba0-00f4-7271-b711-bd99ecf04a52`",
+            "Godel",
+            "Result.json status=complete",
+            "`event_sequence=33`",
+            "`finalized_by=live-e2e-controller`",
+            "`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`: passed",
+            "Apply-Run.json_sha256=2a3a52598b9caffe3ca3260f1272f970652b88b6caf80a798dd3f8fa34e26efc",
+            "`FB-011` is closed for bounded live Apply e2e evidence",
+            "`FB-012` remains open",
+            "not a full Ralph 40-plan live regression",
+            "No commit, push, PR, deploy, dependency install, or external credential action",
         ]:
             self.assertIn(phrase, smoke)
 
         matrix = (REPO_ROOT / "docs/release-audits/0.3.0-feedback-closure.md").read_text(encoding="utf-8")
         audit = (REPO_ROOT / "docs/FEEDBACK-CLOSURE-AUDIT.md").read_text(encoding="utf-8")
         combined = "\n".join([smoke, matrix, audit])
-        self.assertIn("PARTIAL - live spawn smoke observed", matrix)
-        self.assertIn("full e2e still remaining", audit)
-        self.assertIn("Full live downstream Apply/Ralph multi-role e2e remains missing", matrix)
-        self.assertNotIn("| FB-011 | Observe real subagent invocation behavior. | CLOSED", matrix)
+        self.assertIn("CLOSED for bounded live Apply e2e", matrix)
+        self.assertIn("Ralph-scale regression remains separate", audit)
+        self.assertIn("full Ralph 40-plan live regression", matrix)
+        self.assertIn("FB-012 | Align changelog/tag/release state. | OPEN", matrix)
         self.assertNotIn("full downstream apply/ralph multi-role e2e closed", combined.lower())
+        self.assertNotIn("0.3.0 final release", combined.lower())
 
     def test_shared_safety_contracts_are_wired(self) -> None:
         safety = SKILL_ROOT / "scripts/safety_contracts.py"
@@ -730,6 +748,11 @@ class SkillContentTests(unittest.TestCase):
                     ".pytest_cache",
                     ".mypy_cache",
                     ".ruff_cache",
+                    "artifacts",
+                    "build",
+                    "dist",
+                    "logs",
+                    "tmp",
                     "CodexQB-sanitized.zip",
                 }
                 return ignored.intersection(names)

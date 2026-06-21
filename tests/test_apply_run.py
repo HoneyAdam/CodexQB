@@ -698,6 +698,133 @@ class ApplyRunTests(unittest.TestCase):
             self.assertIn("workspace_baseline_mismatch=git_status_porcelain_sha256", errors)
             self.assertIn("workspace_baseline_mismatch=untracked_inventory_sha256", errors)
 
+    def test_apply_run_allows_contract_bound_tracked_implementation_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            (root / "src").mkdir()
+            (root / "tests").mkdir()
+            (root / "src" / "feature_1_1.py").write_text("VALUE = 'before'\n", encoding="utf-8")
+            (root / "src" / "outside.py").write_text("VALUE = 'outside-before'\n", encoding="utf-8")
+            (root / "tests" / "test_feature_1_1.py").write_text(
+                "import unittest\n\nclass FeatureTests(unittest.TestCase):\n    def test_placeholder(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            self.init_git_repo(root)
+            subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True, text=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=CodexQB Test",
+                    "-c",
+                    "user.email=codexqb-test@example.invalid",
+                    "commit",
+                    "-m",
+                    "fixture",
+                ],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            task_id = self.first_task_id(run_dir)
+
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
+            (root / "src" / "feature_1_1.py").write_text("VALUE = 'after'\n", encoding="utf-8")
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["implementation complete"])
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "TASK_REVIEW", "review-1", ["review ready"])
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "SECURITY_REVIEW", "security-1", ["security review"])
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "VERIFIED", "review-1", ["verified"])
+
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+            progress["verified_task_ids"] = [task_id]
+            (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
+            brief_hash = task["brief_sha256"]
+            (run_dir / task_id / "Implementer-Report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "DONE",
+                        "task_id": task_id,
+                        "brief_sha256": brief_hash,
+                        "implementer_agent_id": "impl-1",
+                        "files_changed": ["src/feature_1_1.py"],
+                        "validation_evidence": [
+                            {
+                                "id": "VAL-01",
+                                "argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"],
+                                "exit_code": 0,
+                            }
+                        ],
+                        "diff_sha256": "c" * 64,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / task_id / "Task-Review.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "brief_sha256": brief_hash,
+                        "reviewer_agent_id": "review-1",
+                        "security_reviewer_agent_id": "security-1",
+                        "spec_compliance": "pass",
+                        "task_quality": "approved",
+                        "security_review": "pass",
+                        "evidence": ["reviewed contract-bound implementation drift"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "tests" / "test_feature_1_1.py").write_text(
+                "import unittest\n\nclass FeatureTests(unittest.TestCase):\n    def test_placeholder(self):\n        self.assertTrue(True)\n\n    def test_fix_coverage(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            (run_dir / task_id / "Fix-Report.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "fixer_agent_id": "fixer-1",
+                        "fixes": [
+                            {
+                                "finding": "missing coverage",
+                                "files_changed": ["tests/test_feature_1_1.py"],
+                                "validation": {
+                                    "id": "VAL-01",
+                                    "argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"],
+                                    "exit_code": 0,
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "Final-Review.json").write_text(
+                json.dumps(
+                    {
+                        "status": "pass",
+                        "reviewed_task_ids": [task_id],
+                        "global_validations": [{"id": "VAL-REPO", "argv": ["make", "check"], "exit_code": 0}],
+                        "evidence": ["final review passed"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            (root / "src" / "__pycache__").mkdir()
+            (root / "src" / "__pycache__" / "feature_1_1.cpython-314.pyc").write_bytes(b"cache")
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir, root), [])
+
+            (root / "src" / "outside.py").write_text("VALUE = 'outside-after'\n", encoding="utf-8")
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("workspace_baseline_mismatch=git_status_porcelain_sha256", errors)
+            self.assertIn("source_snapshot_mismatch", errors)
+
     def test_apply_run_verified_task_is_not_redispatched(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

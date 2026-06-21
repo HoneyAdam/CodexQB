@@ -54,6 +54,14 @@ WORKSPACE_BASELINE_KEYS = [
     "workspace_file_inventory_sha256",
     "workspace_file_count",
 ]
+IMPLEMENTATION_DRIFT_BASELINE_KEYS = {
+    "git_status_porcelain_sha256",
+    "unstaged_diff_sha256",
+}
+IMPLEMENTATION_DRIFT_SNAPSHOT_PATHS = {
+    "git:status",
+    "git:unstaged_diff",
+}
 TASK_STATES = {
     "PREFLIGHT",
     "BRIEFED",
@@ -219,6 +227,9 @@ def baseline_path_is_excluded(path: str) -> bool:
     normalized = path.replace("\\", "/")
     while normalized.startswith("./"):
         normalized = normalized[2:]
+    parts = Path(normalized).parts
+    if "__pycache__" in parts or normalized.endswith(".pyc"):
+        return True
     return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in WORKSPACE_BASELINE_EXCLUDED_PREFIXES)
 
 
@@ -297,6 +308,146 @@ def workspace_baseline(root: Path) -> dict[str, object]:
         "workspace_file_inventory_sha256": workspace_inventory_hash,
         "workspace_file_count": workspace_inventory_count,
     }
+
+
+def git_changed_paths(root: Path, args: list[str]) -> set[str]:
+    raw = run_git_raw(root, args)
+    return {line.strip() for line in raw.splitlines() if line.strip() and not baseline_path_is_excluded(line.strip())}
+
+
+def implementation_contract_paths(task: dict[str, object]) -> set[str]:
+    contract = task.get("implementation_contract")
+    if not isinstance(contract, dict):
+        return set()
+    paths = contract.get("implementation_paths")
+    if not isinstance(paths, list):
+        return set()
+    allowed: set[str] = set()
+    for item in paths:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        if isinstance(path, str):
+            normalized_path = path.strip().replace("\\", "/")
+            if (
+                normalized_path
+                and not Path(normalized_path).is_absolute()
+                and ".." not in Path(normalized_path).parts
+                and not baseline_path_is_excluded(normalized_path)
+            ):
+                allowed.add(normalized_path)
+    return allowed
+
+
+def implementation_report_files(run_dir: Path, task: dict[str, object]) -> set[str]:
+    task_id = str(task.get("task_id", ""))
+    if not safe_task_id(task_id):
+        return set()
+    report_path = run_dir / task_id / "Implementer-Report.json"
+    if not report_path.is_file():
+        return set()
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    if not isinstance(report, dict) or report.get("status") not in {"DONE", "DONE_WITH_CONCERNS"}:
+        return set()
+    files = report.get("files_changed")
+    if not isinstance(files, list):
+        return set()
+    normalized: set[str] = set()
+    for item in files:
+        if isinstance(item, str):
+            normalized_path = item.strip().replace("\\", "/")
+            if (
+                normalized_path
+                and not Path(normalized_path).is_absolute()
+                and ".." not in Path(normalized_path).parts
+                and not baseline_path_is_excluded(normalized_path)
+            ):
+                normalized.add(normalized_path)
+    return normalized
+
+
+def fix_report_files(run_dir: Path, task: dict[str, object]) -> set[str]:
+    task_id = str(task.get("task_id", ""))
+    if not safe_task_id(task_id):
+        return set()
+    report_path = run_dir / task_id / "Fix-Report.json"
+    if not report_path.is_file():
+        return set()
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    if not isinstance(report, dict):
+        return set()
+    fixes = report.get("fixes")
+    if not isinstance(fixes, list):
+        return set()
+    normalized: set[str] = set()
+    for fix in fixes:
+        if not isinstance(fix, dict):
+            continue
+        files = fix.get("files_changed")
+        if not isinstance(files, list):
+            continue
+        for item in files:
+            if isinstance(item, str):
+                normalized_path = item.strip().replace("\\", "/")
+                if (
+                    normalized_path
+                    and not Path(normalized_path).is_absolute()
+                    and ".." not in Path(normalized_path).parts
+                    and not baseline_path_is_excluded(normalized_path)
+                ):
+                    normalized.add(normalized_path)
+    return normalized
+
+
+def allowed_implementation_drift_paths(run_dir: Path, tasks: list[object]) -> set[str]:
+    allowed: set[str] = set()
+    drift_states = {"IMPLEMENTED", "TASK_REVIEW", "SECURITY_REVIEW", "FIXING", "RE_REVIEW", "VERIFIED"}
+    for task in tasks:
+        if not isinstance(task, dict) or task.get("state") not in drift_states:
+            continue
+        contract_paths = implementation_contract_paths(task)
+        reported_paths = implementation_report_files(run_dir, task) | fix_report_files(run_dir, task)
+        allowed.update(contract_paths & reported_paths)
+    return allowed
+
+
+def implementation_workspace_drift(root: Path, run_dir: Path, tasks: list[object]) -> dict[str, object]:
+    if run_git(root, ["rev-parse", "--is-inside-work-tree"]) != "true":
+        return {"allowed": False, "changed_paths": set(), "allowed_paths": set()}
+    staged_paths = git_changed_paths(root, ["diff", "--cached", "--name-only"])
+    untracked_paths = git_changed_paths(root, ["ls-files", "--others", "--exclude-standard"])
+    unstaged_paths = git_changed_paths(root, ["diff", "--name-only"])
+    allowed_paths = allowed_implementation_drift_paths(run_dir, tasks)
+    allowed = bool(unstaged_paths) and not staged_paths and not untracked_paths and unstaged_paths <= allowed_paths
+    return {
+        "allowed": allowed,
+        "changed_paths": unstaged_paths,
+        "allowed_paths": allowed_paths,
+        "staged_paths": staged_paths,
+        "untracked_paths": untracked_paths,
+    }
+
+
+def snapshot_matches_except(stored: list[dict[str, str]], current: list[dict[str, str]], ignored_paths: set[str]) -> bool:
+    def normalize(items: list[dict[str, str]]) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        for item in items:
+            path = item.get("path", "")
+            if path in ignored_paths:
+                replacement = dict(item)
+                replacement["sha256"] = "<implementation-drift>"
+                normalized.append(replacement)
+            else:
+                normalized.append(item)
+        return sorted(normalized, key=lambda value: (value.get("path", ""), value.get("sha256", "")))
+
+    return normalize(stored) == normalize(current)
 
 
 def git_default_branch(root: Path) -> str:
@@ -1809,6 +1960,14 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         errors.append("stored_apply_run_id_mismatch")
     if run.get("source_snapshot_digest") != snapshot_digest(source_snapshot):
         errors.append("stored_source_snapshot_digest_mismatch")
+    tasks_for_drift = progress.get("tasks", [])
+    if not isinstance(tasks_for_drift, list):
+        tasks_for_drift = []
+    implementation_drift = (
+        implementation_workspace_drift(root, run_dir, tasks_for_drift)
+        if root is not None
+        else {"allowed": False, "changed_paths": set(), "allowed_paths": set()}
+    )
     readiness = run.get("step4_readiness")
     if (
         not isinstance(readiness, dict)
@@ -1903,10 +2062,18 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
             current_baseline = workspace_baseline(root)
             for key in WORKSPACE_BASELINE_KEYS:
                 if key in baseline and baseline.get(key) != current_baseline.get(key):
+                    if implementation_drift.get("allowed") is True and key in IMPLEMENTATION_DRIFT_BASELINE_KEYS:
+                        continue
                     errors.append(f"workspace_baseline_mismatch={key}")
 
-    if root is not None and run.get("source_snapshot_digest") != snapshot_digest(collect_snapshot(root)):
-        errors.append("source_snapshot_mismatch")
+    if root is not None:
+        current_snapshot = collect_snapshot(root)
+        if run.get("source_snapshot_digest") != snapshot_digest(current_snapshot):
+            if not (
+                implementation_drift.get("allowed") is True
+                and snapshot_matches_except(source_snapshot, current_snapshot, IMPLEMENTATION_DRIFT_SNAPSHOT_PATHS)
+            ):
+                errors.append("source_snapshot_mismatch")
 
     tasks = progress.get("tasks", [])
     if not isinstance(tasks, list):
