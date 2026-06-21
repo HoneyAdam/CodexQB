@@ -276,6 +276,51 @@ def extract_ready_queue(root: Path) -> list[dict[str, str]]:
     return items
 
 
+def extract_contract_signals(text: str) -> dict[str, list[str]]:
+    patterns = {
+        "acceptance_criteria": r"(?:acceptance|behavior|mp-ph\d+-as-\d+)",
+        "allowed_paths": r"(?:allowed.*path|implementation[_ ]path|write[_ ]path)",
+        "forbidden_paths": r"(?:forbidden[_ ]path|forbidden.*path|must not modify|do not modify)",
+        "parent_signals": r"(?:parent[_ ]signal|parent acceptance|acceptance signal|signal id)",
+        "dependencies": r"(?:depends_on|dependency|blocks|can_run_in_parallel|activation_conditions)",
+        "framework_ownership": r"(?:framework ownership|ownership matrix|trl|vllm|peft)",
+        "algorithmic_invariants": r"(?:invariant|rollout|policy fingerprint|trainer-step|stateful)",
+        "structured_validation_commands": r"(?:validation[_ ]command|argv|expected_exit_code|probe_tier)",
+        "security_requirements": r"(?:security[_ ]review|required security|risk[_ ]domain|secret|credential)",
+    }
+    signals = {key: [] for key in patterns}
+    for line in text.splitlines():
+        stripped = line.strip().strip("|").strip()
+        if not stripped or len(stripped) > 240:
+            continue
+        lowered = stripped.lower()
+        for key, pattern in patterns.items():
+            if re.search(pattern, lowered):
+                signals[key].append(stripped)
+    return signals
+
+
+def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
+    path = root / subplan_path
+    text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    contract = extract_contract_signals(text)
+    item: dict[str, object] = {
+        "subplan_path": subplan_path,
+        "subplan_sha256": sha256_bytes(path.read_bytes()) if path.is_file() else None,
+        "contract_signals": contract,
+    }
+    item["security_review_required"] = any(
+        "required" in signal.lower() or "risk" in signal.lower()
+        for signal in contract["security_requirements"]
+    )
+    item["validation_command_count"] = len(contract["structured_validation_commands"])
+    return item
+
+
+def collect_subplan_scope(root: Path, subplans: list[str]) -> list[dict[str, object]]:
+    return [subplan_scope_item(root, path) for path in subplans]
+
+
 def collect_stage_scope(root: Path, stage: str) -> dict[str, object]:
     docs = root / "Planner-docs"
     subplans = [
@@ -286,11 +331,17 @@ def collect_stage_scope(root: Path, stage: str) -> dict[str, object]:
     scope: dict[str, object] = {"stage": stage, "project_root": "."}
     if stage in {"step2", "step3"}:
         scope["detailed_subplans"] = subplans
+        scope["subplan_contracts"] = collect_subplan_scope(root, subplans)
         scope["subplan_count"] = len(subplans)
         scope["index_path"] = "Planner-docs/Sub-Planing-Index.md" if (docs / "Sub-Planing-Index.md").is_file() else None
     if stage == "step4":
         ready_queue = extract_ready_queue(root)
-        scope["ready_queue"] = ready_queue
+        enriched_queue: list[dict[str, object]] = []
+        for item in ready_queue:
+            enriched = dict(item)
+            enriched.update(subplan_scope_item(root, item["subplan_path"]))
+            enriched_queue.append(enriched)
+        scope["ready_queue"] = enriched_queue
         scope["ready_count"] = len(ready_queue)
         scope["no_action_required"] = bool((docs / "Sub-Planing-Audit.md").is_file() and "NO_ACTION_REQUIRED" in (docs / "Sub-Planing-Audit.md").read_text(encoding="utf-8", errors="replace"))
     return scope

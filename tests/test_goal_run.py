@@ -242,10 +242,20 @@ class GoalRunTests(unittest.TestCase):
                 "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
                 step2["run"]["active_scope"]["detailed_subplans"],
             )
+            step2_contract = step2["run"]["active_scope"]["subplan_contracts"][0]
+            self.assertEqual(step2_contract["subplan_path"], "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md")
+            self.assertTrue(step2_contract["subplan_sha256"])
+            self.assertTrue(any("MP-PH1-AS-01" in item for item in step2_contract["contract_signals"]["acceptance_criteria"]))
+            self.assertTrue(any("implementation_paths" in item for item in step2_contract["contract_signals"]["allowed_paths"]))
+            self.assertTrue(any("parent_signals" in item for item in step2_contract["contract_signals"]["parent_signals"]))
+            self.assertTrue(any("validation_commands" in item for item in step2_contract["contract_signals"]["structured_validation_commands"]))
+            self.assertTrue(step2_contract["security_review_required"])
             self.assertEqual(
                 step4["run"]["active_scope"]["ready_queue"][0]["subplan_path"],
                 "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
             )
+            self.assertIn("contract_signals", step4["run"]["active_scope"]["ready_queue"][0])
+            self.assertGreaterEqual(step4["run"]["active_scope"]["ready_queue"][0]["validation_command_count"], 1)
             self.assertTrue(any("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md" in step for step in step4["run"]["work_steps"]))
 
     def test_step3_goal_includes_preflight_and_post_audit_checkpoints(self) -> None:

@@ -503,15 +503,15 @@ def validate_step4_queue(root: Path, mode: str) -> dict[str, str]:
 
 def extract_contract_signals(text: str) -> dict[str, list[str]]:
     patterns = {
-        "acceptance_criteria": r"(?:acceptance|behavior)",
-        "allowed_paths": r"(?:allowed.*path|implementation path|write path)",
-        "forbidden_paths": r"(?:forbidden.*path|must not modify|do not modify)",
-        "parent_signals": r"(?:parent acceptance|acceptance signal|signal id)",
+        "acceptance_criteria": r"(?:acceptance|behavior|mp-ph\d+-as-\d+)",
+        "allowed_paths": r"(?:allowed.*path|implementation[_ ]path|write[_ ]path)",
+        "forbidden_paths": r"(?:forbidden[_ ]path|forbidden.*path|must not modify|do not modify)",
+        "parent_signals": r"(?:parent[_ ]signal|parent acceptance|acceptance signal|signal id)",
         "dependencies": r"(?:depends_on|dependency|blocks|can_run_in_parallel|activation_conditions)",
         "framework_ownership": r"(?:framework ownership|ownership matrix|trl|vllm|peft)",
         "algorithmic_invariants": r"(?:invariant|rollout|policy fingerprint|trainer-step|stateful)",
-        "structured_validation_commands": r"(?:validation command|argv|expected_exit_code|probe_tier)",
-        "security_requirements": r"(?:security review|required security|risk domain|secret|credential)",
+        "structured_validation_commands": r"(?:validation[_ ]command|argv|expected_exit_code|probe_tier)",
+        "security_requirements": r"(?:security[_ ]review|required security|risk[_ ]domain|secret|credential)",
     }
     signals = {key: [] for key in patterns}
     for line in text.splitlines():
