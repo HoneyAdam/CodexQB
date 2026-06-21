@@ -198,6 +198,8 @@ def should_include(path: Path, root: Path, output: Path, errors: list[str]) -> b
         return False
     if not path.is_file():
         return False
+    if rel.as_posix() == PACKAGE_MANIFEST_NAME:
+        return False
     if IGNORED_PARTS.intersection(rel.parts):
         return False
     if path.name == ".DS_Store" or path.name.startswith(".env"):

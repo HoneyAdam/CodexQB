@@ -66,6 +66,11 @@ def archive_names(output: Path) -> set[str]:
         return set(archive.namelist())
 
 
+def archive_name_list(output: Path) -> list[str]:
+    with zipfile.ZipFile(output) as archive:
+        return archive.namelist()
+
+
 def package_manifest(output: Path) -> dict[str, object]:
     with zipfile.ZipFile(output) as archive:
         return json.loads(archive.read("CodexQB/PACKAGE-MANIFEST.json").decode("utf-8"))
@@ -95,6 +100,24 @@ class ExportSanitizedTests(unittest.TestCase):
             self.assertEqual(manifest["include_untracked"], False)
             self.assertEqual(manifest["changelog_mentions_plugin_version"], True)
             self.assertIsInstance(manifest["tree_sha256"], str)
+
+    def test_release_export_replaces_existing_package_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            git(root, "init")
+            write_minimal_codexqb_tree(root)
+            (root / "PACKAGE-MANIFEST.json").write_text('{"stale": true}\n', encoding="utf-8")
+            git_commit_all(root)
+            output = root / "CodexQB-sanitized.zip"
+
+            count = EXPORT_MODULE.create_zip(root, output)
+
+            names = archive_name_list(output)
+            self.assertEqual(count, 3)
+            self.assertEqual(names.count("CodexQB/PACKAGE-MANIFEST.json"), 1)
+            manifest = package_manifest(output)
+            self.assertNotIn("stale", manifest)
+            self.assertFalse(any(item["path"] == "PACKAGE-MANIFEST.json" for item in manifest["files"]))
 
     def test_release_export_rejects_dirty_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
