@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -64,6 +65,9 @@ class ApplyRunTests(unittest.TestCase):
                 "| Planner-docs/Faz-2-Plans/Faz2.1-live-gateway.md | SUPERSEDED | none | satisfied | Replaced by later plan. | none |",
             ],
         )
+
+    def init_git_repo(self, root: Path) -> None:
+        subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True, text=True)
 
     def first_task_id(self, run_dir: Path) -> str:
         progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
@@ -188,6 +192,10 @@ class ApplyRunTests(unittest.TestCase):
             self.assertFalse(run["pr_allowed"])
             self.assertEqual(run["max_writer_agents"], 1)
             self.assertEqual(run["max_subagent_depth"], 1)
+            self.assertEqual(run["workspace_baseline"]["vcs"], "non_git")
+            self.assertIn("git_status_porcelain_sha256", run["workspace_baseline"])
+            self.assertIn("untracked_inventory_sha256", run["workspace_baseline"])
+            self.assertIn("workspace_file_inventory_sha256", run["workspace_baseline"])
             self.assertEqual(run["agent_profiles"]["implementer"]["model_profile"], "balanced")
             self.assertEqual(run["agent_profiles"]["task_reviewer"]["sandbox"], "read-only")
             self.assertEqual(run["agent_profiles"]["security_reviewer"]["model_profile"], "security_strong")
@@ -566,6 +574,35 @@ class ApplyRunTests(unittest.TestCase):
             errors = APPLY_MODULE.validate_apply_run(run_dir, root)
 
             self.assertIn("source_snapshot_mismatch", errors)
+
+    def test_apply_run_workspace_baseline_detects_non_git_source_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            (root / "src").mkdir()
+            (root / "src" / "example.py").write_text("print('before')\n", encoding="utf-8")
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            (root / "src" / "example.py").write_text("print('after')\n", encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("workspace_baseline_mismatch=workspace_file_inventory_sha256", errors)
+
+    def test_apply_run_workspace_baseline_detects_git_untracked_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            self.init_git_repo(root)
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir, root), [])
+            (root / "notes.txt").write_text("new local note\n", encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("workspace_baseline_mismatch=git_status_porcelain_sha256", errors)
+            self.assertIn("workspace_baseline_mismatch=untracked_inventory_sha256", errors)
 
     def test_apply_run_verified_task_is_not_redispatched(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -99,6 +99,39 @@
       },
       "additionalProperties": false
     },
+    "WorkspaceBaseline": {
+      "type": "object",
+      "required": [
+        "vcs",
+        "branch",
+        "base_commit",
+        "git_status_porcelain_sha256",
+        "staged_diff_sha256",
+        "unstaged_diff_sha256",
+        "untracked_inventory_sha256",
+        "untracked_count",
+        "workspace_file_inventory_sha256",
+        "workspace_file_count"
+      ],
+      "properties": {
+        "vcs": { "enum": ["git", "non_git"] },
+        "branch": { "type": "string" },
+        "base_commit": { "type": "string" },
+        "git_status_porcelain_sha256": { "$ref": "#/$defs/Sha256" },
+        "staged_diff_sha256": { "$ref": "#/$defs/Sha256" },
+        "unstaged_diff_sha256": { "$ref": "#/$defs/Sha256" },
+        "untracked_inventory_sha256": { "$ref": "#/$defs/Sha256" },
+        "untracked_count": { "type": "integer", "minimum": 0 },
+        "workspace_file_inventory_sha256": {
+          "anyOf": [
+            { "$ref": "#/$defs/Sha256" },
+            { "const": "" }
+          ]
+        },
+        "workspace_file_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
     "ReadyQueueItem": {
       "type": "object",
       "required": ["readiness_status", "subplan_path"],
@@ -125,6 +158,7 @@
         "apply_run_id",
         "apply_run_invocation_id",
         "mode",
+        "workspace_baseline",
         "commit_policy",
         "push_allowed",
         "pr_allowed",
@@ -169,6 +203,7 @@
         "workspace_detected": { "type": "string" },
         "workspace_verified": { "type": "boolean" },
         "workspace_mode": { "type": "string" },
+        "workspace_baseline": { "$ref": "#/$defs/WorkspaceBaseline" },
         "commit_policy": { "const": "none" },
         "push_allowed": { "const": false },
         "pr_allowed": { "const": false },

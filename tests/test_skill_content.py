@@ -219,6 +219,7 @@ class SkillContentTests(unittest.TestCase):
         schema_defs = apply_schema["$defs"]
         for name in [
             "ApplyRun",
+            "WorkspaceBaseline",
             "Progress",
             "DispatchPacket",
             "AgentRun",
@@ -235,6 +236,12 @@ class SkillContentTests(unittest.TestCase):
         step4_readiness = schema_defs["ApplyRun"]["properties"]["step4_readiness"]
         self.assertIn("validator_output_sha256", step4_readiness["required"])
         self.assertIn("execution_queue_state", step4_readiness["required"])
+        self.assertIn("workspace_baseline", schema_defs["ApplyRun"]["required"])
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["workspace_baseline"]["$ref"], "#/$defs/WorkspaceBaseline")
+        workspace_baseline = schema_defs["WorkspaceBaseline"]
+        self.assertIn("git_status_porcelain_sha256", workspace_baseline["required"])
+        self.assertIn("untracked_inventory_sha256", workspace_baseline["required"])
+        self.assertIn("workspace_file_inventory_sha256", workspace_baseline["required"])
         self.assertEqual(schema_defs["DispatchPacket"]["properties"]["spawn_tool"]["const"], "multi_agent_v1.spawn_agent")
         self.assertIn("references/apply-run-schema.json", skill)
         self.assertIn("plugins/codexqb/skills/codexqb/references/apply-run-schema.json", validate_script)

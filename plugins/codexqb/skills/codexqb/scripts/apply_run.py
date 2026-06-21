@@ -36,6 +36,12 @@ PLUGIN_VERSION = "0.3.0"
 VALIDATOR_PATH = Path(__file__).resolve().with_name("validate_planner_docs.py")
 
 APPLY_MODES = {"direct", "subagent_serial", "external_superpowers", "no_action"}
+WORKSPACE_BASELINE_EXCLUDED_PREFIXES = (
+    ".codexqb/",
+    ".git/",
+    ".pytest_cache/",
+    "__pycache__/",
+)
 TASK_STATES = {
     "PREFLIGHT",
     "BRIEFED",
@@ -182,6 +188,105 @@ def run_git(root: Path, args: list[str]) -> str:
     return completed.stdout.strip() if completed.returncode == 0 else ""
 
 
+def run_git_raw(root: Path, args: list[str]) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return completed.stdout if completed.returncode == 0 else ""
+
+
+def baseline_path_is_excluded(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in WORKSPACE_BASELINE_EXCLUDED_PREFIXES)
+
+
+def file_inventory_entry(root: Path, rel_path: str) -> str:
+    path = root / rel_path
+    if path.is_symlink():
+        return f"{rel_path}\tsymlink"
+    if not path.is_file():
+        return f"{rel_path}\tmissing"
+    return f"{rel_path}\t{sha256_bytes(path.read_bytes())}"
+
+
+def hash_inventory(entries: list[str]) -> str:
+    return sha256_bytes(("\n".join(sorted(entries)) + "\n").encode("utf-8"))
+
+
+def git_untracked_inventory(root: Path) -> tuple[str, int]:
+    raw = run_git_raw(root, ["ls-files", "--others", "--exclude-standard"])
+    paths = [line.strip() for line in raw.splitlines() if line.strip()]
+    paths = [path for path in paths if not baseline_path_is_excluded(path)]
+    entries = [file_inventory_entry(root, path) for path in paths]
+    return hash_inventory(entries), len(paths)
+
+
+def git_status_porcelain(root: Path) -> str:
+    raw = run_git_raw(root, ["status", "--porcelain=v1"])
+    kept: list[str] = []
+    for line in raw.splitlines():
+        path_part = line[3:] if len(line) > 3 else line
+        paths = [part.strip() for part in path_part.split(" -> ")]
+        if any(baseline_path_is_excluded(path) for path in paths):
+            continue
+        kept.append(line)
+    return "\n".join(kept) + ("\n" if kept else "")
+
+
+def non_git_file_inventory(root: Path) -> tuple[str, int]:
+    entries: list[str] = []
+    count = 0
+    for current, dirs, files in os.walk(root):
+        rel_dir = Path(current).relative_to(root).as_posix()
+        dirs[:] = [
+            directory
+            for directory in dirs
+            if not baseline_path_is_excluded((Path(rel_dir) / directory).as_posix() if rel_dir != "." else directory)
+        ]
+        for filename in files:
+            rel_path = (Path(rel_dir) / filename).as_posix() if rel_dir != "." else filename
+            if baseline_path_is_excluded(rel_path):
+                continue
+            entries.append(file_inventory_entry(root, rel_path))
+            count += 1
+    return hash_inventory(entries), count
+
+
+def workspace_baseline(root: Path) -> dict[str, object]:
+    is_git = run_git(root, ["rev-parse", "--is-inside-work-tree"]) == "true"
+    status = git_status_porcelain(root) if is_git else ""
+    staged = run_git_raw(root, ["diff", "--cached", "--binary"])
+    unstaged = run_git_raw(root, ["diff", "--binary"])
+    if is_git:
+        untracked_hash, untracked_count = git_untracked_inventory(root)
+        workspace_inventory_hash, workspace_inventory_count = "", 0
+    else:
+        untracked_hash, untracked_count = non_git_file_inventory(root)
+        workspace_inventory_hash, workspace_inventory_count = untracked_hash, untracked_count
+    return {
+        "vcs": "git" if is_git else "non_git",
+        "branch": run_git(root, ["branch", "--show-current"]) or "unknown",
+        "base_commit": run_git(root, ["rev-parse", "HEAD"]) or "unknown",
+        "git_status_porcelain_sha256": sha256_bytes(status.encode("utf-8")),
+        "staged_diff_sha256": sha256_bytes(staged.encode("utf-8")),
+        "unstaged_diff_sha256": sha256_bytes(unstaged.encode("utf-8")),
+        "untracked_inventory_sha256": untracked_hash,
+        "untracked_count": untracked_count,
+        "workspace_file_inventory_sha256": workspace_inventory_hash,
+        "workspace_file_count": workspace_inventory_count,
+    }
+
+
 def collect_snapshot(root: Path) -> list[dict[str, str]]:
     planner = root / "Planner-docs"
     files = sorted(planner.glob("**/*.md")) if planner.is_dir() else []
@@ -190,16 +295,17 @@ def collect_snapshot(root: Path) -> list[dict[str, str]]:
         for path in files
         if path.is_file() and path.name != "Planing-Ledger.md"
     ]
-    branch = run_git(root, ["branch", "--show-current"]) or "unknown"
-    commit = run_git(root, ["rev-parse", "HEAD"]) or "unknown"
-    status = run_git(root, ["status", "--short"]) or ""
-    staged = run_git(root, ["diff", "--cached", "--binary"]) or ""
-    unstaged = run_git(root, ["diff", "--binary"]) or ""
+    baseline = workspace_baseline(root)
+    branch = str(baseline["branch"])
+    commit = str(baseline["base_commit"])
     snapshot.append({"path": "git:branch", "sha256": sha256_bytes(branch.encode("utf-8")), "value": branch})
     snapshot.append({"path": "git:commit", "sha256": sha256_bytes(commit.encode("utf-8")), "value": commit})
-    snapshot.append({"path": "git:status", "sha256": sha256_bytes(status.encode("utf-8"))})
-    snapshot.append({"path": "git:staged_diff", "sha256": sha256_bytes(staged.encode("utf-8"))})
-    snapshot.append({"path": "git:unstaged_diff", "sha256": sha256_bytes(unstaged.encode("utf-8"))})
+    snapshot.append({"path": "git:status", "sha256": str(baseline["git_status_porcelain_sha256"])})
+    snapshot.append({"path": "git:staged_diff", "sha256": str(baseline["staged_diff_sha256"])})
+    snapshot.append({"path": "git:unstaged_diff", "sha256": str(baseline["unstaged_diff_sha256"])})
+    snapshot.append({"path": "git:untracked_inventory", "sha256": str(baseline["untracked_inventory_sha256"])})
+    if baseline["vcs"] == "non_git":
+        snapshot.append({"path": "workspace:file_inventory", "sha256": str(baseline["workspace_file_inventory_sha256"])})
     return snapshot
 
 
@@ -460,6 +566,7 @@ def create_apply_run(
         if errors:
             raise ValueError(";".join(errors))
         return {"apply_run_id": str(run["apply_run_id"]), "run_dir": run_dir.as_posix(), "state": "resumed"}
+    baseline = workspace_baseline(root)
     snapshot = collect_snapshot(root)
     ready_queue = [] if mode == "no_action" else extract_ready_queue(root)
     spec_digest = apply_spec_digest(mode, snapshot, ready_queue)
@@ -489,9 +596,10 @@ def create_apply_run(
         "apply_run_invocation_id": suffix,
         "mode": mode,
         "workspace_requested": "isolated_worktree",
-        "workspace_detected": "git" if run_git(root, ["rev-parse", "--is-inside-work-tree"]) == "true" else "non_git",
+        "workspace_detected": baseline["vcs"],
         "workspace_verified": False,
         "workspace_mode": "unverified_current_worktree",
+        "workspace_baseline": baseline,
         "commit_policy": commit_policy,
         "push_allowed": False,
         "pr_allowed": False,
@@ -1558,6 +1666,31 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
     elif isinstance(external, dict) and external.get("required") is True and external.get("availability") == "unavailable":
         if run.get("mode") != "subagent_serial" or external.get("reconciled_to") != "subagent_serial":
             errors.append("external_superpowers_unavailable_must_reconcile_mode")
+
+    baseline = run.get("workspace_baseline")
+    baseline_keys = [
+        "vcs",
+        "branch",
+        "base_commit",
+        "git_status_porcelain_sha256",
+        "staged_diff_sha256",
+        "unstaged_diff_sha256",
+        "untracked_inventory_sha256",
+        "untracked_count",
+        "workspace_file_inventory_sha256",
+        "workspace_file_count",
+    ]
+    if not isinstance(baseline, dict):
+        errors.append("workspace_baseline_missing")
+    else:
+        for key in baseline_keys:
+            if key not in baseline:
+                errors.append(f"workspace_baseline_missing={key}")
+        if root is not None:
+            current_baseline = workspace_baseline(root)
+            for key in baseline_keys:
+                if key in baseline and baseline.get(key) != current_baseline.get(key):
+                    errors.append(f"workspace_baseline_mismatch={key}")
 
     if root is not None and run.get("source_snapshot_digest") != snapshot_digest(collect_snapshot(root)):
         errors.append("source_snapshot_mismatch")
