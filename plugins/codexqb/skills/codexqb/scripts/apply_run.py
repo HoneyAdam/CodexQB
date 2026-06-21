@@ -584,6 +584,15 @@ def contract_validation_commands(contract: dict[str, object]) -> list[dict[str, 
     return normalized
 
 
+def validation_command_ids(contract: dict[str, object]) -> list[str]:
+    ids: list[str] = []
+    for command in contract_validation_commands(contract):
+        command_id = command.get("id")
+        if isinstance(command_id, str) and command_id.strip():
+            ids.append(command_id.strip())
+    return ids
+
+
 def normalized_json_object(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
@@ -620,6 +629,7 @@ def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str
                 "security_review_required": security_review_required if isinstance(security_review_required, bool) else False,
                 "writer_lock": None,
                 "validation_commands": contract_validation_commands(implementation_contract),
+                "validation_command_ids": validation_command_ids(implementation_contract),
                 "dispatch": None,
                 "agent_runs": [],
                 "redispatch_count": 0,
@@ -796,6 +806,7 @@ def create_apply_run(
                 f"- finding_ids: {json.dumps(task.get('finding_ids', []), sort_keys=True, separators=(',', ':'))}",
                 f"- dependency_state: {task.get('dependency_state')}",
                 f"- security_review_required: {json.dumps(task.get('security_review_required'))}",
+                f"- validation_command_ids: {','.join(str(item) for item in task.get('validation_command_ids', [])) or 'none'}",
                 f"- validation_commands: {json.dumps(task.get('validation_commands', []), sort_keys=True, separators=(',', ':'))}",
                 f"- implementation_contract: {json.dumps(task.get('implementation_contract', {}), sort_keys=True, separators=(',', ':'))}",
                 f"- fresh_context_contract: {json.dumps(task.get('fresh_context_contract', {}), sort_keys=True, separators=(',', ':'))}",

@@ -332,6 +332,20 @@ def extract_implementation_contract(root: Path, subplan_path: str) -> dict[str, 
     return json.loads(json.dumps(contract, sort_keys=True))
 
 
+def validation_command_ids(implementation_contract: dict[str, object]) -> list[str]:
+    commands = implementation_contract.get("validation_commands")
+    if not isinstance(commands, list):
+        return []
+    ids: list[str] = []
+    for command in commands:
+        if not isinstance(command, dict):
+            continue
+        command_id = command.get("id")
+        if isinstance(command_id, str) and command_id.strip():
+            ids.append(command_id.strip())
+    return ids
+
+
 def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
     path = root / subplan_path
     text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
@@ -355,6 +369,7 @@ def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
         item["structured_validation_command_count"] = len([command for command in structured_commands if isinstance(command, dict)])
     else:
         item["structured_validation_command_count"] = 0
+    item["validation_command_ids"] = validation_command_ids(implementation_contract)
     return item
 
 
@@ -362,7 +377,128 @@ def collect_subplan_scope(root: Path, subplans: list[str]) -> list[dict[str, obj
     return [subplan_scope_item(root, path) for path in subplans]
 
 
-def collect_stage_scope(root: Path, stage: str) -> dict[str, object]:
+def markdown_section(text: str, section_number: int, title: str) -> str:
+    pattern = re.compile(
+        rf"^##\s*{section_number}\.?\s+{re.escape(title)}\s*$",
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    match = pattern.search(text)
+    if not match:
+        return ""
+    next_heading = re.search(r"^##\s+", text[match.end() :], flags=re.MULTILINE)
+    end = match.end() + next_heading.start() if next_heading else len(text)
+    return text[match.end() : end].strip()
+
+
+def parse_int_list(value: str) -> list[int]:
+    return [int(item) for item in re.findall(r"\d+", value)]
+
+
+def active_phases_from_notes(notes: str, detected_phases: list[int]) -> list[int]:
+    detected = set(detected_phases)
+    lowered = notes.lower()
+    range_match = re.search(r"phases?\s+(\d+)\s*(?:-|–|—|to)\s*(\d+)", lowered)
+    if range_match:
+        start, end = int(range_match.group(1)), int(range_match.group(2))
+        low, high = sorted((start, end))
+        return [phase for phase in detected_phases if low <= phase <= high]
+    list_match = re.search(r"phases?\s+([0-9,\s]+)\s+(?:first|active|initial|wave)", lowered)
+    if list_match:
+        listed = parse_int_list(list_match.group(1))
+        return [phase for phase in detected_phases if phase in set(listed)]
+    if len(detected_phases) <= 3:
+        return detected_phases
+    return [phase for phase in detected_phases if phase in set(detected_phases[:3]) and phase in detected]
+
+
+def collect_step2_planning_horizon(root: Path, mode: str, existing_subplan_count: int) -> dict[str, object]:
+    main = root / "Planner-docs" / "Main-Planing.md"
+    if not main.is_file():
+        return {
+            "planning_mode": mode,
+            "detected_phases": [],
+            "active_phases": [],
+            "deferred_phases": [],
+            "parent_acceptance_signals": [],
+            "max_detailed_subplans": 10,
+            "max_output_words": 12000,
+            "goal_token_risk": "medium",
+            "review_checkpoint": "after_active_wave",
+            "confirmation_threshold": ">15_files_or_very_high_token_risk",
+            "user_confirmation_required": False,
+            "framework_ownership_required": False,
+            "algorithmic_invariants_required": False,
+        }
+    text = main.read_text(encoding="utf-8", errors="replace")
+    roadmap = markdown_section(text, 6, "Phase-Based Master Roadmap")
+    next_steps = markdown_section(text, 8, "Prioritized Next Steps")
+    prep_notes = markdown_section(text, 9, "Step 2 Preparation Notes")
+    detected_phases: list[int] = []
+    parent_signals: list[str] = []
+    for line in roadmap.splitlines():
+        if "|" not in line or "---" in line.lower() or "phase" in line.lower() and "acceptance" in line.lower():
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not cells:
+            continue
+        phase_match = re.search(r"\d+", cells[0])
+        if not phase_match:
+            continue
+        phase = int(phase_match.group(0))
+        if phase not in detected_phases:
+            detected_phases.append(phase)
+        for signal in re.findall(r"\bMP-PH\d+-AS-\d+\b", line, flags=re.IGNORECASE):
+            normalized = signal.upper()
+            if normalized not in parent_signals:
+                parent_signals.append(normalized)
+    detected_phases.sort()
+
+    if mode == "full":
+        active_phases = detected_phases
+    else:
+        active_phases = active_phases_from_notes("\n".join([prep_notes, next_steps]), detected_phases)
+    active_set = set(active_phases)
+    deferred_phases = [phase for phase in detected_phases if phase not in active_set]
+    max_detailed_subplans = 10
+    estimated_subplans = existing_subplan_count if existing_subplan_count else min(max_detailed_subplans, max(1, len(active_phases) * 2))
+    estimated_words = max(estimated_subplans * 1200, 1200 if active_phases else 0)
+    if len(detected_phases) > 10 or estimated_subplans > 15 or estimated_words > 18000:
+        risk = "very_high"
+    elif len(detected_phases) > 6 or estimated_words > 10000:
+        risk = "high"
+    else:
+        risk = "medium"
+    combined = "\n".join([roadmap, next_steps, prep_notes]).lower()
+    framework_required = any(keyword in combined for keyword in ["trl", "vllm", "peft", "framework ownership"])
+    invariant_required = any(
+        keyword in combined
+        for keyword in ["grpo", "rollout", "policy fingerprint", "trainer-step", "stateful", "reinforcement learning", " rl "]
+    )
+    return {
+        "planning_mode": mode,
+        "detected_phases": detected_phases,
+        "active_phases": active_phases,
+        "deferred_phases": deferred_phases,
+        "parent_acceptance_signals": parent_signals,
+        "max_detailed_subplans": max_detailed_subplans,
+        "max_output_words": 12000,
+        "goal_token_risk": risk,
+        "review_checkpoint": "after_active_wave",
+        "estimated_subplans": estimated_subplans,
+        "estimated_output_words": estimated_words,
+        "confirmation_threshold": ">15_files_or_very_high_token_risk",
+        "user_confirmation_required": estimated_subplans > 15 or risk == "very_high" or mode == "full",
+        "framework_ownership_required": framework_required,
+        "algorithmic_invariants_required": invariant_required,
+        "source_sections": [
+            "Planner-docs/Main-Planing.md::## 6. Phase-Based Master Roadmap",
+            "Planner-docs/Main-Planing.md::## 8. Prioritized Next Steps",
+            "Planner-docs/Main-Planing.md::## 9. Step 2 Preparation Notes",
+        ],
+    }
+
+
+def collect_stage_scope(root: Path, stage: str, mode: str) -> dict[str, object]:
     docs = root / "Planner-docs"
     subplans = [
         repo_relative(root, path)
@@ -375,6 +511,8 @@ def collect_stage_scope(root: Path, stage: str) -> dict[str, object]:
         scope["subplan_contracts"] = collect_subplan_scope(root, subplans)
         scope["subplan_count"] = len(subplans)
         scope["index_path"] = "Planner-docs/Sub-Planing-Index.md" if (docs / "Sub-Planing-Index.md").is_file() else None
+    if stage == "step2":
+        scope["planning_horizon"] = collect_step2_planning_horizon(root, mode, len(subplans))
     if stage == "step4":
         ready_queue = extract_ready_queue(root)
         enriched_queue: list[dict[str, object]] = []
@@ -388,18 +526,74 @@ def collect_stage_scope(root: Path, stage: str) -> dict[str, object]:
     return scope
 
 
+def join_contract_values(value: object) -> str:
+    if isinstance(value, list):
+        normalized: list[str] = []
+        for item in value:
+            if isinstance(item, dict) and isinstance(item.get("path"), str):
+                normalized.append(item["path"])
+            elif str(item).strip():
+                normalized.append(str(item))
+        return ",".join(normalized) or "none"
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "none"
+
+
+def command_id_summary(commands: object) -> str:
+    if not isinstance(commands, list):
+        return "none"
+    ids = [
+        str(command.get("id")).strip()
+        for command in commands
+        if isinstance(command, dict) and isinstance(command.get("id"), str) and str(command.get("id")).strip()
+    ]
+    return ",".join(ids) if ids else "none"
+
+
+def contract_driven_work_steps(item: dict[str, object]) -> list[str]:
+    path = str(item.get("subplan_path") or item.get("source_subplan_path") or "unknown")
+    contract = item.get("implementation_contract")
+    contract = contract if isinstance(contract, dict) else {}
+    parent_signals = join_contract_values(contract.get("parent_signals"))
+    implementation_paths = join_contract_values(contract.get("implementation_paths"))
+    forbidden_paths = join_contract_values(contract.get("forbidden_paths"))
+    validation_ids = command_id_summary(contract.get("validation_commands"))
+    outputs = join_contract_values(contract.get("outputs"))
+    security_required = contract.get("security_review_required")
+    dependency_state = str(item.get("dependency_state") or "not_recorded")
+    return [
+        f"validate active snapshot for {path}",
+        f"read {path} implementation contract and parent_signals={parent_signals}",
+        f"permit writes only to implementation_paths={implementation_paths}; forbidden_paths={forbidden_paths}",
+        f"dispatch implementer for {path} with validation_command_ids={validation_ids}, dependency_state={dependency_state}, security_review_required={json.dumps(security_required if isinstance(security_required, bool) else False)}",
+        f"run task review and required security review for {path}; fix/re-review before VERIFIED",
+        f"update ledger/result evidence for {path}; outputs={outputs}",
+    ]
+
+
 def stage_work_steps(stage: str, scope: dict[str, object]) -> list[str]:
     base = ["verify snapshot", "load canonical references"]
     if stage == "step2":
+        horizon = scope.get("planning_horizon", {})
+        horizon_step = (
+            "derive active planning horizon from Main-Planing.md"
+            if isinstance(horizon, dict)
+            else "derive active planning horizon"
+        )
         subplans = scope.get("detailed_subplans", [])
-        return base + [f"detail active sub-plan {path}" for path in subplans] + ["run Step 2 validation checkpoints", "write final report"]
+        return base + [horizon_step] + [f"detail active sub-plan {path}" for path in subplans] + ["run Step 2 validation checkpoints", "write final report"]
     if stage == "step3":
         subplans = scope.get("detailed_subplans", [])
         return base + [f"audit sub-plan {path}" for path in subplans] + ["run step3-preflight then step3 validation", "write final report"]
     if stage == "step4":
         queue = scope.get("ready_queue", [])
         if isinstance(queue, list) and queue:
-            return base + [f"execute ready sub-plan {item.get('subplan_path')}" for item in queue if isinstance(item, dict)] + ["update ledger/result artifacts", "write final report"]
+            steps = base[:]
+            for item in queue:
+                if isinstance(item, dict):
+                    steps.extend(contract_driven_work_steps(item))
+            return steps + ["write final report"]
         return base + ["confirm NO_ACTION_REQUIRED or blocked Step 4 readiness", "write final report"]
     return base + ["perform stage-specific work", "run validation checkpoints", "write final report"]
 
@@ -537,7 +731,7 @@ def default_goal_run(
     digest = snapshot_digest(stage, sources)
     selected_mode = mode or ("subagent_serial" if stage == "step4" else "wave")
     selected_objective = objective or f"Run CodexQB {stage} using current repository planning evidence."
-    active_scope = collect_stage_scope(root, stage)
+    active_scope = collect_stage_scope(root, stage, selected_mode)
     subagent_plan = build_subagent_plan(stage, selected_mode, active_scope)
     spec_digest = goal_spec_digest(stage, sources, selected_mode, selected_objective, active_scope)
     bundle = template_bundle(stage)

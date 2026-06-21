@@ -24,7 +24,7 @@ Planner-docs/Goal-Runs/<goal-run-id>/
   Goal-Result.json
 ```
 
-`Goal-Run.json` records source snapshot hashes, deterministic `goal_spec_id`, invocation-specific `goal_run_id`, stage, handoff contract version, artifact schema version, output paths, pinned template hashes, compiler hash, active sub-plan inventories, structured `implementation_contract` objects when present, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked and records `goal_run_sha256` plus `prompt_sha256` when a prompt is rendered.
+`Goal-Run.json` records source snapshot hashes, deterministic `goal_spec_id`, invocation-specific `goal_run_id`, stage, handoff contract version, artifact schema version, output paths, pinned template hashes, compiler hash, Step 2 `planning_horizon` metadata, active sub-plan inventories, structured `implementation_contract` objects when present, `validation_command_ids`, contract-derived Step 4 work steps, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked and records `goal_run_sha256` plus `prompt_sha256` when a prompt is rendered.
 
 `Goal-Prompt.md` must be rendered deterministically from a valid `Goal-Run.json`. Rendering must first validate schema version, secret hygiene, source snapshot integrity, current snapshot match, allowed/forbidden path policy, and glob overlap.
 
@@ -49,8 +49,8 @@ Validation also rejects semantic drift in run controls: unsupported stage modes,
 ## Stage Behavior
 
 - `step15`: prepare Step 1.5 Autopsy context for existing projects.
-- `step2`: prepare adaptive wave/full/refresh/repair planning handoff with active sub-plan inventory, contract-signal summaries, and structured `implementation_contract` objects when present.
+- `step2`: prepare adaptive wave/full/refresh/repair planning handoff with active sub-plan inventory, no-subplans `planning_horizon` derived from `Main-Planing.md`, contract-signal summaries, `validation_command_ids`, and structured `implementation_contract` objects when present.
 - `step3`: prepare Step 3 preflight and audit handoff with active sub-plan inventory, contract-signal summaries, and structured `implementation_contract` objects when present.
-- `step4`: prepare gated apply handoff with READY/READY_WITH_WARNINGS audit queue entries, contract-signal summaries, and structured `implementation_contract` objects only as a prompt preview; actual implementation remains user-triggered.
+- `step4`: prepare gated apply handoff with READY/READY_WITH_WARNINGS audit queue entries, contract-signal summaries, `validation_command_ids`, and structured `implementation_contract` objects. Work steps must be derived from parent signals, implementation paths, validation command IDs, dependency state, security review requirements, and expected outputs; actual implementation remains user-triggered.
 
 If required stage inputs are missing, the compiler writes `Goal-Result.json` with `status: blocked` and blocker IDs. It must not write an execution `Goal-Prompt.md` for blocked prerequisites.

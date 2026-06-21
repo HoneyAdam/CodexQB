@@ -255,8 +255,10 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("untracked_inventory_sha256", workspace_baseline["required"])
         self.assertIn("workspace_file_inventory_sha256", workspace_baseline["required"])
         self.assertIn("implementation_contract", schema_defs["Task"]["required"])
+        self.assertIn("validation_command_ids", schema_defs["Task"]["required"])
         self.assertEqual(schema_defs["Task"]["properties"]["implementation_contract"]["type"], "object")
         self.assertEqual(schema_defs["Task"]["properties"]["validation_commands"]["items"]["$ref"], "#/$defs/PlannedValidationCommand")
+        self.assertEqual(schema_defs["Task"]["properties"]["validation_command_ids"]["items"]["pattern"], "^VAL-[A-Za-z0-9_.:-]+$")
         self.assertEqual(
             schema_defs["ImplementerReport"]["properties"]["validation_evidence"]["items"]["$ref"],
             "#/$defs/ValidationEvidence",
@@ -328,6 +330,7 @@ class SkillContentTests(unittest.TestCase):
             "apply-run-schema.json",
             "security_reviewer_agent_id",
             "implementer_agent_id",
+            "validation_command_ids",
         ]:
             self.assertIn(phrase, readme)
             self.assertIn(phrase, usage)
@@ -385,7 +388,11 @@ class SkillContentTests(unittest.TestCase):
             "behavior smoke passed",
             "live Codex behavior observed",
             "FB-001",
+            "FB-006",
+            "FB-007",
             "FB-012",
+            "collect_step2_planning_horizon",
+            "contract_driven_work_steps",
             "0.3.0 feature-complete candidate",
         ]:
             self.assertIn(phrase, matrix)

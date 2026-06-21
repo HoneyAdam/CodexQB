@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_validate_planner_docs import write_audit, write_valid_step2_fixture
+from tests.test_validate_planner_docs import write_audit, write_main_plan_with_phases, write_valid_step2_fixture
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -260,6 +260,7 @@ class GoalRunTests(unittest.TestCase):
                 ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"],
             )
             self.assertEqual(step2_contract["structured_validation_command_count"], 1)
+            self.assertEqual(step2_contract["validation_command_ids"], ["VAL-01"])
             self.assertEqual(
                 step4["run"]["active_scope"]["ready_queue"][0]["subplan_path"],
                 "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
@@ -271,6 +272,7 @@ class GoalRunTests(unittest.TestCase):
             )
             self.assertGreaterEqual(step4["run"]["active_scope"]["ready_queue"][0]["validation_command_count"], 1)
             self.assertEqual(step4["run"]["active_scope"]["ready_queue"][0]["structured_validation_command_count"], 1)
+            self.assertEqual(step4["run"]["active_scope"]["ready_queue"][0]["validation_command_ids"], ["VAL-01"])
             roles = {role["role"]: role for role in step4["run"]["subagent_plan"]["roles"]}
             self.assertEqual(roles["implementer"]["model_profile"], "balanced")
             self.assertEqual(roles["implementer"]["sandbox"], "workspace-write")
@@ -278,7 +280,46 @@ class GoalRunTests(unittest.TestCase):
             self.assertEqual(roles["security_reviewer"]["model_profile"], "security_strong")
             self.assertFalse(roles["security_reviewer"]["fork_context"])
             self.assertIn("final_reviewer", roles)
-            self.assertTrue(any("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md" in step for step in step4["run"]["work_steps"]))
+            work_steps = "\n".join(step4["run"]["work_steps"])
+            self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", work_steps)
+            self.assertIn("parent_signals=MP-PH1-AS-01", work_steps)
+            self.assertIn("implementation_paths=src/feature_1_1.py,tests/test_feature_1_1.py", work_steps)
+            self.assertIn("validation_command_ids=VAL-01", work_steps)
+            self.assertIn("outputs=reports/faz1-1-readiness.md", work_steps)
+
+    def test_step2_goal_collects_main_plan_horizon_before_subplans_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "Planner-docs"
+            docs.mkdir()
+            write_main_plan_with_phases(docs, list(range(7)))
+            main = docs / "Main-Planing.md"
+            text = main.read_text(encoding="utf-8")
+            text = text.replace(
+                "Detail phases 0-4 first; keep later phases deferred until the first wave is audited.",
+                (
+                    "Detail phases 0-2 first; keep later phases deferred until the first wave is audited. "
+                    "The plan uses TRL, vLLM, PEFT, GRPO rollout groups, and stateful policy fingerprints."
+                ),
+            )
+            main.write_text(text, encoding="utf-8")
+
+            compiled = GOAL_MODULE.compile_goal(root, "step2", mode="wave", run_id_suffix="horizon")
+            scope = compiled["run"]["active_scope"]
+            horizon = scope["planning_horizon"]
+
+            self.assertEqual(scope["detailed_subplans"], [])
+            self.assertEqual(scope["subplan_contracts"], [])
+            self.assertEqual(horizon["planning_mode"], "wave")
+            self.assertEqual(horizon["detected_phases"], [0, 1, 2, 3, 4, 5, 6])
+            self.assertEqual(horizon["active_phases"], [0, 1, 2])
+            self.assertEqual(horizon["deferred_phases"], [3, 4, 5, 6])
+            self.assertEqual(horizon["parent_acceptance_signals"][0], "MP-PH0-AS-01")
+            self.assertEqual(horizon["max_detailed_subplans"], 10)
+            self.assertEqual(horizon["max_output_words"], 12000)
+            self.assertTrue(horizon["framework_ownership_required"])
+            self.assertTrue(horizon["algorithmic_invariants_required"])
+            self.assertIn("confirmation_threshold", horizon)
 
     def test_step3_goal_includes_preflight_and_post_audit_checkpoints(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

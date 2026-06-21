@@ -341,6 +341,7 @@
         "readiness_status",
         "writer_lock",
         "validation_commands",
+        "validation_command_ids",
         "implementation_contract",
         "dispatch",
         "agent_runs"
@@ -364,6 +365,10 @@
         "validation_commands": {
           "type": "array",
           "items": { "$ref": "#/$defs/PlannedValidationCommand" }
+        },
+        "validation_command_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^VAL-[A-Za-z0-9_.:-]+$" }
         },
         "dispatch": {
           "anyOf": [{ "$ref": "#/$defs/DispatchState" }, { "type": "null" }]

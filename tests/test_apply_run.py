@@ -236,12 +236,14 @@ class ApplyRunTests(unittest.TestCase):
                 progress["tasks"][0]["validation_commands"][0]["argv"],
                 ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"],
             )
+            self.assertEqual(progress["tasks"][0]["validation_command_ids"], ["VAL-01"])
             brief = (run_dir / task_id / "Brief.md").read_text(encoding="utf-8")
             self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", brief)
             self.assertIn("fresh_context_contract", brief)
             self.assertIn("implementation_contract", brief)
             self.assertIn('"outputs":["reports/faz1-1-readiness.md"]', brief)
             self.assertIn("security_review_required: true", brief)
+            self.assertIn("validation_command_ids: VAL-01", brief)
             self.assertIn('"id":"VAL-01"', brief)
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
 
