@@ -48,6 +48,7 @@ required_files=(
   "plugins/codexqb/skills/codexqb/references/probe-policy.md"
   "plugins/codexqb/skills/codexqb/references/assessment-and-budget.md"
   "plugins/codexqb/skills/codexqb/references/engineering-principles.md"
+  "evals/run_apply_behavior_smoke.py"
   "evals/run_fixture_corpus_checks.py"
   "evals/run_fixture_checks.py"
   "scripts/export_sanitized.py"
@@ -360,4 +361,6 @@ else
   python3 -m unittest discover -s tests -v
 fi
 
+# evals/run_apply_behavior_smoke.py prints apply_behavior_smoke=passed on success.
+python3 evals/run_apply_behavior_smoke.py
 python3 evals/run_fixture_corpus_checks.py

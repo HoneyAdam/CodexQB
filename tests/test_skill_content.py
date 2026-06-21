@@ -262,6 +262,8 @@ class SkillContentTests(unittest.TestCase):
             "apply-orchestrator.md",
             "sanitized_zip_hygiene=passed",
             "sanitized_zip_hygiene_failed",
+            "evals/run_apply_behavior_smoke.py",
+            "apply_behavior_smoke=passed",
         ]:
             self.assertIn(phrase, validate_script)
 
@@ -438,10 +440,15 @@ class SkillContentTests(unittest.TestCase):
     def test_fixture_corpus_infrastructure_is_present(self) -> None:
         runner = REPO_ROOT / "evals/run_fixture_corpus_checks.py"
         wrapper = REPO_ROOT / "evals/run_fixture_checks.py"
+        apply_smoke = REPO_ROOT / "evals/run_apply_behavior_smoke.py"
         self.assertTrue(runner.is_file())
         self.assertTrue(wrapper.is_file())
+        self.assertTrue(apply_smoke.is_file())
         runner_text = runner.read_text(encoding="utf-8")
+        smoke_text = apply_smoke.read_text(encoding="utf-8")
         self.assertIn("fixture_corpus_checks=passed", runner_text)
+        self.assertIn("apply_behavior_smoke=passed", smoke_text)
+        self.assertIn("apply_run_finalized", smoke_text)
         self.assertNotIn("fixture_eval_checks=passed", runner_text)
         fixture_root = REPO_ROOT / "evals/fixtures"
         for fixture in [

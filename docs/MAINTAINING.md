@@ -175,7 +175,7 @@ make export-sanitized
 
 This writes `CodexQB-sanitized.zip` with `scripts/export_sanitized.py`. The script default includes only tracked files. The Makefile target passes `--include-untracked` explicitly so release/package smoke tests can include new pre-commit files after safety checks. Export candidates are rejected when they are symlinks, resolve outside the repository, match blocked local/runtime paths such as `.git/`, `.codexqb/`, caches, local env files, runtime folders, local zips, or blocked key/certificate suffixes, or contain a length-bounded secret pattern.
 
-The default `make check` gate validates tracked archive contents in Git checkouts and fails if forbidden tracked paths such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, `tmp/`, `__MACOSX/`, `.pyc`, `.pem`, `.key`, or `.local` files would be included. In extracted packages, `make check` performs equivalent package-content hygiene where possible and labels the result as package validation.
+The default `make check` gate validates tracked archive contents in Git checkouts and fails if forbidden tracked paths such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, `tmp/`, `__MACOSX/`, `.pyc`, `.pem`, `.key`, or `.local` files would be included. In extracted packages, `make check` performs equivalent package-content hygiene where possible and labels the result as package validation. It also runs the apply-run behavior smoke so the public `prepare`/`transition`/`validate`/`finalize` CLI lifecycle is exercised through subprocesses before release.
 
 ## Release Flow
 
