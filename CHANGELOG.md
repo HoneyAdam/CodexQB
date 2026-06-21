@@ -14,11 +14,11 @@
 - Added project-specific Goal scope collectors for active sub-plans and Step 4 READY queues.
 - Hardened Apply artifacts with audit-derived task queues, no silent progress overwrite, no-action queue consistency, task ID traversal rejection, shared validation-command policy, immutable plan snapshot separation from `Planing-Ledger.md`, workspace baseline hashes, and evidence-bearing VERIFIED/final-review gates.
 - Added Apply transition control with `prepare`/`transition` CLI support, append-only `Events.jsonl`, atomic JSON writes, create-exclusive `Writer-Lock.json`, state-transition validation, and agent profile drift checks.
-- Added `dispatch` CLI support for `subagent_serial` runs so fresh-context `Dispatch-Packet.json` artifacts bind task briefs to parent Codex `multi_agent_v1.spawn_agent` requests before implementation starts.
+- Added `dispatch` and `record-agent` CLI support for `subagent_serial` runs so fresh-context `Dispatch-Packet.json` artifacts and spawned/completed/failed agent-run records bind task briefs to parent Codex `multi_agent_v1.spawn_agent` execution before implementation states advance.
 - Added expired writer-lock validation and `recover-lock` CLI support for abandoned `IMPLEMENTING` tasks.
 - Split deterministic Goal/Apply spec IDs from unique invocation run IDs, made resume require an explicit output directory, recorded Step 4 readiness summaries in apply runs, and added external Superpowers readiness/reconcile validation.
 - Pinned Goal template/compiler hashes into `Goal-Run.json`, added `goal_run_sha256` result evidence, switched generated Apply task IDs to `AR-<apply-run-id>-T<nnn>`, added apply-run `finalize`, and added sanitized zip content/path hygiene to `make check`.
-- Added an apply-run behavior smoke to `make check` that drives `prepare`, `dispatch`, `transition`, `validate`, `recover-lock`, and `finalize` through subprocesses in a disposable repository.
+- Added an apply-run behavior smoke to `make check` that drives `prepare`, `dispatch`, `record-agent`, `transition`, `validate`, `recover-lock`, and `finalize` through subprocesses in a disposable repository.
 - Added fresh-context Apply role templates for controller, implementer, task reviewer, security reviewer, fixer, and final reviewer.
 - Expanded the fixture corpus from 8 to 20 fixtures with Goal, Apply, resume, security, no-action, and sanitized-export edge-case coverage.
 - Added 0.2.2 adaptive Step 2 release notes covering wave/full planning, artifact schema v3, handoff contract v2, structured implementation contracts, and stricter semantic validator gates.

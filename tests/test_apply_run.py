@@ -77,7 +77,27 @@ class ApplyRunTests(unittest.TestCase):
                 "controller",
                 ["prepared fresh implementer dispatch packet"],
             )
+            APPLY_MODULE.record_agent_status(
+                run_dir,
+                task_id,
+                "implementer",
+                "impl-1",
+                "spawned",
+                "controller",
+                ["implementer subagent spawned"],
+            )
         APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started implementation"])
+        if run.get("mode") == "subagent_serial":
+            APPLY_MODULE.record_agent_status(
+                run_dir,
+                task_id,
+                "implementer",
+                "impl-1",
+                "completed",
+                "controller",
+                ["implementer subagent completed"],
+                "implementation report ready",
+            )
         APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["implementation report ready"])
         APPLY_MODULE.transition_task_state(run_dir, task_id, "TASK_REVIEW", "review-1", ["review package ready"])
         if security == "pass":
@@ -203,7 +223,79 @@ class ApplyRunTests(unittest.TestCase):
             self.assertFalse(packet["spawn_request"]["fork_context"])
             self.assertIn("Use only this fresh task context", packet["spawn_request"]["message"])
             self.assertIsNone(packet["model_override"])
+            with self.assertRaisesRegex(ValueError, "subagent_dispatch_spawn_required"):
+                APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
+            APPLY_MODULE.record_agent_status(
+                run_dir,
+                task_id,
+                "implementer",
+                "agent-impl-1",
+                "spawned",
+                "controller",
+                ["spawned implementer"],
+            )
             APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
+            with self.assertRaisesRegex(ValueError, "subagent_dispatch_completion_required"):
+                APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["done"])
+            APPLY_MODULE.record_agent_status(
+                run_dir,
+                task_id,
+                "implementer",
+                "agent-impl-1",
+                "completed",
+                "controller",
+                ["implementer completed"],
+                "implementation finished",
+            )
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["done"])
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
+
+    def test_failed_subagent_dispatch_can_be_redispatched_before_implementation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "subagent_serial")
+            run_dir = Path(result["run_dir"])
+            task_id = self.first_task_id(run_dir)
+
+            APPLY_MODULE.prepare_dispatch_packet(run_dir, task_id, "implementer", "controller", ["first packet"])
+            APPLY_MODULE.record_agent_status(
+                run_dir,
+                task_id,
+                "implementer",
+                "agent-impl-1",
+                "spawned",
+                "controller",
+                ["first spawn"],
+            )
+            APPLY_MODULE.record_agent_status(
+                run_dir,
+                task_id,
+                "implementer",
+                "agent-impl-1",
+                "failed",
+                "controller",
+                ["agent failed before code changes"],
+                "spawn failed before implementation",
+            )
+            second = APPLY_MODULE.prepare_dispatch_packet(run_dir, task_id, "implementer", "controller", ["second packet"])
+            packet = json.loads(Path(second["packet_path"]).read_text(encoding="utf-8"))
+            APPLY_MODULE.record_agent_status(
+                run_dir,
+                task_id,
+                "implementer",
+                "agent-impl-2",
+                "spawned",
+                "controller",
+                ["second spawn"],
+            )
+
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+
+            self.assertEqual(packet["attempt"], 2)
+            self.assertEqual([run["status"] for run in task["agent_runs"]], ["failed", "spawned"])
+            self.assertEqual(task["dispatch"]["agent_id"], "agent-impl-2")
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
 
     def test_no_action_mode_has_no_queue(self) -> None:

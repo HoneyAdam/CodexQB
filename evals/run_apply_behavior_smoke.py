@@ -3,9 +3,9 @@
 
 This is a behavioral smoke for the artifact controller, not a product-code
 executor and not a direct Codex tool caller. It uses a disposable repository,
-drives the public prepare/dispatch/transition/validate/finalize commands, writes
-the minimum evidence reports a real implementation run must produce, and
-verifies that the final artifact state is complete.
+drives the public prepare/dispatch/record-agent/transition/validate/finalize
+commands, writes the minimum evidence reports a real implementation run must
+produce, and verifies that the final artifact state is complete.
 """
 
 from __future__ import annotations
@@ -260,6 +260,43 @@ def main() -> int:
             fail("dispatch_packet_missing_spawn_tool")
         if packet.get("spawn_request", {}).get("fork_context") is not False:
             fail("dispatch_packet_not_fresh_context")
+        run_apply_expect_failure(
+            [
+                "transition",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--to",
+                "IMPLEMENTING",
+                "--actor",
+                "dispatch-impl",
+                "--evidence",
+                "spawn record missing should block",
+            ],
+            cwd=root,
+            expected=f"subagent_dispatch_spawn_required={dispatch_task_id}",
+        )
+        run_apply(
+            [
+                "record-agent",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--role",
+                "implementer",
+                "--agent-id",
+                "dispatch-agent-1",
+                "--status",
+                "spawned",
+                "--actor",
+                "smoke-controller",
+                "--evidence",
+                "behavior smoke recorded spawned agent",
+            ],
+            cwd=root,
+        )
         run_apply(
             [
                 "transition",
@@ -273,6 +310,61 @@ def main() -> int:
                 "dispatch-impl",
                 "--evidence",
                 "dispatch packet accepted",
+            ],
+            cwd=root,
+        )
+        run_apply_expect_failure(
+            [
+                "transition",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--to",
+                "IMPLEMENTED",
+                "--actor",
+                "dispatch-impl",
+                "--evidence",
+                "completion record missing should block",
+            ],
+            cwd=root,
+            expected=f"subagent_dispatch_completion_required={dispatch_task_id}",
+        )
+        run_apply(
+            [
+                "record-agent",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--role",
+                "implementer",
+                "--agent-id",
+                "dispatch-agent-1",
+                "--status",
+                "completed",
+                "--actor",
+                "smoke-controller",
+                "--summary",
+                "behavior smoke implementation agent completed",
+                "--evidence",
+                "behavior smoke recorded completed agent",
+            ],
+            cwd=root,
+        )
+        run_apply(
+            [
+                "transition",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--to",
+                "IMPLEMENTED",
+                "--actor",
+                "dispatch-impl",
+                "--evidence",
+                "completion packet accepted",
             ],
             cwd=root,
         )

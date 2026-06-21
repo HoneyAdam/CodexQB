@@ -55,6 +55,7 @@ SECURITY_VERDICTS = {"pass", "fail", "not_required"}
 COMMIT_POLICIES = {"none", "local_per_slice", "user_managed"}
 READY_STATUSES = {"READY", "READY_WITH_WARNINGS"}
 DISPATCH_ROLES = {"implementer", "task_reviewer", "security_reviewer", "fixer"}
+DISPATCH_AGENT_STATUSES = {"spawned", "completed", "failed"}
 DISPATCH_ROLE_STATE_REQUIREMENTS = {
     "implementer": {"BRIEFED"},
     "task_reviewer": {"IMPLEMENTED", "TASK_REVIEW"},
@@ -330,6 +331,8 @@ def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str
                 "security_review_required": False,
                 "writer_lock": None,
                 "validation_commands": [],
+                "dispatch": None,
+                "agent_runs": [],
                 "redispatch_count": 0,
             }
         )
@@ -647,9 +650,14 @@ def transition_task_state(run_dir: Path, task_id: str, to_state: str, actor: str
     if to_state not in STATE_TRANSITIONS.get(from_state, set()):
         raise ValueError(f"invalid_transition={from_state}->{to_state}")
     if run.get("mode") == "subagent_serial" and to_state == "IMPLEMENTING":
-        task_dir = task_dir_for(run_dir, task_id)
-        if not (task_dir / "Dispatch-Packet.json").is_file():
+        dispatch = task.get("dispatch")
+        if not isinstance(dispatch, dict):
             raise ValueError(f"subagent_dispatch_packet_missing={task_id}")
+        if dispatch.get("role") != "implementer" or dispatch.get("status") not in {"spawned", "completed"}:
+            raise ValueError(f"subagent_dispatch_spawn_required={task_id}")
+    if run.get("mode") == "subagent_serial" and from_state == "IMPLEMENTING" and to_state == "IMPLEMENTED":
+        if not agent_run_completed(task, "implementer"):
+            raise ValueError(f"subagent_dispatch_completion_required={task_id}")
 
     lock_event: dict[str, object] | None = None
     if to_state == "IMPLEMENTING":
@@ -683,6 +691,48 @@ def task_dir_for(run_dir: Path, task_id: str) -> Path:
     if not is_inside(run_dir, task_dir):
         raise ValueError(f"invalid_task_id={task_id or 'missing'}")
     return task_dir
+
+
+def safe_agent_id(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_.:-]{3,160}", value))
+
+
+def agent_runs(task: dict[str, object]) -> list[dict[str, object]]:
+    runs = task.get("agent_runs", [])
+    return runs if isinstance(runs, list) else []
+
+
+def next_agent_attempt(task: dict[str, object], role: str) -> int:
+    attempts = [
+        run.get("attempt")
+        for run in agent_runs(task)
+        if isinstance(run, dict) and run.get("role") == role and isinstance(run.get("attempt"), int)
+    ]
+    return max(attempts, default=0) + 1
+
+
+def agent_run_completed(task: dict[str, object], role: str) -> bool:
+    return any(
+        isinstance(run, dict) and run.get("role") == role and run.get("status") == "completed"
+        for run in agent_runs(task)
+    )
+
+
+def upsert_agent_run(task: dict[str, object], record: dict[str, object]) -> None:
+    runs = agent_runs(task)
+    replaced = False
+    for index, run in enumerate(runs):
+        if (
+            isinstance(run, dict)
+            and run.get("role") == record.get("role")
+            and run.get("attempt") == record.get("attempt")
+        ):
+            runs[index] = record
+            replaced = True
+            break
+    if not replaced:
+        runs.append(record)
+    task["agent_runs"] = runs
 
 
 def dispatch_prompt(run: dict[str, object], task: dict[str, object], role: str, brief_text: str) -> str:
@@ -748,6 +798,9 @@ def prepare_dispatch_packet(
     state = str(task.get("state", ""))
     if state not in DISPATCH_ROLE_STATE_REQUIREMENTS[role]:
         raise ValueError(f"dispatch_requires_state={role}:{state or 'missing'}")
+    existing = task.get("dispatch")
+    if isinstance(existing, dict) and existing.get("status") in {"packet_ready", "spawned"}:
+        raise ValueError(f"dispatch_already_active={task_id}")
     task_dir = task_dir_for(run_dir, task_id)
     brief_path = task_dir / "Brief.md"
     if not brief_path.is_file():
@@ -759,10 +812,12 @@ def prepare_dispatch_packet(
 
     prompt = dispatch_prompt(run, task, role, brief_text)
     prompt_sha = sha256_bytes(prompt.encode("utf-8"))
+    attempt = next_agent_attempt(task, role)
     packet = {
         "dispatch_packet_schema_version": 1,
         "task_id": task_id,
         "role": role,
+        "attempt": attempt,
         "dispatch_status": "packet_ready",
         "spawn_tool": "multi_agent_v1.spawn_agent",
         "spawn_request": {
@@ -801,6 +856,7 @@ def prepare_dispatch_packet(
             "brief_sha256": brief_sha,
             "prompt_sha256": prompt_sha,
             "packet_sha256": packet_sha,
+            "attempt": attempt,
         },
     )
     task["dispatch"] = {
@@ -809,6 +865,7 @@ def prepare_dispatch_packet(
         "spawn_tool": "multi_agent_v1.spawn_agent",
         "prompt_sha256": prompt_sha,
         "packet_sha256": packet_sha,
+        "attempt": attempt,
         "event_sequence": event["sequence"],
     }
     progress["resume_cursor"] = {"task_id": task_id, "state": state, "event_sequence": event["sequence"]}
@@ -822,6 +879,110 @@ def prepare_dispatch_packet(
     ]
     atomic_write_json(run_dir / "Progress.json", progress)
     return {"event": event, "packet_path": packet_path.as_posix(), "packet_sha256": packet_sha}
+
+
+def record_agent_status(
+    run_dir: Path,
+    task_id: str,
+    role: str,
+    agent_id: str,
+    status: str,
+    actor: str,
+    evidence: list[str] | None = None,
+    summary: str | None = None,
+) -> dict[str, object]:
+    run_dir = run_dir.resolve()
+    if role not in DISPATCH_ROLES:
+        raise ValueError(f"invalid_dispatch_role={role}")
+    if status not in DISPATCH_AGENT_STATUSES:
+        raise ValueError(f"invalid_agent_status={status}")
+    if not safe_agent_id(agent_id):
+        raise ValueError(f"invalid_agent_id={agent_id or 'missing'}")
+    if not actor.strip():
+        raise ValueError("record_agent_actor_required")
+    run = load_json_strict(run_dir / "Apply-Run.json")
+    if run.get("mode") != "subagent_serial":
+        raise ValueError(f"record_agent_requires_subagent_serial_mode={run.get('mode')}")
+    progress = load_json_strict(run_dir / "Progress.json")
+    task = find_task(progress, task_id)
+    dispatch = task.get("dispatch")
+    if not isinstance(dispatch, dict):
+        raise ValueError(f"subagent_dispatch_packet_missing={task_id}")
+    if dispatch.get("role") != role:
+        raise ValueError(f"dispatch_role_mismatch={task_id}:{role}")
+    if status == "spawned":
+        if dispatch.get("status") != "packet_ready":
+            raise ValueError(f"dispatch_spawn_requires_packet_ready={task_id}")
+    else:
+        if dispatch.get("status") != "spawned":
+            raise ValueError(f"dispatch_result_requires_spawned={task_id}")
+        if dispatch.get("agent_id") != agent_id:
+            raise ValueError(f"dispatch_agent_id_mismatch={task_id}")
+
+    attempt = dispatch.get("attempt")
+    if not isinstance(attempt, int) or attempt < 1:
+        raise ValueError(f"dispatch_attempt_invalid={task_id}")
+    now = utc_now()
+    previous_runs = [
+        item
+        for item in agent_runs(task)
+        if isinstance(item, dict) and item.get("role") == role and item.get("attempt") == attempt
+    ]
+    record = {
+        "task_id": task_id,
+        "role": role,
+        "attempt": attempt,
+        "agent_id": agent_id,
+        "status": status,
+        "packet_sha256": dispatch.get("packet_sha256"),
+        "prompt_sha256": dispatch.get("prompt_sha256"),
+        "spawn_tool": dispatch.get("spawn_tool"),
+        "summary": summary or "",
+    }
+    if status == "spawned":
+        record["spawned_at"] = now
+    else:
+        if previous_runs and previous_runs[0].get("spawned_at"):
+            record["spawned_at"] = previous_runs[0]["spawned_at"]
+        record[f"{status}_at"] = now
+    upsert_agent_run(task, record)
+    atomic_write_json(task_dir_for(run_dir, task_id) / f"Agent-Run-{role}-{attempt:02d}.json", record)
+
+    dispatch["status"] = status
+    dispatch["agent_id"] = agent_id
+    dispatch["updated_at"] = now
+    if summary:
+        dispatch["summary"] = summary
+    if status == "failed":
+        dispatch["failure_recoverable"] = True
+    task["dispatch"] = dispatch
+
+    event = append_event(
+        run_dir,
+        {
+            "event_type": "subagent_dispatch_status_recorded",
+            "task_id": task_id,
+            "role": role,
+            "attempt": attempt,
+            "agent_id": agent_id,
+            "status": status,
+            "actor": actor,
+            "evidence": evidence or [],
+            "summary": summary or "",
+        },
+    )
+    progress["resume_cursor"] = {"task_id": task_id, "state": task.get("state"), "event_sequence": event["sequence"]}
+    progress["events"] = [
+        {
+            "sequence": event["sequence"],
+            "event_type": "subagent_dispatch_status_recorded",
+            "task_id": task_id,
+            "role": role,
+            "status": status,
+        }
+    ]
+    atomic_write_json(run_dir / "Progress.json", progress)
+    return event
 
 
 def recover_stale_writer_lock(
@@ -959,6 +1120,8 @@ def validate_dispatch_packet(run_dir: Path, run: dict[str, object], task: dict[s
             errors.append(f"subagent_dispatch_packet_missing={task_id}")
             return
     if not packet_path.is_file():
+        if isinstance(task.get("dispatch"), dict):
+            errors.append(f"subagent_dispatch_packet_missing={task_id}")
         return
     packet = load_json(packet_path, errors, f"{task_id}_dispatch_packet")
     if not isinstance(packet, dict):
@@ -995,6 +1158,63 @@ def validate_dispatch_packet(run_dir: Path, run: dict[str, object], task: dict[s
         errors.append(f"dispatch_model_profile_mismatch={task_id}")
     if packet.get("sandbox") != AGENT_PROFILES[role]["sandbox"]:
         errors.append(f"dispatch_sandbox_mismatch={task_id}")
+    if packet.get("attempt") is not None and not isinstance(packet.get("attempt"), int):
+        errors.append(f"dispatch_attempt_invalid={task_id}")
+    dispatch = task.get("dispatch")
+    if isinstance(dispatch, dict):
+        status = dispatch.get("status")
+        if status not in {"packet_ready", *DISPATCH_AGENT_STATUSES}:
+            errors.append(f"invalid_dispatch_status={task_id}:{status}")
+        if dispatch.get("role") not in DISPATCH_ROLES:
+            errors.append(f"invalid_dispatch_role={task_id}:{dispatch.get('role')}")
+        if dispatch.get("packet_sha256") != sha256_bytes(packet_path.read_bytes()):
+            errors.append(f"dispatch_packet_hash_mismatch={task_id}")
+    elif run.get("mode") == "subagent_serial" and state not in {"BRIEFED", "BLOCKED", "NEEDS_CONTEXT"}:
+        errors.append(f"subagent_dispatch_status_missing={task_id}")
+    runs = task.get("agent_runs", [])
+    if runs is not None and not isinstance(runs, list):
+        errors.append(f"agent_runs_must_be_list={task_id}")
+        runs = []
+    for item in runs:
+        if not isinstance(item, dict):
+            errors.append(f"agent_run_must_be_object={task_id}")
+            continue
+        run_role = str(item.get("role", ""))
+        run_status = str(item.get("status", ""))
+        agent_id = str(item.get("agent_id", ""))
+        if run_role not in DISPATCH_ROLES:
+            errors.append(f"invalid_agent_run_role={task_id}:{run_role or 'missing'}")
+        if run_status not in DISPATCH_AGENT_STATUSES:
+            errors.append(f"invalid_agent_run_status={task_id}:{run_status or 'missing'}")
+        if not isinstance(item.get("attempt"), int) or item.get("attempt", 0) < 1:
+            errors.append(f"invalid_agent_run_attempt={task_id}")
+        if not safe_agent_id(agent_id):
+            errors.append(f"invalid_agent_run_agent_id={task_id}:{agent_id or 'missing'}")
+        if not item.get("packet_sha256"):
+            errors.append(f"agent_run_packet_hash_missing={task_id}")
+        if run_status == "spawned" and not item.get("spawned_at"):
+            errors.append(f"agent_run_spawned_at_missing={task_id}")
+        if run_status in {"completed", "failed"} and not item.get(f"{run_status}_at"):
+            errors.append(f"agent_run_result_timestamp_missing={task_id}")
+    if isinstance(dispatch, dict) and dispatch.get("status") in DISPATCH_AGENT_STATUSES:
+        matching = [
+            item
+            for item in runs
+            if isinstance(item, dict)
+            and item.get("role") == dispatch.get("role")
+            and item.get("attempt") == dispatch.get("attempt")
+            and item.get("agent_id") == dispatch.get("agent_id")
+            and item.get("status") == dispatch.get("status")
+            and item.get("packet_sha256") == dispatch.get("packet_sha256")
+        ]
+        if not matching:
+            errors.append(f"dispatch_agent_run_missing={task_id}")
+    if run.get("mode") == "subagent_serial" and state == "IMPLEMENTING":
+        if not isinstance(dispatch, dict) or dispatch.get("role") != "implementer" or dispatch.get("status") not in {"spawned", "completed"}:
+            errors.append(f"subagent_dispatch_spawn_required={task_id}")
+    if run.get("mode") == "subagent_serial" and state in {"IMPLEMENTED", "TASK_REVIEW", "SECURITY_REVIEW", "FIXING", "RE_REVIEW", "VERIFIED"}:
+        if not agent_run_completed(task, "implementer"):
+            errors.append(f"subagent_dispatch_completion_required={task_id}")
 
 
 def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list[str]) -> None:
@@ -1344,6 +1564,15 @@ def main(argv: list[str] | None = None) -> int:
     dispatch.add_argument("--role", default="implementer", choices=sorted(DISPATCH_ROLES))
     dispatch.add_argument("--actor", required=True)
     dispatch.add_argument("--evidence", action="append", default=[])
+    record_agent = sub.add_parser("record-agent", help="Record a spawned/completed/failed Codex subagent result.")
+    record_agent.add_argument("--run-dir", required=True)
+    record_agent.add_argument("--task-id", required=True)
+    record_agent.add_argument("--role", default="implementer", choices=sorted(DISPATCH_ROLES))
+    record_agent.add_argument("--agent-id", required=True)
+    record_agent.add_argument("--status", required=True, choices=sorted(DISPATCH_AGENT_STATUSES))
+    record_agent.add_argument("--actor", required=True)
+    record_agent.add_argument("--summary")
+    record_agent.add_argument("--evidence", action="append", default=[])
     reconcile = sub.add_parser("reconcile", help="Reconcile external adapter readiness before dispatch.")
     reconcile.add_argument("--run-dir", required=True)
     recover = sub.add_parser("recover-lock", help="Recover an expired writer lock to BLOCKED or NEEDS_CONTEXT.")
@@ -1388,6 +1617,24 @@ def main(argv: list[str] | None = None) -> int:
             print(f"role={args.role}")
             print(f"packet_path={result['packet_path']}")
             print(f"packet_sha256={result['packet_sha256']}")
+            return 0
+        if args.command == "record-agent":
+            event = record_agent_status(
+                Path(args.run_dir),
+                args.task_id,
+                args.role,
+                args.agent_id,
+                args.status,
+                args.actor,
+                args.evidence,
+                args.summary,
+            )
+            print("apply_run_status=agent_recorded")
+            print(f"event_sequence={event['sequence']}")
+            print(f"task_id={args.task_id}")
+            print(f"role={args.role}")
+            print(f"agent_id={args.agent_id}")
+            print(f"agent_status={args.status}")
             return 0
         if args.command == "reconcile":
             result = reconcile_external_superpowers(Path(args.run_dir))
