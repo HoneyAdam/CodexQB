@@ -1499,6 +1499,12 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
         errors.append(f"re_review_requires_fix_report={task_id}")
     if task.get("security_review_required") is True and security != "pass":
         errors.append(f"required_security_review_must_pass={task_id}")
+    if task.get("security_review_required") is True or security in {"fail", "pass"}:
+        security_reviewer = review.get("security_reviewer_agent_id")
+        if not security_reviewer:
+            errors.append(f"security_review_requires_security_reviewer_agent_id={task_id}")
+        elif security_reviewer == implementer.get("implementer_agent_id"):
+            errors.append(f"security_reviewer_must_be_independent={task_id}")
     if state == "VERIFIED":
         if impl_status != "DONE":
             errors.append(f"verified_requires_done_implementer={task_id}")

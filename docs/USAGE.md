@@ -178,7 +178,7 @@ The implementation handoff tells Codex to use relevant skills/plugins or subagen
 
 Step 4 should not stop after the first successful slice. It should continue to the next acceptance criterion or next eligible sub-plan until the queue is complete or a stop gate is hit, such as a P0/P1 finding, failing test, missing source file, required credential/live approval, unsafe external mutation, unrelated dirty worktree, or token/context budget pressure.
 
-Step 4 apply modes are `direct`, `subagent_serial`, `external_superpowers`, and `no_action`. `external_superpowers` requires an explicit availability check before dispatch; if the adapter is unavailable, reconcile the run to `subagent_serial` before implementation. Non-trivial slices should use a fresh-slice implementer when useful, followed by independent spec review, quality/security review, fix/re-review when needed, and final review for the selected batch or queue. Commit, push, PR, deploy, and external mutation remain opt-in.
+Step 4 apply modes are `direct`, `subagent_serial`, `external_superpowers`, and `no_action`. `external_superpowers` requires an explicit availability check before dispatch; if the adapter is unavailable, reconcile the run to `subagent_serial` before implementation. Non-trivial slices should use a fresh-slice implementer when useful, followed by independent spec review, quality/security review, fix/re-review when needed, and final review for the selected batch or queue. Any required or performed security review must record `security_reviewer_agent_id` in `Task-Review.json`, and that identity must differ from `implementer_agent_id`. Commit, push, PR, deploy, and external mutation remain opt-in.
 
 ## Goal Preview and Apply Artifacts
 

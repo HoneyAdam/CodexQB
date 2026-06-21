@@ -294,8 +294,11 @@ class SkillContentTests(unittest.TestCase):
             "allow-unverified-git-worktree",
             "dirty_state",
             "working_branch",
+            "security_reviewer_agent_id",
+            "that identity must differ from `implementer_agent_id`",
         ]:
             self.assertIn(phrase, apply_ref)
+        self.assertIn("security_reviewer_agent_id", schema_defs["TaskReview"]["properties"])
         for phrase in [
             "prepare --root",
             "dispatch --run-dir",
@@ -309,6 +312,8 @@ class SkillContentTests(unittest.TestCase):
             "missing spawned/completed agent lifecycle records",
             "agent profile drift",
             "apply-run-schema.json",
+            "security_reviewer_agent_id",
+            "implementer_agent_id",
         ]:
             self.assertIn(phrase, readme)
             self.assertIn(phrase, usage)

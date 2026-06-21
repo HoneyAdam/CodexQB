@@ -144,20 +144,18 @@ class ApplyRunTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        (run_dir / task_id / "Task-Review.json").write_text(
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "brief_sha256": brief_hash,
-                    "reviewer_agent_id": "review-1",
-                    "spec_compliance": "pass",
-                    "task_quality": "approved",
-                    "security_review": security,
-                    "evidence": ["reviewed diff and validation evidence"],
-                }
-            ),
-            encoding="utf-8",
-        )
+        task_review = {
+            "task_id": task_id,
+            "brief_sha256": brief_hash,
+            "reviewer_agent_id": "review-1",
+            "spec_compliance": "pass",
+            "task_quality": "approved",
+            "security_review": security,
+            "evidence": ["reviewed diff and validation evidence"],
+        }
+        if security == "pass":
+            task_review["security_reviewer_agent_id"] = "security-review-1"
+        (run_dir / task_id / "Task-Review.json").write_text(json.dumps(task_review), encoding="utf-8")
         (run_dir / "Final-Review.json").write_text(
             json.dumps(
                 {
@@ -583,7 +581,10 @@ class ApplyRunTests(unittest.TestCase):
             progress["tasks"][0]["security_review_required"] = True
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
             task_id = progress["tasks"][0]["task_id"]
-            (run_dir / task_id / "Implementer-Report.json").write_text(json.dumps({"status": "DONE"}), encoding="utf-8")
+            (run_dir / task_id / "Implementer-Report.json").write_text(
+                json.dumps({"status": "DONE", "implementer_agent_id": "impl-1"}),
+                encoding="utf-8",
+            )
             (run_dir / task_id / "Task-Review.json").write_text(
                 json.dumps({"spec_compliance": "pass", "task_quality": "approved", "security_review": "not_required"}),
                 encoding="utf-8",
@@ -592,7 +593,20 @@ class ApplyRunTests(unittest.TestCase):
             errors = APPLY_MODULE.validate_apply_run(run_dir)
 
             self.assertIn(f"required_security_review_must_pass={task_id}", errors)
+            self.assertIn(f"security_review_requires_security_reviewer_agent_id={task_id}", errors)
             self.assertIn("final_review_required", errors)
+
+            review_path = run_dir / task_id / "Task-Review.json"
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["security_review"] = "pass"
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+            errors = APPLY_MODULE.validate_apply_run(run_dir)
+            self.assertIn(f"security_review_requires_security_reviewer_agent_id={task_id}", errors)
+
+            review["security_reviewer_agent_id"] = "impl-1"
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+            errors = APPLY_MODULE.validate_apply_run(run_dir)
+            self.assertIn(f"security_reviewer_must_be_independent={task_id}", errors)
 
             self.mark_task_verified(run_dir, security="pass")
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])

@@ -541,6 +541,7 @@
         "task_id": { "$ref": "#/$defs/TaskId" },
         "brief_sha256": { "$ref": "#/$defs/Sha256" },
         "reviewer_agent_id": { "$ref": "#/$defs/AgentId" },
+        "security_reviewer_agent_id": { "$ref": "#/$defs/AgentId" },
         "spec_compliance": { "enum": ["cannot_verify", "fail", "pass", "PENDING"] },
         "task_quality": { "enum": ["approved", "needs_fixes", "PENDING"] },
         "security_review": { "enum": ["fail", "not_required", "pass", "PENDING"] },

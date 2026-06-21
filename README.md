@@ -186,7 +186,7 @@ Repository maintainers can run the dependency-free repo check with:
 make check
 ```
 
-`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, the apply-run CLI behavior smoke, the fixture corpus, and the unit test suite without requiring PyYAML or local Codex validator dependencies.
+`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, the apply-run CLI behavior smoke, the fixture corpus, and the unit test suite without requiring PyYAML or local Codex validator dependencies. Apply-run validation also requires any required or performed security review to record a `security_reviewer_agent_id` in `Task-Review.json`; that identity must differ from `implementer_agent_id`.
 
 For a faster local unit-test loop, run:
 

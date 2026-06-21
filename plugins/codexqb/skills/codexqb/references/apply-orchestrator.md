@@ -105,6 +105,7 @@ Fresh-context role templates live under `references/apply/`:
   "task_quality": "approved",
   "security_review": "pass",
   "reviewer_agent_id": "reviewer-1",
+  "security_reviewer_agent_id": "security-reviewer-1",
   "brief_sha256": "<sha256>",
   "blocking_findings": [],
   "fixes_required": [],
@@ -119,6 +120,7 @@ Fresh-context role templates live under `references/apply/`:
 - Commit, push, PR, deploy, live probes, and destructive external mutation are opt-in only.
 - Only one writer modifies files per slice unless the user explicitly requests separate branches or worktrees.
 - Subagents are read-only by default except the selected fresh-slice implementer.
+- Required or performed security review must record `security_reviewer_agent_id` in `Task-Review.json`, and that identity must differ from `implementer_agent_id`.
 - `subagent_serial` implementation must have a dispatch packet and spawned agent record before writer lock acquisition, and a completed agent record before the task can move to IMPLEMENTED.
 - `Progress.json` is the authoritative operational state for resume.
 - `Events.jsonl` is the append-only transition truth.
