@@ -254,6 +254,15 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("git_status_porcelain_sha256", workspace_baseline["required"])
         self.assertIn("untracked_inventory_sha256", workspace_baseline["required"])
         self.assertIn("workspace_file_inventory_sha256", workspace_baseline["required"])
+        self.assertEqual(schema_defs["Task"]["properties"]["validation_commands"]["items"]["$ref"], "#/$defs/PlannedValidationCommand")
+        self.assertEqual(
+            schema_defs["ImplementerReport"]["properties"]["validation_evidence"]["items"]["$ref"],
+            "#/$defs/ValidationEvidence",
+        )
+        self.assertEqual(
+            schema_defs["FinalReview"]["properties"]["global_validations"]["items"]["$ref"],
+            "#/$defs/ValidationEvidence",
+        )
         self.assertEqual(schema_defs["DispatchPacket"]["properties"]["spawn_tool"]["const"], "multi_agent_v1.spawn_agent")
         self.assertIn("references/apply-run-schema.json", skill)
         self.assertIn("plugins/codexqb/skills/codexqb/references/apply-run-schema.json", validate_script)

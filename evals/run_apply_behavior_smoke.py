@@ -95,7 +95,7 @@ def write_fixture(root: Path) -> None:
     write_audit(docs, "PASS")
 
 
-def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str) -> None:
+def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, security_required: bool) -> None:
     task_dir = run_dir / task_id
     (task_dir / "Implementer-Report.json").write_text(
         json.dumps(
@@ -114,19 +114,19 @@ def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str) -> No
         ),
         encoding="utf-8",
     )
+    task_review = {
+        "task_id": task_id,
+        "brief_sha256": brief_sha256,
+        "reviewer_agent_id": "smoke-reviewer",
+        "spec_compliance": "pass",
+        "task_quality": "approved",
+        "security_review": "pass" if security_required else "not_required",
+        "evidence": ["CLI behavior smoke reviewed transition trace and validation evidence."],
+    }
+    if security_required:
+        task_review["security_reviewer_agent_id"] = "smoke-security"
     (task_dir / "Task-Review.json").write_text(
-        json.dumps(
-            {
-                "task_id": task_id,
-                "brief_sha256": brief_sha256,
-                "reviewer_agent_id": "smoke-reviewer",
-                "spec_compliance": "pass",
-                "task_quality": "approved",
-                "security_review": "not_required",
-                "evidence": ["CLI behavior smoke reviewed transition trace and validation evidence."],
-            },
-            sort_keys=True,
-        ),
+        json.dumps(task_review, sort_keys=True),
         encoding="utf-8",
     )
     (run_dir / "Final-Review.json").write_text(
@@ -169,15 +169,21 @@ def main() -> int:
         task = tasks[0]
         task_id = task["task_id"]
         brief_sha256 = task["brief_sha256"]
+        security_required = task.get("security_review_required") is True
 
         run_apply(["validate", "--run-dir", run_dir.as_posix(), "--root", root.as_posix()], cwd=root)
         actors = {
             "IMPLEMENTING": "smoke-impl",
             "IMPLEMENTED": "smoke-impl",
             "TASK_REVIEW": "smoke-reviewer",
+            "SECURITY_REVIEW": "smoke-security",
             "VERIFIED": "smoke-reviewer",
         }
-        for state in ["IMPLEMENTING", "IMPLEMENTED", "TASK_REVIEW", "VERIFIED"]:
+        states = ["IMPLEMENTING", "IMPLEMENTED", "TASK_REVIEW"]
+        if security_required:
+            states.append("SECURITY_REVIEW")
+        states.append("VERIFIED")
+        for state in states:
             run_apply(
                 [
                     "transition",
@@ -195,7 +201,7 @@ def main() -> int:
                 cwd=root,
             )
 
-        write_verified_reports(run_dir, task_id, brief_sha256)
+        write_verified_reports(run_dir, task_id, brief_sha256, security_required=security_required)
         run_apply(["validate", "--run-dir", run_dir.as_posix(), "--root", root.as_posix()], cwd=root)
         run_apply(
             [

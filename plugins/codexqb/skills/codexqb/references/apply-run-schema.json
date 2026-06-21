@@ -60,9 +60,9 @@
     "AgentStatus": {
       "enum": ["completed", "failed", "spawned"]
     },
-    "ValidationCommand": {
+    "PlannedValidationCommand": {
       "type": "object",
-      "required": ["argv", "exit_code"],
+      "required": ["argv"],
       "properties": {
         "id": { "$ref": "#/$defs/NonEmptyString" },
         "argv": {
@@ -78,6 +78,18 @@
         "probe_tier": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": true
+    },
+    "ValidationEvidence": {
+      "allOf": [
+        { "$ref": "#/$defs/PlannedValidationCommand" },
+        {
+          "type": "object",
+          "required": ["exit_code"],
+          "properties": {
+            "exit_code": { "type": "integer" }
+          }
+        }
+      ]
     },
     "AgentProfile": {
       "type": "object",
@@ -140,7 +152,12 @@
         "subplan_path": {
           "type": "string",
           "pattern": "^Planner-docs/Faz-[0-9]+-Plans/Faz[0-9]+\\.[0-9]+-[a-z0-9-]+\\.md$"
-        }
+        },
+        "finding_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dependency_state": { "type": "string" }
       },
       "additionalProperties": false
     },
@@ -336,7 +353,7 @@
         },
         "validation_commands": {
           "type": "array",
-          "items": { "$ref": "#/$defs/ValidationCommand" }
+          "items": { "$ref": "#/$defs/PlannedValidationCommand" }
         },
         "dispatch": {
           "anyOf": [{ "$ref": "#/$defs/DispatchState" }, { "type": "null" }]
@@ -528,7 +545,7 @@
         },
         "validation_evidence": {
           "type": "array",
-          "items": { "$ref": "#/$defs/ValidationCommand" }
+          "items": { "$ref": "#/$defs/ValidationEvidence" }
         },
         "diff_sha256": { "$ref": "#/$defs/Sha256" },
         "controller_decision": { "type": "string" }
@@ -584,7 +601,7 @@
         },
         "global_validations": {
           "type": "array",
-          "items": { "$ref": "#/$defs/ValidationCommand" }
+          "items": { "$ref": "#/$defs/ValidationEvidence" }
         },
         "evidence": {
           "type": "array",

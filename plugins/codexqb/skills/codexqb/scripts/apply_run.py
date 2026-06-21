@@ -370,7 +370,7 @@ def apply_spec_digest(
     mode: str,
     snapshot: list[dict[str, str]],
     workspace_baseline_value: object,
-    ready_queue: list[dict[str, str]],
+    ready_queue: list[dict[str, object]],
 ) -> str:
     payload = {
         "mode": mode,
@@ -388,7 +388,7 @@ def apply_run_id(
     mode: str,
     snapshot: list[dict[str, str]],
     workspace_baseline_value: object,
-    ready_queue: list[dict[str, str]] | None = None,
+    ready_queue: list[dict[str, object]] | None = None,
     run_id_suffix: str | None = None,
 ) -> str:
     digest = apply_spec_digest(mode, snapshot, workspace_baseline_value, ready_queue or [])
@@ -402,12 +402,23 @@ def infer_root(run_dir: Path) -> Path | None:
     return None
 
 
-def extract_ready_queue(root: Path) -> list[dict[str, str]]:
+def audit_finding_ids(value: str) -> list[str]:
+    cleaned = value.strip()
+    if not cleaned or cleaned.lower() in {"none", "n/a", "na", "-"}:
+        return []
+    return [
+        part.strip()
+        for part in re.split(r"[,; ]+", cleaned)
+        if part.strip() and part.strip().lower() not in {"none", "n/a", "na", "-"}
+    ]
+
+
+def extract_ready_queue(root: Path) -> list[dict[str, object]]:
     audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
     if not audit.is_file():
         return []
     text = audit.read_text(encoding="utf-8", errors="replace")
-    items: list[dict[str, str]] = []
+    items: list[dict[str, object]] = []
     seen: set[tuple[str, str]] = set()
     for match in re.finditer(
         r"\b(READY_WITH_WARNINGS|READY)\b\s*:?\s*`?((?:Planner-docs/)?Faz-\d+-Plans/Faz\d+\.\d+-[a-z0-9-]+\.md)`?",
@@ -420,7 +431,7 @@ def extract_ready_queue(root: Path) -> list[dict[str, str]]:
         key = (match.group(1).upper(), path)
         if key not in seen:
             seen.add(key)
-            items.append({"readiness_status": key[0], "subplan_path": path})
+            items.append({"readiness_status": key[0], "subplan_path": path, "finding_ids": [], "dependency_state": ""})
     for line in text.splitlines():
         if "|" not in line or "---" in line:
             continue
@@ -437,7 +448,14 @@ def extract_ready_queue(root: Path) -> list[dict[str, str]]:
         key = (status, path)
         if key not in seen:
             seen.add(key)
-            items.append({"readiness_status": status, "subplan_path": path})
+            items.append(
+                {
+                    "readiness_status": status,
+                    "subplan_path": path,
+                    "finding_ids": audit_finding_ids(cells[2]) if len(cells) >= 3 else [],
+                    "dependency_state": cells[3] if len(cells) >= 4 else "",
+                }
+            )
     return items
 
 
@@ -532,19 +550,55 @@ def extract_subplan_contract(root: Path, subplan_path: str) -> dict[str, list[st
     return extract_contract_signals(path.read_text(encoding="utf-8", errors="replace"))
 
 
+def extract_implementation_contract(root: Path, subplan_path: str) -> dict[str, object]:
+    path = root / subplan_path
+    if not path.is_file():
+        return {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    section_match = re.search(
+        r"### Implementation Contract\s*(.*?)(?:\n### |\n## |\Z)",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not section_match:
+        return {}
+    json_match = re.search(r"```json\s*(.*?)\s*```", section_match.group(1), flags=re.DOTALL | re.IGNORECASE)
+    if not json_match:
+        return {}
+    try:
+        contract = json.loads(json_match.group(1))
+    except json.JSONDecodeError:
+        return {}
+    return contract if isinstance(contract, dict) else {}
+
+
+def contract_validation_commands(contract: dict[str, object]) -> list[dict[str, object]]:
+    commands = contract.get("validation_commands")
+    if not isinstance(commands, list):
+        return []
+    normalized: list[dict[str, object]] = []
+    for item in commands:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(json.loads(json.dumps(item, sort_keys=True)))
+    return normalized
+
+
 def task_id_for(run_id: str, index: int) -> str:
     return f"AR-{run_id}-T{index:03d}"
 
 
-def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str, str]] | None = None) -> list[dict[str, object]]:
+def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str, object]] | None = None) -> list[dict[str, object]]:
     if mode == "no_action":
         return []
     queue = ready_queue if ready_queue is not None else extract_ready_queue(root)
     tasks: list[dict[str, object]] = []
     for index, item in enumerate(queue, start=1):
-        subplan_path = item["subplan_path"]
+        subplan_path = str(item["subplan_path"])
         subplan = root / subplan_path
         contract = extract_subplan_contract(root, subplan_path)
+        implementation_contract = extract_implementation_contract(root, subplan_path)
+        security_review_required = implementation_contract.get("security_review_required")
         tasks.append(
             {
                 "task_id": task_id_for(run_id, index),
@@ -553,10 +607,11 @@ def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str
                 "source_subplan_path": subplan_path,
                 "source_subplan_sha256": sha256_bytes(subplan.read_bytes()) if subplan.is_file() else None,
                 "fresh_context_contract": contract,
-                "finding_ids": [],
-                "security_review_required": False,
+                "finding_ids": item.get("finding_ids", []),
+                "dependency_state": item.get("dependency_state", ""),
+                "security_review_required": security_review_required if isinstance(security_review_required, bool) else False,
                 "writer_lock": None,
-                "validation_commands": [],
+                "validation_commands": contract_validation_commands(implementation_contract),
                 "dispatch": None,
                 "agent_runs": [],
                 "redispatch_count": 0,
@@ -568,7 +623,7 @@ def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str
 def step4_readiness_summary(
     root: Path,
     mode: str,
-    ready_queue: list[dict[str, str]],
+    ready_queue: list[dict[str, object]],
     validation: dict[str, str],
 ) -> dict[str, object]:
     audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
@@ -730,6 +785,10 @@ def create_apply_run(
                 f"- source_subplan_path: {task.get('source_subplan_path')}",
                 f"- source_subplan_sha256: {task.get('source_subplan_sha256')}",
                 f"- readiness_status: {task.get('readiness_status')}",
+                f"- finding_ids: {json.dumps(task.get('finding_ids', []), sort_keys=True, separators=(',', ':'))}",
+                f"- dependency_state: {task.get('dependency_state')}",
+                f"- security_review_required: {json.dumps(task.get('security_review_required'))}",
+                f"- validation_commands: {json.dumps(task.get('validation_commands', []), sort_keys=True, separators=(',', ':'))}",
                 f"- fresh_context_contract: {json.dumps(task.get('fresh_context_contract', {}), sort_keys=True, separators=(',', ':'))}",
                 "- dispatch_packet: generated by `apply_run.py dispatch` before subagent implementation",
                 "- state_machine: BRIEFED -> IMPLEMENTING -> IMPLEMENTED -> TASK_REVIEW -> VERIFIED",
@@ -1527,15 +1586,15 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
         errors.append(f"failed_quality_requires_re_review={task_id}")
     if review.get("re_review_required") is True and not fix.get("fixes"):
         errors.append(f"re_review_requires_fix_report={task_id}")
-    if task.get("security_review_required") is True and security != "pass":
-        errors.append(f"required_security_review_must_pass={task_id}")
-    if task.get("security_review_required") is True or security in {"fail", "pass"}:
-        security_reviewer = review.get("security_reviewer_agent_id")
-        if not security_reviewer:
-            errors.append(f"security_review_requires_security_reviewer_agent_id={task_id}")
-        elif security_reviewer == implementer.get("implementer_agent_id"):
-            errors.append(f"security_reviewer_must_be_independent={task_id}")
     if state == "VERIFIED":
+        if task.get("security_review_required") is True and security != "pass":
+            errors.append(f"required_security_review_must_pass={task_id}")
+        if task.get("security_review_required") is True or security in {"fail", "pass"}:
+            security_reviewer = review.get("security_reviewer_agent_id")
+            if not security_reviewer:
+                errors.append(f"security_review_requires_security_reviewer_agent_id={task_id}")
+            elif security_reviewer == implementer.get("implementer_agent_id"):
+                errors.append(f"security_reviewer_must_be_independent={task_id}")
         if impl_status != "DONE":
             errors.append(f"verified_requires_done_implementer={task_id}")
         if not implementer.get("brief_sha256") or implementer.get("brief_sha256") != task.get("brief_sha256"):
@@ -1682,12 +1741,12 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         errors.append("invalid_source_snapshot")
         source_snapshot = []
     spec_inputs = run.get("apply_spec_inputs")
-    ready_queue: list[dict[str, str]] = []
+    ready_queue: list[dict[str, object]] = []
     spec_workspace_baseline: object = {}
     if isinstance(spec_inputs, dict) and isinstance(spec_inputs.get("ready_queue"), list):
         for item in spec_inputs["ready_queue"]:
             if isinstance(item, dict):
-                ready_queue.append({str(key): str(value) for key, value in item.items()})
+                ready_queue.append(json.loads(json.dumps(item, sort_keys=True)))
             else:
                 errors.append("invalid_apply_spec_ready_queue")
                 break

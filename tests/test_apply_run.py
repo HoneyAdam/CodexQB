@@ -82,8 +82,9 @@ class ApplyRunTests(unittest.TestCase):
         progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
         task = progress["tasks"][0]
         task_id = task["task_id"]
+        security_verdict = "pass" if security == "pass" or task.get("security_review_required") is True else security
         task["state"] = "BRIEFED"
-        task["security_review_required"] = security == "pass"
+        task["security_review_required"] = security_verdict == "pass"
         task["writer_lock"] = None
         progress["active_writer_locks"] = []
         (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
@@ -119,7 +120,7 @@ class ApplyRunTests(unittest.TestCase):
             )
         APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["implementation report ready"])
         APPLY_MODULE.transition_task_state(run_dir, task_id, "TASK_REVIEW", "review-1", ["review package ready"])
-        if security == "pass":
+        if security_verdict == "pass":
             APPLY_MODULE.transition_task_state(run_dir, task_id, "SECURITY_REVIEW", "review-1", ["security review required"])
             APPLY_MODULE.transition_task_state(run_dir, task_id, "VERIFIED", "review-1", ["security review passed"])
         else:
@@ -150,10 +151,10 @@ class ApplyRunTests(unittest.TestCase):
             "reviewer_agent_id": "review-1",
             "spec_compliance": "pass",
             "task_quality": "approved",
-            "security_review": security,
+            "security_review": security_verdict,
             "evidence": ["reviewed diff and validation evidence"],
         }
-        if security == "pass":
+        if security_verdict == "pass":
             task_review["security_reviewer_agent_id"] = "security-review-1"
         (run_dir / task_id / "Task-Review.json").write_text(json.dumps(task_review), encoding="utf-8")
         (run_dir / "Final-Review.json").write_text(
@@ -218,9 +219,19 @@ class ApplyRunTests(unittest.TestCase):
             self.assertTrue(any("behavioral acceptance" in item for item in contract["acceptance_criteria"]))
             self.assertTrue(any("allowed write paths" in item for item in contract["allowed_paths"]))
             self.assertTrue(any("validation command argv" in item for item in contract["structured_validation_commands"]))
+            self.assertTrue(progress["tasks"][0]["security_review_required"])
+            self.assertEqual(progress["tasks"][0]["finding_ids"], [])
+            self.assertEqual(progress["tasks"][0]["dependency_state"], "independent")
+            self.assertEqual(progress["tasks"][0]["validation_commands"][0]["id"], "VAL-01")
+            self.assertEqual(
+                progress["tasks"][0]["validation_commands"][0]["argv"],
+                ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"],
+            )
             brief = (run_dir / task_id / "Brief.md").read_text(encoding="utf-8")
             self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", brief)
             self.assertIn("fresh_context_contract", brief)
+            self.assertIn("security_review_required: true", brief)
+            self.assertIn('"id":"VAL-01"', brief)
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
 
     def test_subagent_serial_requires_dispatch_packet_before_implementation(self) -> None:
