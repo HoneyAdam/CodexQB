@@ -231,9 +231,12 @@ class SkillContentTests(unittest.TestCase):
             "Events.jsonl",
             "Writer-Lock.json",
             "apply_run.py prepare",
+            "apply_run.py dispatch",
             "apply_run.py transition",
             "apply_run.py recover-lock",
             "apply_run.py finalize",
+            "Dispatch-Packet.json",
+            "multi_agent_v1.spawn_agent",
             "append-only transition truth",
             "agent_profiles",
             "security_strong",
@@ -241,10 +244,12 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn(phrase, apply_ref)
         for phrase in [
             "prepare --root",
+            "dispatch --run-dir",
             "transition --run-dir",
             "recover-lock --run-dir",
             "finalize --run-dir",
             "Events.jsonl",
+            "missing dispatch packets",
             "agent profile drift",
         ]:
             self.assertIn(phrase, readme)

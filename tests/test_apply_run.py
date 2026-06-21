@@ -68,6 +68,15 @@ class ApplyRunTests(unittest.TestCase):
         task["writer_lock"] = None
         progress["active_writer_locks"] = []
         (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
+        run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
+        if run.get("mode") == "subagent_serial":
+            APPLY_MODULE.prepare_dispatch_packet(
+                run_dir,
+                task_id,
+                "implementer",
+                "controller",
+                ["prepared fresh implementer dispatch packet"],
+            )
         APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started implementation"])
         APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["implementation report ready"])
         APPLY_MODULE.transition_task_state(run_dir, task_id, "TASK_REVIEW", "review-1", ["review package ready"])
@@ -166,6 +175,35 @@ class ApplyRunTests(unittest.TestCase):
             brief = (run_dir / task_id / "Brief.md").read_text(encoding="utf-8")
             self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", brief)
             self.assertIn("fresh_context_contract", brief)
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
+
+    def test_subagent_serial_requires_dispatch_packet_before_implementation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "subagent_serial")
+            run_dir = Path(result["run_dir"])
+            task_id = self.first_task_id(run_dir)
+
+            with self.assertRaisesRegex(ValueError, "subagent_dispatch_packet_missing"):
+                APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
+
+            prepared = APPLY_MODULE.prepare_dispatch_packet(
+                run_dir,
+                task_id,
+                "implementer",
+                "controller",
+                ["controller prepared fresh implementer dispatch"],
+            )
+            packet_path = Path(prepared["packet_path"])
+            packet = json.loads(packet_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(packet["spawn_tool"], "multi_agent_v1.spawn_agent")
+            self.assertEqual(packet["spawn_request"]["agent_type"], "worker")
+            self.assertFalse(packet["spawn_request"]["fork_context"])
+            self.assertIn("Use only this fresh task context", packet["spawn_request"]["message"])
+            self.assertIsNone(packet["model_override"])
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
 
     def test_no_action_mode_has_no_queue(self) -> None:

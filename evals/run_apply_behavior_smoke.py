@@ -2,10 +2,10 @@
 """Exercise the apply-run controller through its public CLI.
 
 This is a behavioral smoke for the artifact controller, not a product-code
-executor and not a real subagent launcher. It uses a disposable repository,
-drives the public prepare/transition/validate/finalize commands, writes the
-minimum evidence reports a real implementation run must produce, and verifies
-that the final artifact state is complete.
+executor and not a direct Codex tool caller. It uses a disposable repository,
+drives the public prepare/dispatch/transition/validate/finalize commands, writes
+the minimum evidence reports a real implementation run must produce, and
+verifies that the final artifact state is complete.
 """
 
 from __future__ import annotations
@@ -212,6 +212,71 @@ def main() -> int:
             fail("missing_finalize_event")
         if [event.get("sequence") for event in events] != list(range(1, len(events) + 1)):
             fail("non_contiguous_event_sequence")
+
+        dispatch_output = run_apply(
+            ["prepare", "--root", root.as_posix(), "--mode", "subagent_serial", "--run-id-suffix", "dispatch-smoke"],
+            cwd=root,
+        )
+        dispatch_run_dir = Path(parse_key(dispatch_output, "run_dir"))
+        dispatch_progress = json.loads((dispatch_run_dir / "Progress.json").read_text(encoding="utf-8"))
+        dispatch_task = dispatch_progress["tasks"][0]
+        dispatch_task_id = dispatch_task["task_id"]
+        run_apply_expect_failure(
+            [
+                "transition",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--to",
+                "IMPLEMENTING",
+                "--actor",
+                "dispatch-impl",
+                "--evidence",
+                "packet missing should block",
+            ],
+            cwd=root,
+            expected=f"subagent_dispatch_packet_missing={dispatch_task_id}",
+        )
+        packet_output = run_apply(
+            [
+                "dispatch",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--role",
+                "implementer",
+                "--actor",
+                "smoke-controller",
+                "--evidence",
+                "behavior smoke prepared dispatch packet",
+            ],
+            cwd=root,
+        )
+        packet_path = Path(parse_key(packet_output, "packet_path"))
+        packet = json.loads(packet_path.read_text(encoding="utf-8"))
+        if packet.get("spawn_tool") != "multi_agent_v1.spawn_agent":
+            fail("dispatch_packet_missing_spawn_tool")
+        if packet.get("spawn_request", {}).get("fork_context") is not False:
+            fail("dispatch_packet_not_fresh_context")
+        run_apply(
+            [
+                "transition",
+                "--run-dir",
+                dispatch_run_dir.as_posix(),
+                "--task-id",
+                dispatch_task_id,
+                "--to",
+                "IMPLEMENTING",
+                "--actor",
+                "dispatch-impl",
+                "--evidence",
+                "dispatch packet accepted",
+            ],
+            cwd=root,
+        )
+        run_apply(["validate", "--run-dir", dispatch_run_dir.as_posix(), "--root", root.as_posix()], cwd=root)
 
         recovery_output = run_apply(
             ["prepare", "--root", root.as_posix(), "--mode", "direct", "--run-id-suffix", "recovery-smoke"],

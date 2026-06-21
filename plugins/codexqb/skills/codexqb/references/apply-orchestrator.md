@@ -13,6 +13,7 @@ Target repositories store apply artifacts under:
   Events.jsonl
   Writer-Lock.json
   AR-<apply-run-id>-T<nnn>/Brief.md
+  AR-<apply-run-id>-T<nnn>/Dispatch-Packet.json
   AR-<apply-run-id>-T<nnn>/Implementer-Report.json
   AR-<apply-run-id>-T<nnn>/Review-Package.patch
   AR-<apply-run-id>-T<nnn>/Task-Review.json
@@ -24,12 +25,12 @@ Target repositories store apply artifacts under:
 These runtime directories are created in the target repository, not in the CodexQB source tree except for tests and examples.
 Non-`no_action` runs derive initial task briefs from Step 4 READY or READY_WITH_WARNINGS entries in `Planner-docs/Sub-Planing-Audit.md` when available. The audit-derived source sub-plan path and hash are recorded in both `Progress.json` and `Brief.md`.
 When present in the active sub-plan, the controller also copies fresh-context contract signals into each task: acceptance criteria, allowed/forbidden paths, parent signals, dependencies, framework ownership, algorithmic invariants, structured validation commands, and security requirements.
-Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. Use `apply_run.py transition` for state changes so `Events.jsonl` remains the append-only transition truth. Use `apply_run.py recover-lock` only for expired writer locks to move an abandoned `IMPLEMENTING` task to `BLOCKED` or `NEEDS_CONTEXT`. Use `apply_run.py reconcile` for external adapter fallback before dispatch, and `apply_run.py finalize` only after all tasks are VERIFIED and final review has passed. `Progress.json` is the current state snapshot.
+Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. Use `apply_run.py dispatch` before `subagent_serial` implementation to write a fresh-context `Dispatch-Packet.json` that can be converted into a Codex `multi_agent_v1.spawn_agent` call by the parent agent. Use `apply_run.py transition` for state changes so `Events.jsonl` remains the append-only transition truth. Use `apply_run.py recover-lock` only for expired writer locks to move an abandoned `IMPLEMENTING` task to `BLOCKED` or `NEEDS_CONTEXT`. Use `apply_run.py reconcile` for external adapter fallback before dispatch, and `apply_run.py finalize` only after all tasks are VERIFIED and final review has passed. `Progress.json` is the current state snapshot.
 `apply_spec_id` is deterministic for the selected mode, source snapshot, and Step 4 READY queue. `apply_run_id` is unique per invocation. To continue a run, pass `--resume` with the exact `--output-dir`; to intentionally regenerate one directory, pass `--replace`.
 
 ## Schema Contract
 
-`Apply-Run.json` is the immutable run envelope: schema versions, requested mode, current mode, spec/run IDs, source snapshot, Step 4 readiness summary, workspace posture, safety defaults, agent profiles, and external adapter policy. `Progress.json` is mutable operational state: task list, task states, writer locks, verified task IDs, final-review requirement, and resume cursor. `Events.jsonl` is the append-only transition truth. Per-task directories use the exact task ID and contain the brief, implementer report, review package, task review, and fix report.
+`Apply-Run.json` is the immutable run envelope: schema versions, requested mode, current mode, spec/run IDs, source snapshot, Step 4 readiness summary, workspace posture, safety defaults, agent profiles, and external adapter policy. `Progress.json` is mutable operational state: task list, task states, dispatch status, writer locks, verified task IDs, final-review requirement, and resume cursor. `Events.jsonl` is the append-only transition truth. Per-task directories use the exact task ID and contain the brief, dispatch packet, implementer report, review package, task review, and fix report.
 
 ## Modes
 
@@ -72,6 +73,8 @@ SECURITY_REVIEW -> VERIFIED | FIXING | BLOCKED | NEEDS_CONTEXT
 
 `IMPLEMENTING` acquires `Writer-Lock.json` atomically. Leaving `IMPLEMENTING` releases it. Expired writer locks are validation blockers until `recover-lock` records a recovery transition to `BLOCKED` or `NEEDS_CONTEXT`. Validation rejects state snapshots that are not backed by a contiguous transition event.
 
+For `subagent_serial`, `BRIEFED -> IMPLEMENTING` additionally requires `Dispatch-Packet.json`. The packet records `spawn_tool: multi_agent_v1.spawn_agent`, role, profile, sandbox, fresh brief hash, prompt hash, `fork_context: false`, and the exact message the parent Codex controller should pass to the subagent. The script prepares and validates this packet but does not call Codex tools itself.
+
 ## Role Templates and Model Profiles
 
 Fresh-context role templates live under `references/apply/`:
@@ -108,6 +111,7 @@ Fresh-context role templates live under `references/apply/`:
 - Commit, push, PR, deploy, live probes, and destructive external mutation are opt-in only.
 - Only one writer modifies files per slice unless the user explicitly requests separate branches or worktrees.
 - Subagents are read-only by default except the selected fresh-slice implementer.
+- `subagent_serial` implementation must have a dispatch packet before writer lock acquisition.
 - `Progress.json` is the authoritative operational state for resume.
 - `Events.jsonl` is the append-only transition truth.
 - JSON snapshots are written with temp-file plus replace; writer lock uses create-exclusive semantics and expired locks must be recovered with an explicit controller event.
