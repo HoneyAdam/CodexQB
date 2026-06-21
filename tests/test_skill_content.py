@@ -353,6 +353,8 @@ class SkillContentTests(unittest.TestCase):
             "sanitized_zip_hygiene=passed",
             "sanitized_zip_hygiene_failed",
             "evals/run_apply_behavior_smoke.py",
+            "evals/run_goal_apply_metric_checks.py",
+            "goal_apply_metric_checks=passed",
             "apply_behavior_smoke=passed",
             "docs/FEEDBACK-CLOSURE-AUDIT.md",
         ]:
@@ -366,6 +368,7 @@ class SkillContentTests(unittest.TestCase):
             "Subagent Methodology Items",
             "Eval And Release Evidence",
             "Remaining",
+            "goal_apply_metric_checks=passed",
         ]:
             self.assertIn(phrase, closure_audit)
 
@@ -543,14 +546,26 @@ class SkillContentTests(unittest.TestCase):
         runner = REPO_ROOT / "evals/run_fixture_corpus_checks.py"
         wrapper = REPO_ROOT / "evals/run_fixture_checks.py"
         apply_smoke = REPO_ROOT / "evals/run_apply_behavior_smoke.py"
+        metric_smoke = REPO_ROOT / "evals/run_goal_apply_metric_checks.py"
         self.assertTrue(runner.is_file())
         self.assertTrue(wrapper.is_file())
         self.assertTrue(apply_smoke.is_file())
+        self.assertTrue(metric_smoke.is_file())
         runner_text = runner.read_text(encoding="utf-8")
         smoke_text = apply_smoke.read_text(encoding="utf-8")
+        metric_text = metric_smoke.read_text(encoding="utf-8")
         self.assertIn("fixture_corpus_checks=passed", runner_text)
         self.assertIn("apply_behavior_smoke=passed", smoke_text)
         self.assertIn("apply_run_finalized", smoke_text)
+        for phrase in [
+            "goal_apply_metric_checks=passed",
+            "static_step4_handoff",
+            "dynamic_step4_goal_direct",
+            "dynamic_step4_goal_subagent_serial",
+            "apply_direct_brief",
+            "apply_subagent_dispatch_message",
+        ]:
+            self.assertIn(phrase, metric_text)
         self.assertNotIn("fixture_eval_checks=passed", runner_text)
         fixture_root = REPO_ROOT / "evals/fixtures"
         for fixture in [

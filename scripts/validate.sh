@@ -50,6 +50,7 @@ required_files=(
   "plugins/codexqb/skills/codexqb/references/assessment-and-budget.md"
   "plugins/codexqb/skills/codexqb/references/engineering-principles.md"
   "evals/run_apply_behavior_smoke.py"
+  "evals/run_goal_apply_metric_checks.py"
   "evals/run_fixture_corpus_checks.py"
   "evals/run_fixture_checks.py"
   "scripts/export_sanitized.py"
@@ -365,4 +366,6 @@ fi
 
 # evals/run_apply_behavior_smoke.py prints apply_behavior_smoke=passed on success.
 python3 evals/run_apply_behavior_smoke.py
+# evals/run_goal_apply_metric_checks.py prints goal_apply_metric_checks=passed on success.
+python3 evals/run_goal_apply_metric_checks.py
 python3 evals/run_fixture_corpus_checks.py

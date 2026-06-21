@@ -186,7 +186,7 @@ Repository maintainers can run the dependency-free repo check with:
 make check
 ```
 
-`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, the apply-run CLI behavior smoke, the fixture corpus, and the unit test suite without requiring PyYAML or local Codex validator dependencies. Apply-run validation also requires any required or performed security review to record a `security_reviewer_agent_id` in `Task-Review.json`; that identity must differ from `implementer_agent_id`.
+`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, the apply-run CLI behavior smoke, Goal/Apply prompt-size metric checks, the fixture corpus, and the unit test suite without requiring PyYAML or local Codex validator dependencies. Apply-run validation also requires any required or performed security review to record a `security_reviewer_agent_id` in `Task-Review.json`; that identity must differ from `implementer_agent_id`.
 
 For a faster local unit-test loop, run:
 
@@ -214,7 +214,7 @@ make export-sanitized
 
 The underlying exporter defaults to tracked files only. The `make export-sanitized` target explicitly includes untracked, non-ignored files so pre-commit package checks can cover new files, but every included file is rejected if it is a symlink, resolves outside the repository, matches blocked local/runtime paths, or contains a length-bounded secret pattern. The default validation gate also checks that forbidden archive/package entries are not present.
 
-The feedback closure status for the 0.3.0 Goal/Apply hardening pass is tracked in `docs/FEEDBACK-CLOSURE-AUDIT.md`. Treat remaining release-audit items in that file as blockers before moving `CHANGELOG.md` from `Unreleased` to a dated final release section.
+The feedback closure status for the 0.3.0 Goal/Apply hardening pass is tracked in `docs/FEEDBACK-CLOSURE-AUDIT.md`. The local metric gate `python3 evals/run_goal_apply_metric_checks.py` reports deterministic size estimates for static Step 4 handoff text, dynamic direct/subagent Goal prompts, direct Apply briefs, and subagent dispatch prompts. Treat remaining release-audit items in the closure audit as blockers before moving `CHANGELOG.md` from `Unreleased` to a dated final release section.
 
 ## Safety Model
 
