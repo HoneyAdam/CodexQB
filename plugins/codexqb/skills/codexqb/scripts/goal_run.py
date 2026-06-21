@@ -62,6 +62,14 @@ PLANNER_DOC_SOURCES = [
     "Planner-docs/Sub-Planing-Audit.md",
     "Planner-docs/Planing-Ledger.md",
 ]
+GOAL_AGENT_PROFILES = {
+    "explorer": {"agent_type": "explorer", "model_profile": "fast", "sandbox": "read-only"},
+    "implementer": {"agent_type": "worker", "model_profile": "balanced", "sandbox": "workspace-write"},
+    "task_reviewer": {"agent_type": "default", "model_profile": "strong", "sandbox": "read-only"},
+    "security_reviewer": {"agent_type": "default", "model_profile": "security_strong", "sandbox": "read-only"},
+    "fixer": {"agent_type": "worker", "model_profile": "balanced", "sandbox": "workspace-write"},
+    "final_reviewer": {"agent_type": "default", "model_profile": "strong", "sandbox": "read-only"},
+}
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
@@ -410,6 +418,81 @@ def checkpoint_is_safe(checkpoint: object) -> bool:
     return True
 
 
+def goal_role(role: str, purpose: str, required: bool = True) -> dict[str, object]:
+    profile = GOAL_AGENT_PROFILES[role]
+    return {
+        "role": role,
+        "agent_type": profile["agent_type"],
+        "model_profile": profile["model_profile"],
+        "sandbox": profile["sandbox"],
+        "fresh_context": True,
+        "fork_context": False,
+        "required": required,
+        "purpose": purpose,
+    }
+
+
+def build_subagent_plan(stage: str, mode: str, active_scope: dict[str, object]) -> dict[str, object]:
+    plan: dict[str, object] = {
+        "max_depth": 1,
+        "roles": [],
+        "one_writer": True,
+        "fresh_context_required": True,
+        "dispatch_order": [],
+    }
+    if stage == "step2":
+        plan["roles"] = [
+            goal_role("explorer", "optional read-only repository evidence collection", required=False),
+            goal_role("task_reviewer", "optional read-only planning consistency review", required=False),
+        ]
+        plan["dispatch_order"] = ["explorer", "task_reviewer"]
+    if stage == "step3":
+        plan["roles"] = [goal_role("task_reviewer", "read-only Step 3 audit review", required=False)]
+        plan["dispatch_order"] = ["task_reviewer"]
+    if stage == "step4" and mode in {"subagent_serial", "external_superpowers"}:
+        queue = active_scope.get("ready_queue", [])
+        security_required = any(
+            isinstance(item, dict) and item.get("security_review_required") is True
+            for item in queue
+        )
+        roles = [
+            goal_role("implementer", "fresh-slice implementation writer"),
+            goal_role("task_reviewer", "independent spec and quality review"),
+        ]
+        if security_required:
+            roles.append(goal_role("security_reviewer", "independent security review for security-required slices"))
+        roles.extend(
+            [
+                goal_role("fixer", "same-slice fixes when review requires changes", required=False),
+                goal_role("final_reviewer", "batch-level final review before completion"),
+            ]
+        )
+        plan["roles"] = roles
+        plan["dispatch_order"] = [role["role"] for role in roles]
+    return plan
+
+
+def subagent_plan_is_valid(plan: object) -> bool:
+    if not isinstance(plan, dict) or plan.get("max_depth") != 1:
+        return False
+    roles = plan.get("roles")
+    if not isinstance(roles, list):
+        return False
+    for role in roles:
+        if not isinstance(role, dict):
+            return False
+        name = role.get("role")
+        if name not in GOAL_AGENT_PROFILES:
+            return False
+        profile = GOAL_AGENT_PROFILES[str(name)]
+        for key in ("agent_type", "model_profile", "sandbox"):
+            if role.get(key) != profile[key]:
+                return False
+        if role.get("fresh_context") is not True or role.get("fork_context") is not False:
+            return False
+    return True
+
+
 def default_goal_run(
     root: Path,
     stage: str,
@@ -422,6 +505,7 @@ def default_goal_run(
     selected_mode = mode or ("subagent_serial" if stage == "step4" else "wave")
     selected_objective = objective or f"Run CodexQB {stage} using current repository planning evidence."
     active_scope = collect_stage_scope(root, stage)
+    subagent_plan = build_subagent_plan(stage, selected_mode, active_scope)
     spec_digest = goal_spec_digest(stage, sources, selected_mode, selected_objective, active_scope)
     bundle = template_bundle(stage)
     suffix = invocation_suffix(run_id_suffix)
@@ -458,7 +542,7 @@ def default_goal_run(
         "work_steps": stage_work_steps(stage, active_scope),
         "validation_checkpoints": validation_checkpoints_for(stage),
         "stop_gates": ["snapshot mismatch", "P0/P1 blocker", "unsafe path", "required user confirmation missing", "dirty unrelated worktree"],
-        "subagent_plan": {"max_depth": 1, "roles": []},
+        "subagent_plan": subagent_plan,
         "context_token_budget": {"risk": "medium", "confirmation_required": stage in {"step2", "step4"}},
         "final_report_contract": ["files changed", "validations", "blockers", "next action"],
         "user_confirmation_required": stage in {"step2", "step4"},
@@ -503,7 +587,7 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
     ):
         errors.append("invalid_validation_checkpoints")
     subagent_plan = run.get("subagent_plan")
-    if not isinstance(subagent_plan, dict) or subagent_plan.get("max_depth") != 1:
+    if not subagent_plan_is_valid(subagent_plan):
         errors.append("invalid_subagent_plan")
     token_budget = run.get("context_token_budget")
     if not isinstance(token_budget, dict) or token_budget.get("risk") not in {"low", "medium", "high"}:

@@ -256,6 +256,13 @@ class GoalRunTests(unittest.TestCase):
             )
             self.assertIn("contract_signals", step4["run"]["active_scope"]["ready_queue"][0])
             self.assertGreaterEqual(step4["run"]["active_scope"]["ready_queue"][0]["validation_command_count"], 1)
+            roles = {role["role"]: role for role in step4["run"]["subagent_plan"]["roles"]}
+            self.assertEqual(roles["implementer"]["model_profile"], "balanced")
+            self.assertEqual(roles["implementer"]["sandbox"], "workspace-write")
+            self.assertEqual(roles["task_reviewer"]["sandbox"], "read-only")
+            self.assertEqual(roles["security_reviewer"]["model_profile"], "security_strong")
+            self.assertFalse(roles["security_reviewer"]["fork_context"])
+            self.assertIn("final_reviewer", roles)
             self.assertTrue(any("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md" in step for step in step4["run"]["work_steps"]))
 
     def test_step3_goal_includes_preflight_and_post_audit_checkpoints(self) -> None:
