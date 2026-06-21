@@ -24,7 +24,7 @@ Target repositories store apply artifacts under:
 These runtime directories are created in the target repository, not in the CodexQB source tree except for tests and examples.
 Non-`no_action` runs derive initial task briefs from Step 4 READY or READY_WITH_WARNINGS entries in `Planner-docs/Sub-Planing-Audit.md` when available. The audit-derived source sub-plan path and hash are recorded in both `Progress.json` and `Brief.md`.
 When present in the active sub-plan, the controller also copies fresh-context contract signals into each task: acceptance criteria, allowed/forbidden paths, parent signals, dependencies, framework ownership, algorithmic invariants, structured validation commands, and security requirements.
-Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. Use `apply_run.py transition` for state changes so `Events.jsonl` remains the append-only transition truth. `Progress.json` is the current state snapshot.
+Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. Use `apply_run.py transition` for state changes so `Events.jsonl` remains the append-only transition truth. Use `apply_run.py reconcile` for external adapter fallback before dispatch, and `apply_run.py finalize` only after all tasks are VERIFIED and final review has passed. `Progress.json` is the current state snapshot.
 `apply_spec_id` is deterministic for the selected mode, source snapshot, and Step 4 READY queue. `apply_run_id` is unique per invocation. To continue a run, pass `--resume` with the exact `--output-dir`; to intentionally regenerate one directory, pass `--replace`.
 
 ## Schema Contract

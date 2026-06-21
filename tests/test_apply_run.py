@@ -357,6 +357,25 @@ class ApplyRunTests(unittest.TestCase):
             self.mark_task_verified(run_dir, security="pass")
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
 
+    def test_finalize_requires_validated_complete_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+
+            with self.assertRaisesRegex(ValueError, "finalize_requires_all_tasks_verified"):
+                APPLY_MODULE.finalize_apply_run(run_dir, "controller", ["attempted early finalize"])
+
+            self.mark_task_verified(run_dir)
+            event = APPLY_MODULE.finalize_apply_run(run_dir, "controller", ["all checks passed"])
+            result_payload = json.loads((run_dir / "Result.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(event["event_type"], "apply_run_finalized")
+            self.assertEqual(result_payload["status"], "complete")
+            self.assertEqual(result_payload["completed_tasks"], [self.first_task_id(run_dir)])
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
+
     def test_apply_run_snapshot_mismatch_blocks_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

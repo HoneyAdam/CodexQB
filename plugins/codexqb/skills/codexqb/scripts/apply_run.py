@@ -636,6 +636,55 @@ def transition_task_state(run_dir: Path, task_id: str, to_state: str, actor: str
     return event
 
 
+def finalize_apply_run(run_dir: Path, actor: str, evidence: list[str] | None = None) -> dict[str, object]:
+    run_dir = run_dir.resolve()
+    if not actor.strip():
+        raise ValueError("finalize_actor_required")
+    errors = validate_apply_run(run_dir)
+    if errors:
+        raise ValueError(";".join(errors))
+    run = load_json_strict(run_dir / "Apply-Run.json")
+    progress = load_json_strict(run_dir / "Progress.json")
+    tasks = progress.get("tasks", [])
+    if not isinstance(tasks, list):
+        raise ValueError("progress_tasks_must_be_list")
+    completed = [str(task["task_id"]) for task in tasks if isinstance(task, dict) and task.get("state") == "VERIFIED"]
+    blocked = [
+        str(task["task_id"])
+        for task in tasks
+        if isinstance(task, dict) and task.get("state") in {"BLOCKED", "NEEDS_CONTEXT"}
+    ]
+    if run.get("mode") != "no_action" and (len(completed) != len(tasks) or blocked):
+        raise ValueError("finalize_requires_all_tasks_verified")
+    final_review = load_json_strict(run_dir / "Final-Review.json")
+    if run.get("mode") != "no_action" and final_review.get("status") != "pass":
+        raise ValueError("finalize_requires_final_review_pass")
+    event = append_event(
+        run_dir,
+        {
+            "event_type": "apply_run_finalized",
+            "actor": actor,
+            "completed_task_ids": completed,
+            "blocked_task_ids": blocked,
+            "evidence": evidence or [],
+        },
+    )
+    result = {
+        "apply_run_id": run["apply_run_id"],
+        "status": "no_action" if run.get("mode") == "no_action" else "complete",
+        "completed_tasks": completed,
+        "blocked_tasks": blocked,
+        "finalized_at": event["timestamp"],
+        "finalized_by": actor,
+        "event_sequence": event["sequence"],
+        "next_action": "Apply run is finalized; start a new apply run for additional READY queue work.",
+    }
+    atomic_write_json(run_dir / "Result.json", result)
+    progress["events"] = [{"sequence": event["sequence"], "event_type": "apply_run_finalized"}]
+    atomic_write_json(run_dir / "Progress.json", progress)
+    return event
+
+
 def command_is_safe(command: object) -> bool:
     if isinstance(command, list):
         return safe_validation_command_item({"argv": command})
@@ -984,6 +1033,10 @@ def main(argv: list[str] | None = None) -> int:
     transition.add_argument("--evidence", action="append", default=[])
     reconcile = sub.add_parser("reconcile", help="Reconcile external adapter readiness before dispatch.")
     reconcile.add_argument("--run-dir", required=True)
+    finalize = sub.add_parser("finalize", help="Finalize a validated apply-run artifact directory.")
+    finalize.add_argument("--run-dir", required=True)
+    finalize.add_argument("--actor", required=True)
+    finalize.add_argument("--evidence", action="append", default=[])
     args = parser.parse_args(argv)
 
     try:
@@ -1013,6 +1066,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"mode={result['mode']}")
             if "event_sequence" in result:
                 print(f"event_sequence={result['event_sequence']}")
+            return 0
+        if args.command == "finalize":
+            event = finalize_apply_run(Path(args.run_dir), args.actor, args.evidence)
+            print("apply_run_status=finalized")
+            print(f"event_sequence={event['sequence']}")
             return 0
         errors = validate_apply_run(Path(args.run_dir), Path(args.root) if args.root else None)
     except Exception as exc:

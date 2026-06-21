@@ -199,6 +199,7 @@ Create or validate an apply-run artifact directory:
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py prepare --root /path/to/project --mode subagent_serial
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py transition --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id <task-id> --to IMPLEMENTING --actor impl-1 --evidence "brief accepted"
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py reconcile --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py finalize --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --actor controller --evidence "final review passed"
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py validate --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
 ```
 

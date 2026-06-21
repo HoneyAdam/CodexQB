@@ -14,7 +14,7 @@
 - Hardened Apply artifacts with audit-derived task queues, no silent progress overwrite, no-action queue consistency, task ID traversal rejection, shared validation-command policy, immutable plan snapshot separation from `Planing-Ledger.md`, workspace baseline hashes, and evidence-bearing VERIFIED/final-review gates.
 - Added Apply transition control with `prepare`/`transition` CLI support, append-only `Events.jsonl`, atomic JSON writes, create-exclusive `Writer-Lock.json`, state-transition validation, and agent profile drift checks.
 - Split deterministic Goal/Apply spec IDs from unique invocation run IDs, made resume require an explicit output directory, recorded Step 4 readiness summaries in apply runs, and added external Superpowers readiness/reconcile validation.
-- Pinned Goal template/compiler hashes into `Goal-Run.json`, added `goal_run_sha256` result evidence, switched generated Apply task IDs to `AR-<apply-run-id>-T<nnn>`, and added sanitized zip content/path hygiene to `make check`.
+- Pinned Goal template/compiler hashes into `Goal-Run.json`, added `goal_run_sha256` result evidence, switched generated Apply task IDs to `AR-<apply-run-id>-T<nnn>`, added apply-run `finalize`, and added sanitized zip content/path hygiene to `make check`.
 - Added fresh-context Apply role templates for controller, implementer, task reviewer, security reviewer, fixer, and final reviewer.
 - Expanded the fixture corpus from 8 to 20 fixtures with Goal, Apply, resume, security, no-action, and sanitized-export edge-case coverage.
 - Added 0.2.2 adaptive Step 2 release notes covering wave/full planning, artifact schema v3, handoff contract v2, structured implementation contracts, and stricter semantic validator gates.

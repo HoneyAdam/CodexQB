@@ -59,6 +59,7 @@ python3 plugins/codexqb/skills/codexqb/scripts/goal_run.py --root /path/to/proje
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py prepare --root /path/to/project --mode subagent_serial
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py transition --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id <task-id> --to IMPLEMENTING --actor impl-1 --evidence "brief accepted"
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py reconcile --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py finalize --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --actor controller --evidence "final review passed"
 ```
 
 These helpers write deterministic spec records with unique run directories inside the target repository and do not execute implementation, product validation, commit, push, PR, deploy, dependency install, or global Codex configuration changes.
