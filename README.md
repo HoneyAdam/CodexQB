@@ -66,7 +66,7 @@ python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py finalize --run-dir /
 ```
 
 These helpers write deterministic spec records with unique run directories inside the target repository and do not execute implementation, product validation, commit, push, PR, deploy, dependency install, or global Codex configuration changes.
-`Goal-Run.json` uses `goal_run_schema_version: 1`; `Apply-Run.json` uses `apply_run_schema_version: 1`.
+`Goal-Run.json` uses `goal_run_schema_version: 1`; `Apply-Run.json` uses `apply_run_schema_version: 1`. The packaged Apply runtime schema reference is `plugins/codexqb/skills/codexqb/references/apply-run-schema.json`; runtime validation remains dependency-free in `scripts/apply_run.py`.
 
 ## Quick Start
 
@@ -145,6 +145,7 @@ Planner-docs/
 ```
 
 `<goal-run-id>` and `<apply-run-id>` include invocation suffixes so repeated prepares do not collide. Apply task IDs use `AR-<apply-run-id>-T<nnn>` and resolve inside the apply-run directory. Use an explicit `--output-dir` plus `--resume` to continue an existing run, or `--replace` only when intentionally regenerating that directory.
+The public JSON Schema reference for Apply runtime artifacts is bundled at `plugins/codexqb/skills/codexqb/references/apply-run-schema.json`.
 
 ## Evidence-Based Project Comprehension
 

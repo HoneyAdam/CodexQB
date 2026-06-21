@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -208,9 +209,33 @@ class SkillContentTests(unittest.TestCase):
     def test_apply_role_templates_and_durable_controller_contract_are_wired(self) -> None:
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
         apply_ref = (SKILL_ROOT / "references/apply-orchestrator.md").read_text(encoding="utf-8")
+        apply_schema = json.loads((SKILL_ROOT / "references/apply-run-schema.json").read_text(encoding="utf-8"))
         validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         usage = (REPO_ROOT / "docs/USAGE.md").read_text(encoding="utf-8")
+        maintaining = (REPO_ROOT / "docs/MAINTAINING.md").read_text(encoding="utf-8")
+        self.assertEqual(apply_schema["$id"], "https://codexqb.local/schemas/apply-run-schema.json")
+        self.assertIn("anyOf", apply_schema)
+        schema_defs = apply_schema["$defs"]
+        for name in [
+            "ApplyRun",
+            "Progress",
+            "DispatchPacket",
+            "AgentRun",
+            "ImplementerReport",
+            "TaskReview",
+            "FixReport",
+            "FinalReview",
+            "Result",
+        ]:
+            self.assertIn(name, schema_defs)
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["apply_run_schema_version"]["const"], 1)
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["artifact_schema_version"]["const"], 3)
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["handoff_contract_version"]["const"], 2)
+        self.assertEqual(schema_defs["DispatchPacket"]["properties"]["spawn_tool"]["const"], "multi_agent_v1.spawn_agent")
+        self.assertIn("references/apply-run-schema.json", skill)
+        self.assertIn("plugins/codexqb/skills/codexqb/references/apply-run-schema.json", validate_script)
+        self.assertIn("references/apply-run-schema.json", maintaining)
         role_files = [
             "controller.md",
             "implementer.md",
@@ -256,6 +281,7 @@ class SkillContentTests(unittest.TestCase):
             "missing dispatch packets",
             "missing spawned/completed agent lifecycle records",
             "agent profile drift",
+            "apply-run-schema.json",
         ]:
             self.assertIn(phrase, readme)
             self.assertIn(phrase, usage)

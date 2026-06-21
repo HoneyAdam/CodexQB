@@ -186,7 +186,7 @@ The default `make check` gate validates tracked archive contents in Git checkout
 5. Update `plugins/codexqb/skills/codexqb/references/vibecoding-principles.md`, `subagent-playbook.md`, `planning-ledger.md`, `project-ontology.md`, `assessment-and-budget.md`, or `engineering-principles.md` when planning behavior changes.
 6. Update `plugins/codexqb/skills/codexqb/references/Fourth-Planner.md` if implementation handoff behavior changes.
 7. Update `plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py` if planner structure or readiness gates change.
-8. Update `plugins/codexqb/skills/codexqb/scripts/goal_run.py` or `apply_run.py` if Goal preview or Step 4 apply artifacts change.
+8. Update `plugins/codexqb/skills/codexqb/scripts/goal_run.py`, `apply_run.py`, or `references/apply-run-schema.json` if Goal preview or Step 4 apply artifacts change.
 9. Run `make check`.
 10. Optionally run the Codex skill/plugin validator scripts if their Python dependencies are available.
 11. Optionally sync and compare the local global skill copy for manual testing only when the active task permits global cache changes.

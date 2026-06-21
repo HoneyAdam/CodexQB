@@ -25,6 +25,7 @@ required_files=(
   "plugins/codexqb/skills/codexqb/references/Fourth-Planner.md"
   "plugins/codexqb/skills/codexqb/references/goal-compiler.md"
   "plugins/codexqb/skills/codexqb/references/apply-orchestrator.md"
+  "plugins/codexqb/skills/codexqb/references/apply-run-schema.json"
   "plugins/codexqb/skills/codexqb/references/apply/controller.md"
   "plugins/codexqb/skills/codexqb/references/apply/implementer.md"
   "plugins/codexqb/skills/codexqb/references/apply/task-reviewer.md"

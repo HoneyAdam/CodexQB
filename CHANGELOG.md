@@ -5,6 +5,7 @@
 - Bumped the release surface to 0.3.0 with deterministic Goal previews and artifact-based Step 4 apply-run contracts.
 - Added `references/goal-compiler.md`, stage goal specs, and dependency-free `scripts/goal_run.py` for `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json` generation.
 - Added `references/apply-orchestrator.md` and dependency-free `scripts/apply_run.py` for `.codexqb/apply-runs/<apply-run-id>/` artifacts, apply modes, `no_action` mode, review-order validation, and default `commit_policy: none`.
+- Added packaged `references/apply-run-schema.json` so Apply runtime artifacts have a public JSON Schema contract alongside dependency-free Python validation.
 - Added `goal_run_schema_version: 1` and `apply_run_schema_version: 1` runtime artifact contracts.
 - Hardened strict planner validation against shell chaining, command substitution, mutation/deploy validation commands, high-risk security-review bypasses, and empty framework/invariant rows.
 - Added shared safety contracts for planner, Goal, Apply, and export helpers; safe command profiles now reject arbitrary `python -c`, unchecked shell scripts, unsafe path arguments, mutating `make` targets, and custom package-manager scripts.

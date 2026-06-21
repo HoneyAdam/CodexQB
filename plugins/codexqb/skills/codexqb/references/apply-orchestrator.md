@@ -33,6 +33,8 @@ Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. U
 
 `Apply-Run.json` is the immutable run envelope: schema versions, requested mode, current mode, spec/run IDs, source snapshot, Step 4 readiness summary, workspace posture, safety defaults, agent profiles, and external adapter policy. `Progress.json` is mutable operational state: task list, task states, dispatch status, agent run records, writer locks, verified task IDs, final-review requirement, and resume cursor. `Events.jsonl` is the append-only transition truth. Per-task directories use the exact task ID and contain the brief, dispatch packet, agent-run records, implementer report, review package, task review, and fix report.
 
+The packaged public schema reference is `references/apply-run-schema.json`. Runtime validation remains dependency-free in `scripts/apply_run.py`; the schema file exists so users, reviewers, and generated package checks can inspect the artifact contract without reverse-engineering Python code.
+
 ## Modes
 
 - `direct`: parent-only execution for a bounded selected batch.

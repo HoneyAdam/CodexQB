@@ -30,6 +30,7 @@ Planning behavior references:
 - `references/engineering-principles.md` for domain-appropriate CS, architecture, validation, and secure engineering methods.
 - `references/goal-compiler.md` for deterministic Goal preview artifacts.
 - `references/apply-orchestrator.md` for Step 4 apply-run artifact contracts, modes, state, review loop, and resume/no-action behavior.
+- `references/apply-run-schema.json` for the public JSON Schema reference covering apply-run runtime artifacts.
 - `references/apply/controller.md`, `references/apply/implementer.md`, `references/apply/task-reviewer.md`, `references/apply/security-reviewer.md`, `references/apply/fixer.md`, and `references/apply/final-reviewer.md` for Step 4 fresh-context role brief/report contracts.
 
 Bundled support files:
