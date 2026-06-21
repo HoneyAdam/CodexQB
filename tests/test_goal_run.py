@@ -153,6 +153,28 @@ class GoalRunTests(unittest.TestCase):
             self.assertIn("unsafe_path=../outside/**", errors)
             self.assertIn("overlapping_allowed_forbidden_writes", errors)
 
+    def test_goal_run_rejects_invalid_semantic_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            run["mode"] = "invalid"
+            run["objective"] = " "
+            run["work_steps"] = []
+            run["validation_checkpoints"] = [{"argv": ["python3", "-c", "print('unsafe')"], "network": "allow"}]
+            run["subagent_plan"] = {"max_depth": 99, "roles": []}
+            run["context_token_budget"] = {"risk": "unbounded"}
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("invalid_goal_mode=invalid", errors)
+            self.assertIn("objective_required", errors)
+            self.assertIn("work_steps_required", errors)
+            self.assertIn("invalid_validation_checkpoints", errors)
+            self.assertIn("invalid_subagent_plan", errors)
+            self.assertIn("invalid_context_token_budget", errors)
+
     def test_goal_render_validates_before_writing_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

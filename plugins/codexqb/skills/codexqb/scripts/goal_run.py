@@ -45,6 +45,13 @@ STAGE_REFERENCES = {
     "step4": ["references/handoffs/run-step4.md", "references/Fourth-Planner.md", "references/goal-specs/step4.md"],
 }
 
+STAGE_MODES = {
+    "step15": {"wave", "autopsy", "refresh"},
+    "step2": {"wave", "full", "refresh", "repair"},
+    "step3": {"wave", "audit", "repair"},
+    "step4": {"direct", "subagent_serial", "external_superpowers", "no_action"},
+}
+
 PLANNER_DOC_SOURCES = [
     "Planner-docs/Main-Planing.md",
     "Planner-docs/Autopsy.md",
@@ -271,6 +278,32 @@ def validation_checkpoints_for(stage: str) -> list[dict[str, object]]:
     ]
 
 
+def checkpoint_is_safe(checkpoint: object) -> bool:
+    if not isinstance(checkpoint, dict):
+        return False
+    argv = checkpoint.get("argv")
+    if not isinstance(argv, list):
+        return False
+    expected_prefix = [
+        "python3",
+        "plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py",
+        "--root",
+        ".",
+        "--mode",
+    ]
+    if len(argv) != len(expected_prefix) + 1:
+        return False
+    if argv[: len(expected_prefix)] != expected_prefix:
+        return False
+    if not isinstance(argv[-1], str) or argv[-1] not in {"autopsy", "step2", "step3-preflight", "step3", "step4"}:
+        return False
+    if checkpoint.get("network") != "deny":
+        return False
+    if checkpoint.get("probe_tier") != 1:
+        return False
+    return True
+
+
 def default_goal_run(
     root: Path,
     stage: str,
@@ -343,6 +376,32 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
         errors.append("invalid_goal_run_schema_version")
     if run.get("plugin_version") != PLUGIN_VERSION:
         errors.append("invalid_plugin_version")
+    mode = str(run.get("mode", ""))
+    if mode not in STAGE_MODES[stage]:
+        errors.append(f"invalid_goal_mode={mode or 'missing'}")
+    objective = run.get("objective")
+    if not isinstance(objective, str) or not objective.strip():
+        errors.append("objective_required")
+    work_steps = run.get("work_steps")
+    if (
+        not isinstance(work_steps, list)
+        or not work_steps
+        or any(not isinstance(item, str) or not item.strip() for item in work_steps)
+    ):
+        errors.append("work_steps_required")
+    checkpoints = run.get("validation_checkpoints")
+    if (
+        not isinstance(checkpoints, list)
+        or not checkpoints
+        or any(not checkpoint_is_safe(item) for item in checkpoints)
+    ):
+        errors.append("invalid_validation_checkpoints")
+    subagent_plan = run.get("subagent_plan")
+    if not isinstance(subagent_plan, dict) or subagent_plan.get("max_depth") != 1:
+        errors.append("invalid_subagent_plan")
+    token_budget = run.get("context_token_budget")
+    if not isinstance(token_budget, dict) or token_budget.get("risk") not in {"low", "medium", "high"}:
+        errors.append("invalid_context_token_budget")
     bundle = template_bundle(stage)
     if run.get("template_bundle") != bundle["templates"]:
         errors.append("template_bundle_mismatch")

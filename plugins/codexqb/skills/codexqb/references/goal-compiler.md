@@ -30,6 +30,8 @@ Planner-docs/Goal-Runs/<goal-run-id>/
 
 `goal_spec_id` is stable for the same source snapshot, mode, objective, and active scope. `goal_run_id` includes an invocation suffix so repeated prepares create separate run directories unless the caller explicitly supplies the same `--output-dir`. Rendering must reject template bundle, compiler, source snapshot, or stored digest drift before writing output.
 
+Validation also rejects semantic drift in run controls: unsupported stage modes, blank objectives, empty work steps, unsafe validation checkpoints, recursive subagent depth, and invalid context-token risk declarations. These fields are execution safety controls, not display-only metadata.
+
 ## Security Rules
 
 - Output directory must be inside the target repository.
