@@ -308,20 +308,53 @@ def extract_contract_signals(text: str) -> dict[str, list[str]]:
     return signals
 
 
+def extract_implementation_contract(root: Path, subplan_path: str) -> dict[str, object]:
+    path = root / subplan_path
+    if not path.is_file():
+        return {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    section_match = re.search(
+        r"### Implementation Contract\s*(.*?)(?:\n### |\n## |\Z)",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not section_match:
+        return {}
+    json_match = re.search(r"```json\s*(.*?)\s*```", section_match.group(1), flags=re.DOTALL | re.IGNORECASE)
+    if not json_match:
+        return {}
+    try:
+        contract = json.loads(json_match.group(1))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(contract, dict):
+        return {}
+    return json.loads(json.dumps(contract, sort_keys=True))
+
+
 def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
     path = root / subplan_path
     text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
     contract = extract_contract_signals(text)
+    implementation_contract = extract_implementation_contract(root, subplan_path)
     item: dict[str, object] = {
         "subplan_path": subplan_path,
         "subplan_sha256": sha256_bytes(path.read_bytes()) if path.is_file() else None,
         "contract_signals": contract,
+        "implementation_contract": implementation_contract,
     }
-    item["security_review_required"] = any(
-        "required" in signal.lower() or "risk" in signal.lower()
-        for signal in contract["security_requirements"]
+    structured_security = implementation_contract.get("security_review_required")
+    item["security_review_required"] = (
+        structured_security
+        if isinstance(structured_security, bool)
+        else any("required" in signal.lower() or "risk" in signal.lower() for signal in contract["security_requirements"])
     )
     item["validation_command_count"] = len(contract["structured_validation_commands"])
+    structured_commands = implementation_contract.get("validation_commands")
+    if isinstance(structured_commands, list):
+        item["structured_validation_command_count"] = len([command for command in structured_commands if isinstance(command, dict)])
+    else:
+        item["structured_validation_command_count"] = 0
     return item
 
 

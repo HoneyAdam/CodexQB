@@ -250,12 +250,27 @@ class GoalRunTests(unittest.TestCase):
             self.assertTrue(any("parent_signals" in item for item in step2_contract["contract_signals"]["parent_signals"]))
             self.assertTrue(any("validation_commands" in item for item in step2_contract["contract_signals"]["structured_validation_commands"]))
             self.assertTrue(step2_contract["security_review_required"])
+            implementation_contract = step2_contract["implementation_contract"]
+            self.assertEqual(implementation_contract["contract_version"], 1)
+            self.assertEqual(implementation_contract["parent_signals"], ["MP-PH1-AS-01"])
+            self.assertEqual(implementation_contract["outputs"], ["reports/faz1-1-readiness.md"])
+            self.assertEqual(implementation_contract["validation_commands"][0]["id"], "VAL-01")
+            self.assertEqual(
+                implementation_contract["validation_commands"][0]["argv"],
+                ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"],
+            )
+            self.assertEqual(step2_contract["structured_validation_command_count"], 1)
             self.assertEqual(
                 step4["run"]["active_scope"]["ready_queue"][0]["subplan_path"],
                 "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
             )
             self.assertIn("contract_signals", step4["run"]["active_scope"]["ready_queue"][0])
+            self.assertEqual(
+                step4["run"]["active_scope"]["ready_queue"][0]["implementation_contract"]["outputs"],
+                ["reports/faz1-1-readiness.md"],
+            )
             self.assertGreaterEqual(step4["run"]["active_scope"]["ready_queue"][0]["validation_command_count"], 1)
+            self.assertEqual(step4["run"]["active_scope"]["ready_queue"][0]["structured_validation_command_count"], 1)
             roles = {role["role"]: role for role in step4["run"]["subagent_plan"]["roles"]}
             self.assertEqual(roles["implementer"]["model_profile"], "balanced")
             self.assertEqual(roles["implementer"]["sandbox"], "workspace-write")
