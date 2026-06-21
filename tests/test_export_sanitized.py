@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -30,34 +31,122 @@ def git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, text=True, capture_output=True)
 
 
+def git_commit_all(root: Path, message: str = "fixture") -> None:
+    git(root, "add", ".")
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=CodexQB Export Test",
+            "-c",
+            "user.email=codexqb-export@example.invalid",
+            "commit",
+            "-m",
+            message,
+        ],
+        cwd=root,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+def write_minimal_codexqb_tree(root: Path) -> None:
+    (root / "plugins/codexqb/.codex-plugin").mkdir(parents=True)
+    (root / "plugins/codexqb/.codex-plugin/plugin.json").write_text(
+        json.dumps({"version": "0.3.0"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (root / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n\n- 0.3.0 fixture.\n", encoding="utf-8")
+    (root / "README.md").write_text("# Fixture\n", encoding="utf-8")
+
+
+def archive_names(output: Path) -> set[str]:
+    with zipfile.ZipFile(output) as archive:
+        return set(archive.namelist())
+
+
+def package_manifest(output: Path) -> dict[str, object]:
+    with zipfile.ZipFile(output) as archive:
+        return json.loads(archive.read("CodexQB/PACKAGE-MANIFEST.json").decode("utf-8"))
+
+
 class ExportSanitizedTests(unittest.TestCase):
-    def test_default_export_excludes_untracked_files(self) -> None:
+    def test_release_export_writes_manifest_from_clean_tracked_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             git(root, "init")
-            (root / "README.md").write_text("# Fixture\n", encoding="utf-8")
-            git(root, "add", "README.md")
-            (root / "notes.txt").write_text("do not ship sk-" + "A" * 40 + "\n", encoding="utf-8")
+            write_minimal_codexqb_tree(root)
+            git_commit_all(root)
             output = root / "CodexQB-sanitized.zip"
 
             count = EXPORT_MODULE.create_zip(root, output)
 
-            self.assertEqual(count, 1)
-            with zipfile.ZipFile(output) as archive:
-                names = set(archive.namelist())
+            self.assertEqual(count, 3)
+            names = archive_names(output)
             self.assertIn("CodexQB/README.md", names)
-            self.assertNotIn("CodexQB/notes.txt", names)
+            self.assertIn("CodexQB/PACKAGE-MANIFEST.json", names)
+            manifest = package_manifest(output)
+            self.assertEqual(manifest["package_schema_version"], 1)
+            self.assertEqual(manifest["plugin_version"], "0.3.0")
+            self.assertEqual(manifest["file_count"], 3)
+            self.assertEqual(manifest["working_tree_clean"], True)
+            self.assertEqual(manifest["tracked_only"], True)
+            self.assertEqual(manifest["include_untracked"], False)
+            self.assertEqual(manifest["changelog_mentions_plugin_version"], True)
+            self.assertIsInstance(manifest["tree_sha256"], str)
+
+    def test_release_export_rejects_dirty_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            git(root, "init")
+            write_minimal_codexqb_tree(root)
+            git_commit_all(root)
+            (root / "notes.txt").write_text("local draft\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "working_tree_dirty"):
+                EXPORT_MODULE.create_zip(root, root / "CodexQB-sanitized.zip")
 
     def test_include_untracked_scans_secret_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             git(root, "init")
-            (root / "README.md").write_text("# Fixture\n", encoding="utf-8")
-            git(root, "add", "README.md")
+            write_minimal_codexqb_tree(root)
+            git_commit_all(root)
             (root / "notes.txt").write_text("leaked sk-" + "A" * 40 + "\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "secret_like_content=notes.txt"):
-                EXPORT_MODULE.create_zip(root, root / "CodexQB-sanitized.zip", include_untracked=True)
+                EXPORT_MODULE.create_zip(
+                    root,
+                    root / "CodexQB-sanitized.zip",
+                    include_untracked=True,
+                    allow_dirty=True,
+                    allow_head_mismatch=True,
+                )
+
+    def test_worktree_export_can_include_scanned_untracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            git(root, "init")
+            write_minimal_codexqb_tree(root)
+            git_commit_all(root)
+            (root / "notes.txt").write_text("local draft without secrets\n", encoding="utf-8")
+            output = root / "CodexQB-sanitized.zip"
+
+            count = EXPORT_MODULE.create_zip(
+                root,
+                output,
+                include_untracked=True,
+                allow_dirty=True,
+                allow_head_mismatch=True,
+            )
+
+            self.assertEqual(count, 4)
+            self.assertIn("CodexQB/notes.txt", archive_names(output))
+            manifest = package_manifest(output)
+            self.assertEqual(manifest["tracked_only"], False)
+            self.assertEqual(manifest["include_untracked"], True)
+            self.assertEqual(manifest["working_tree_clean"], False)
 
     @unittest.skipUnless(hasattr(Path, "symlink_to"), "symlink support required")
     def test_export_rejects_symlink_candidates(self) -> None:
@@ -66,9 +155,9 @@ class ExportSanitizedTests(unittest.TestCase):
             outside = Path(outside_dir) / "outside.txt"
             outside.write_text("outside secret\n", encoding="utf-8")
             git(root, "init")
-            (root / "README.md").write_text("# Fixture\n", encoding="utf-8")
+            write_minimal_codexqb_tree(root)
             (root / "external-link.txt").symlink_to(outside)
-            git(root, "add", "README.md", "external-link.txt")
+            git_commit_all(root)
 
             with self.assertRaisesRegex(ValueError, "symlink_rejected=external-link.txt"):
                 EXPORT_MODULE.create_zip(root, root / "CodexQB-sanitized.zip")

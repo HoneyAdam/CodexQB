@@ -30,6 +30,18 @@ If a real key is exposed in chat, logs, docs, examples, or commits, treat it as 
 
 When run inside a Git checkout, `make check` uses `git ls-files` for tracked-file secret hygiene and `git archive` for archive hygiene. When run from an extracted source package without `.git/`, it falls back to clearly labeled filesystem checks: package secret hygiene and package path hygiene. The package fallback is useful for validating shared archives, but it does not claim tracked-file or `git archive` coverage.
 
+Use separate validation tiers when diagnosing portability or release blockers:
+
+```bash
+make check-fast
+make check-behavior
+make check-release
+```
+
+`check-fast` skips behavior smokes while keeping unit/content/schema and fixture checks. `check-behavior` runs the Apply lifecycle, downstream Goal/Apply dry run, and prompt-size metric gates. `check-release` runs the normal gate, creates a strict tracked-only release zip with `PACKAGE-MANIFEST.json`, extracts it, and validates the package copy.
+
+`make export-sanitized` is the release export target. It requires a clean Git worktree and fails when `HEAD` differs from `origin/main` if that ref exists. It also records `plugin_version`, `git_commit`, `git_branch`, `working_tree_clean`, `head_matches_origin_main`, `file_count`, and `tree_sha256` in `PACKAGE-MANIFEST.json`. Use `make export-sanitized-worktree` only for explicit pre-commit worktree package checks that intentionally include untracked files.
+
 ## Optional Codex Validator Checks
 
 The Codex skill/plugin validator scripts may require PyYAML in the active Python environment. Use them when available, but do not make them the only release gate.

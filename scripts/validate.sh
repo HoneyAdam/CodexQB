@@ -61,6 +61,7 @@ required_files=(
   "docs/USAGE.md"
   "docs/MAINTAINING.md"
   "docs/FEEDBACK-CLOSURE-AUDIT.md"
+  "docs/release-audits/0.3.0-feedback-closure.md"
   "LICENSE"
 )
 
@@ -314,7 +315,7 @@ if offenders:
     sys.exit(1)
 PY
 
-python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" >/dev/null
+python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" --include-untracked --allow-dirty --allow-head-mismatch >/dev/null
 CODEXQB_SANITIZED_ZIP="$TMPDIR_VALIDATE/CodexQB-sanitized.zip" python3 - <<'PY'
 import os
 import re
@@ -334,6 +335,9 @@ archive_path = Path(os.environ["CODEXQB_SANITIZED_ZIP"])
 offenders: list[str] = []
 secret_offenders: list[str] = []
 with zipfile.ZipFile(archive_path) as archive:
+    names = set(archive.namelist())
+    if "CodexQB/PACKAGE-MANIFEST.json" not in names:
+        offenders.append("missing_package_manifest")
     for info in archive.infolist():
         name = info.filename
         if bad.search(name):
@@ -365,10 +369,14 @@ else
   python3 -m unittest discover -s tests -v
 fi
 
-# evals/run_apply_behavior_smoke.py prints apply_behavior_smoke=passed on success.
-python3 evals/run_apply_behavior_smoke.py
-# evals/run_downstream_goal_apply_dry_run.py prints downstream_goal_apply_dry_run=passed on success.
-python3 evals/run_downstream_goal_apply_dry_run.py
+if [[ "${CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE:-0}" == "1" ]]; then
+  echo "behavior_smokes_skipped=1"
+else
+  # evals/run_apply_behavior_smoke.py prints apply_behavior_smoke=passed on success.
+  python3 evals/run_apply_behavior_smoke.py
+  # evals/run_downstream_goal_apply_dry_run.py prints downstream_goal_apply_dry_run=passed on success.
+  python3 evals/run_downstream_goal_apply_dry_run.py
+fi
 # evals/run_goal_apply_metric_checks.py prints goal_apply_metric_checks=passed on success.
 python3 evals/run_goal_apply_metric_checks.py
 python3 evals/run_fixture_corpus_checks.py

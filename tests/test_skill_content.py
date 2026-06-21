@@ -352,6 +352,8 @@ class SkillContentTests(unittest.TestCase):
             "apply-orchestrator.md",
             "sanitized_zip_hygiene=passed",
             "sanitized_zip_hygiene_failed",
+            "PACKAGE-MANIFEST.json",
+            "CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE",
             "evals/run_apply_behavior_smoke.py",
             "evals/run_downstream_goal_apply_dry_run.py",
             "downstream_goal_apply_dry_run=passed",
@@ -359,6 +361,7 @@ class SkillContentTests(unittest.TestCase):
             "goal_apply_metric_checks=passed",
             "apply_behavior_smoke=passed",
             "docs/FEEDBACK-CLOSURE-AUDIT.md",
+            "docs/release-audits/0.3.0-feedback-closure.md",
         ]:
             self.assertIn(phrase, validate_script)
 
@@ -374,6 +377,18 @@ class SkillContentTests(unittest.TestCase):
             "downstream_goal_apply_dry_run=passed",
         ]:
             self.assertIn(phrase, closure_audit)
+        matrix = (REPO_ROOT / "docs/release-audits/0.3.0-feedback-closure.md").read_text(encoding="utf-8")
+        for phrase in [
+            "Allowed status values",
+            "contract implemented",
+            "artifact validated",
+            "behavior smoke passed",
+            "live Codex behavior observed",
+            "FB-001",
+            "FB-012",
+            "0.3.0 feature-complete candidate",
+        ]:
+            self.assertIn(phrase, matrix)
 
     def test_shared_safety_contracts_are_wired(self) -> None:
         safety = SKILL_ROOT / "scripts/safety_contracts.py"
@@ -522,7 +537,7 @@ class SkillContentTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, validator)
 
-    def test_planning_ledger_v2_is_documented_and_legacy_remains_supported(self) -> None:
+    def test_planning_ledger_v3_is_documented_and_legacy_remains_supported(self) -> None:
         ledger_ref = (SKILL_ROOT / "references/planning-ledger.md").read_text(encoding="utf-8")
         validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")
         for phrase in ["Plan Snapshot Registry", "Sub-Plan Status Matrix", "Ledger v3", "legacy v1", "Planning Evidence", "Implementation Evidence", "Superseded By", "Updated At"]:
@@ -540,10 +555,17 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("pull_request:", workflow)
         self.assertNotIn("branches: [main]", workflow)
         self.assertIn("scripts/export_sanitized.py", makefile)
+        self.assertIn("check-fast", makefile)
+        self.assertIn("check-behavior", makefile)
+        self.assertIn("check-release", makefile)
+        self.assertIn("export-sanitized-worktree", makefile)
         export_script = (REPO_ROOT / "scripts/export_sanitized.py").read_text(encoding="utf-8")
         self.assertIn("CodexQB-sanitized.zip", export_script)
         self.assertIn("IGNORED_PARTS", export_script)
         self.assertIn("BLOCKED_SUFFIXES", export_script)
+        self.assertIn("PACKAGE-MANIFEST.json", export_script)
+        self.assertIn("working_tree_dirty", export_script)
+        self.assertIn("head_mismatch_origin_main", export_script)
 
     def test_fixture_corpus_infrastructure_is_present(self) -> None:
         runner = REPO_ROOT / "evals/run_fixture_corpus_checks.py"
@@ -608,6 +630,8 @@ class SkillContentTests(unittest.TestCase):
 
         validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
         self.assertIn("python3 evals/run_fixture_corpus_checks.py", validate_script)
+        self.assertIn("python3 evals/run_downstream_goal_apply_dry_run.py", validate_script)
+        self.assertIn("--allow-dirty --allow-head-mismatch", validate_script)
 
     def test_probe_policy_and_schema_versions_are_documented(self) -> None:
         probe = SKILL_ROOT / "references/probe-policy.md"

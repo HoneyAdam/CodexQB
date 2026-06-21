@@ -6,6 +6,8 @@ Review baseline head: `cf9d80f Carry Goal implementation contracts`
 
 This audit maps the external feedback items to current repository evidence. It is not a release tag decision; it records what is closed, what is partially covered, and what still needs stronger evidence before declaring the full feedback objective complete.
 
+Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feedback-closure.md`.
+
 ## Summary
 
 | Area | Current status | Evidence |
@@ -21,7 +23,8 @@ This audit maps the external feedback items to current repository evidence. It i
 | Feedback item | Status | Evidence / notes |
 |---|---|---|
 | Sanitized exporter rejects symlink traversal and untracked secrets | Closed | `scripts/export_sanitized.py` rejects symlinks, outside-root resolved paths, ignored/runtime paths, and secret-like content. Covered by `tests/test_export_sanitized.py::test_export_rejects_symlink_candidates` and `test_include_untracked_scans_secret_content`. |
-| Export defaults to tracked files, optional untracked inclusion is scanned | Closed | `scripts/export_sanitized.py::candidate_paths`; documented in `README.md` and covered by `test_default_export_excludes_untracked_files`. |
+| Export defaults to tracked files, optional untracked inclusion is scanned | Closed | `scripts/export_sanitized.py::candidate_paths`; documented in `README.md` and covered by `test_release_export_writes_manifest_from_clean_tracked_tree` and `test_worktree_export_can_include_scanned_untracked_files`. |
+| Release package provenance and clean export split | Closed for artifact export | `scripts/export_sanitized.py` writes `PACKAGE-MANIFEST.json` with package schema, plugin version, commit, branch, clean-tree status, origin/main match status, file count, and tree hash. `make export-sanitized` is strict tracked-only release export; `make export-sanitized-worktree` is explicit dirty/untracked worktree export. Covered by `tests/test_export_sanitized.py::test_release_export_writes_manifest_from_clean_tracked_tree` and `test_release_export_rejects_dirty_worktree`. |
 | Shared structured command policy for planner, Goal, Apply, and export | Closed | `plugins/codexqb/skills/codexqb/scripts/safety_contracts.py`; wiring covered by `tests/test_skill_content.py::test_shared_safety_contracts_are_wired`. |
 | Reject arbitrary `python -c`, unsafe shell scripts, mutating make/npm/uv, unsafe path args | Closed | `safety_contracts.py::safe_validation_argv`; adversarial planner coverage in `tests/test_validate_planner_docs.py` and apply coverage in `tests/test_apply_run.py::test_apply_run_rejects_unsafe_queue_command`. |
 | Goal wildcard/path overlap policy | Closed | `goal_run.py::validate_goal_run`, `safety_contracts.py::glob_patterns_overlap`; covered by `test_goal_run_rejects_unsafe_wildcards_and_glob_overlap`. |
