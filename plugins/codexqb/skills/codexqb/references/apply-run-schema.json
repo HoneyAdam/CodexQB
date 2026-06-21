@@ -203,7 +203,17 @@
         "source_snapshot_digest": { "$ref": "#/$defs/Sha256" },
         "step4_readiness": {
           "type": "object",
-          "required": ["audit_path", "audit_present", "ready_queue_count", "validator_command", "execution_gate", "mode"],
+          "required": [
+            "audit_path",
+            "audit_present",
+            "ready_queue_count",
+            "validator_command",
+            "validator_status",
+            "validator_output_sha256",
+            "execution_queue_state",
+            "execution_gate",
+            "mode"
+          ],
           "properties": {
             "audit_path": { "const": "Planner-docs/Sub-Planing-Audit.md" },
             "audit_present": { "type": "boolean" },
@@ -215,6 +225,8 @@
               "items": { "$ref": "#/$defs/NonEmptyString" }
             },
             "validator_status": { "type": "string" },
+            "validator_output_sha256": { "$ref": "#/$defs/Sha256" },
+            "execution_queue_state": { "enum": ["BLOCKED", "NO_ACTION_REQUIRED", "READY", "unknown"] },
             "execution_gate": { "const": "step4_validator_must_pass_before_product_changes" },
             "mode": { "$ref": "#/$defs/ApplyMode" }
           },

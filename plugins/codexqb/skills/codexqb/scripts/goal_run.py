@@ -37,6 +37,7 @@ PLUGIN_VERSION = "0.3.0"
 
 SCRIPT_PATH = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT_PATH.parents[1]
+VALIDATOR_PATH = SCRIPT_PATH.with_name("validate_planner_docs.py")
 
 STAGE_REFERENCES = {
     "step15": ["references/Autopsy-Planner.md", "references/goal-specs/step15.md"],
@@ -172,6 +173,32 @@ def goal_run_id_for(stage: str, spec_digest: str, run_id_suffix: str | None = No
     return f"goal-{stage}-{spec_digest[:12]}-{invocation_suffix(run_id_suffix)}"
 
 
+def run_bundled_validator(root: Path, mode: str, *, strict: bool = True) -> tuple[int, str]:
+    command = [sys.executable, VALIDATOR_PATH.as_posix(), "--root", root.as_posix(), "--mode", mode]
+    if strict:
+        command.append("--strict")
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, f"validator_unavailable={type(exc).__name__}"
+    return completed.returncode, f"{completed.stdout}\n{completed.stderr}".strip()
+
+
+def stage_validator_mode(stage: str) -> str:
+    return {
+        "step15": "step1",
+        "step2": "step1",
+        "step3": "step3-preflight",
+        "step4": "step4",
+    }[stage]
+
+
 def stage_prerequisite_blockers(root: Path, stage: str) -> list[str]:
     docs = root / "Planner-docs"
     blockers: list[str] = []
@@ -190,6 +217,13 @@ def stage_prerequisite_blockers(root: Path, stage: str) -> list[str]:
             text = audit.read_text(encoding="utf-8", errors="replace")
             if "READY" not in text and "NO_ACTION_REQUIRED" not in text:
                 blockers.append("missing_prerequisite=step4_ready_queue_or_no_action")
+    if blockers:
+        return blockers
+    validator_mode = stage_validator_mode(stage)
+    code, output = run_bundled_validator(root, validator_mode, strict=True)
+    if code != 0:
+        blockers.append(f"validator_failed={validator_mode}")
+        blockers.append(f"validator_output_sha256={sha256_bytes(output.encode('utf-8'))}")
     return blockers
 
 
@@ -209,6 +243,7 @@ def extract_ready_queue(root: Path) -> list[dict[str, str]]:
         return []
     text = audit.read_text(encoding="utf-8", errors="replace")
     items: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for match in re.finditer(
         r"\b(READY_WITH_WARNINGS|READY)\b\s*:?\s*`?((?:Planner-docs/)?Faz-\d+-Plans/Faz\d+\.\d+-[a-z0-9-]+\.md)`?",
         text,
@@ -217,7 +252,27 @@ def extract_ready_queue(root: Path) -> list[dict[str, str]]:
         path = match.group(2)
         if not path.startswith("Planner-docs/"):
             path = f"Planner-docs/{path}"
-        items.append({"readiness_status": match.group(1).upper(), "subplan_path": path})
+        key = (match.group(1).upper(), path)
+        if key not in seen:
+            seen.add(key)
+            items.append({"readiness_status": key[0], "subplan_path": path})
+    for line in text.splitlines():
+        if "|" not in line or "---" in line:
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        path, status = cells[0], cells[1].upper()
+        if status not in {"READY", "READY_WITH_WARNINGS"}:
+            continue
+        if not re.fullmatch(r"(?:Planner-docs/)?Faz-\d+-Plans/Faz\d+\.\d+-[a-z0-9-]+\.md", path):
+            continue
+        if not path.startswith("Planner-docs/"):
+            path = f"Planner-docs/{path}"
+        key = (status, path)
+        if key not in seen:
+            seen.add(key)
+            items.append({"readiness_status": status, "subplan_path": path})
     return items
 
 

@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.test_validate_planner_docs import write_audit, write_valid_step2_fixture
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOAL_RUN = REPO_ROOT / "plugins/codexqb/skills/codexqb/scripts/goal_run.py"
@@ -27,15 +29,8 @@ GOAL_MODULE = load_goal_module()
 
 class GoalRunTests(unittest.TestCase):
     def write_goal_fixture(self, root: Path) -> None:
-        docs = root / "Planner-docs"
-        (docs / "Faz-1-Plans").mkdir(parents=True)
-        (docs / "Main-Planing.md").write_text("# Main Planing\n\n## 1. Executive Summary\n\nExample.\n", encoding="utf-8")
-        (docs / "Sub-Planing-Index.md").write_text("# Sub-Planing Index\n\nREADY queue for tests.\n", encoding="utf-8")
-        (docs / "Faz-1-Plans" / "Faz1.1-local-contract.md").write_text("# Faz 1.1 - Local Contract\n", encoding="utf-8")
-        (docs / "Sub-Planing-Audit.md").write_text(
-            "# Sub-Planing Audit\n\nREADY_WITH_WARNINGS: Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md\n",
-            encoding="utf-8",
-        )
+        docs = write_valid_step2_fixture(root)
+        write_audit(docs, "PASS")
 
     def test_compile_goal_writes_stable_spec_and_unique_run_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -98,10 +93,8 @@ class GoalRunTests(unittest.TestCase):
     def test_goal_run_snapshot_mismatch_blocks_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            docs = root / "Planner-docs"
-            docs.mkdir()
+            docs = write_valid_step2_fixture(root)
             main = docs / "Main-Planing.md"
-            main.write_text("# Main Planing\n\ninitial\n", encoding="utf-8")
             compiled = GOAL_MODULE.compile_goal(root, "step2")
             run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
 
@@ -198,6 +191,18 @@ class GoalRunTests(unittest.TestCase):
             self.assertEqual(compiled["result"]["status"], "blocked")
             self.assertFalse((out_dir / "Goal-Prompt.md").exists())
             self.assertIn("missing_prerequisite=Planner-docs/Sub-Planing-Audit.md", compiled["result"]["blockers"])
+
+    def test_goal_prepare_blocks_when_stage_validator_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            (docs / "Sub-Planing-Index.md").write_text("# broken index\n", encoding="utf-8")
+
+            compiled = GOAL_MODULE.compile_goal(root, "step3")
+
+            self.assertEqual(compiled["result"]["status"], "blocked")
+            self.assertIn("validator_failed=step3-preflight", compiled["result"]["blockers"])
+            self.assertFalse((Path(compiled["output_dir"]) / "Goal-Prompt.md").exists())
 
     def test_goal_run_id_includes_mode_and_objective_and_does_not_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

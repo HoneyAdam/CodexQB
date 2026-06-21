@@ -19,6 +19,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APPLY_RUN = REPO_ROOT / "plugins/codexqb/skills/codexqb/scripts/apply_run.py"
+if REPO_ROOT.as_posix() not in sys.path:
+    sys.path.insert(0, REPO_ROOT.as_posix())
+
+from tests.test_validate_planner_docs import write_audit, write_valid_step2_fixture  # noqa: E402
 
 
 def fail(message: str) -> None:
@@ -67,17 +71,14 @@ def parse_key(output: str, key: str) -> str:
 
 
 def write_fixture(root: Path) -> None:
-    docs = root / "Planner-docs"
-    subplans = docs / "Faz-1-Plans"
-    subplans.mkdir(parents=True)
-    (docs / "Main-Planing.md").write_text("# Main Planing\n\nBehavior smoke fixture.\n", encoding="utf-8")
-    (docs / "Sub-Planing-Index.md").write_text("# Sub-Planing Index\n\nOne READY smoke task.\n", encoding="utf-8")
-    (subplans / "Faz1.1-smoke-contract.md").write_text(
-        "\n".join(
+    docs = write_valid_step2_fixture(root)
+    subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+    subplan.write_text(
+        subplan.read_text(encoding="utf-8")
+        + "\n".join(
             [
-                "# Faz 1.1 - Smoke Contract",
                 "",
-                "## Implementation Contract",
+                "Additional Apply smoke signals:",
                 "- behavioral acceptance: smoke artifact reaches complete state.",
                 "- allowed write paths: src/smoke.py",
                 "- forbidden paths: .env",
@@ -91,10 +92,7 @@ def write_fixture(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (docs / "Sub-Planing-Audit.md").write_text(
-        "# Sub-Planing Audit\n\nREADY: Planner-docs/Faz-1-Plans/Faz1.1-smoke-contract.md\n",
-        encoding="utf-8",
-    )
+    write_audit(docs, "PASS")
 
 
 def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str) -> None:

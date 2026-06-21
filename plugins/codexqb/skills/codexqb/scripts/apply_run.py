@@ -33,6 +33,7 @@ ARTIFACT_SCHEMA_VERSION = 3
 HANDOFF_CONTRACT_VERSION = 2
 APPLY_RUN_SCHEMA_VERSION = 1
 PLUGIN_VERSION = "0.3.0"
+VALIDATOR_PATH = Path(__file__).resolve().with_name("validate_planner_docs.py")
 
 APPLY_MODES = {"direct", "subagent_serial", "external_superpowers", "no_action"}
 TASK_STATES = {
@@ -244,6 +245,7 @@ def extract_ready_queue(root: Path) -> list[dict[str, str]]:
         return []
     text = audit.read_text(encoding="utf-8", errors="replace")
     items: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for match in re.finditer(
         r"\b(READY_WITH_WARNINGS|READY)\b\s*:?\s*`?((?:Planner-docs/)?Faz-\d+-Plans/Faz\d+\.\d+-[a-z0-9-]+\.md)`?",
         text,
@@ -252,7 +254,27 @@ def extract_ready_queue(root: Path) -> list[dict[str, str]]:
         path = match.group(2)
         if not path.startswith("Planner-docs/"):
             path = f"Planner-docs/{path}"
-        items.append({"readiness_status": match.group(1).upper(), "subplan_path": path})
+        key = (match.group(1).upper(), path)
+        if key not in seen:
+            seen.add(key)
+            items.append({"readiness_status": key[0], "subplan_path": path})
+    for line in text.splitlines():
+        if "|" not in line or "---" in line:
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        path, status = cells[0], cells[1].upper()
+        if status not in {"READY", "READY_WITH_WARNINGS"}:
+            continue
+        if not re.fullmatch(r"(?:Planner-docs/)?Faz-\d+-Plans/Faz\d+\.\d+-[a-z0-9-]+\.md", path):
+            continue
+        if not path.startswith("Planner-docs/"):
+            path = f"Planner-docs/{path}"
+        key = (status, path)
+        if key not in seen:
+            seen.add(key)
+            items.append({"readiness_status": status, "subplan_path": path})
     return items
 
 
@@ -263,16 +285,57 @@ def audit_text(root: Path) -> str:
     return audit.read_text(encoding="utf-8", errors="replace")
 
 
-def validate_step4_queue(root: Path, mode: str) -> None:
-    if mode == "no_action":
-        return
+def run_step4_validator(root: Path) -> tuple[int, str]:
+    command = [
+        sys.executable,
+        VALIDATOR_PATH.as_posix(),
+        "--root",
+        root.as_posix(),
+        "--mode",
+        "step4",
+        "--strict",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, f"validator_unavailable={type(exc).__name__}"
+    return completed.returncode, f"{completed.stdout}\n{completed.stderr}".strip()
+
+
+def validator_metric(output: str, key: str) -> str:
+    prefix = f"{key}="
+    for line in output.splitlines():
+        if line.startswith(prefix):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def validate_step4_queue(root: Path, mode: str) -> dict[str, str]:
     audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
     if not audit.is_file():
         raise ValueError("missing_step4_audit=Planner-docs/Sub-Planing-Audit.md")
+    code, output = run_step4_validator(root)
+    output_hash = sha256_bytes(output.encode("utf-8"))
+    if code != 0:
+        raise ValueError(f"step4_validator_failed={output_hash}")
+    queue_state = validator_metric(output, "execution_queue_state") or "unknown"
+    if mode == "no_action":
+        if queue_state != "NO_ACTION_REQUIRED":
+            raise ValueError(f"no_action_requires_no_action_required_audit={queue_state}")
+        return {"validator_status": "passed", "execution_queue_state": queue_state, "validator_output_sha256": output_hash}
     if not extract_ready_queue(root):
         if "NO_ACTION_REQUIRED" in audit_text(root):
             raise ValueError("no_action_required_use_no_action_mode")
         raise ValueError("missing_step4_ready_queue")
+    if queue_state == "NO_ACTION_REQUIRED":
+        raise ValueError("no_action_required_use_no_action_mode")
+    return {"validator_status": "passed", "execution_queue_state": queue_state, "validator_output_sha256": output_hash}
 
 
 def extract_contract_signals(text: str) -> dict[str, list[str]]:
@@ -339,14 +402,20 @@ def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str
     return tasks
 
 
-def step4_readiness_summary(root: Path, mode: str, ready_queue: list[dict[str, str]]) -> dict[str, object]:
+def step4_readiness_summary(
+    root: Path,
+    mode: str,
+    ready_queue: list[dict[str, str]],
+    validation: dict[str, str],
+) -> dict[str, object]:
     audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
     text = audit_text(root)
+    queue_state = validation.get("execution_queue_state", "")
     return {
         "audit_path": "Planner-docs/Sub-Planing-Audit.md",
         "audit_present": audit.is_file(),
         "ready_queue_count": len(ready_queue),
-        "no_action_required": "NO_ACTION_REQUIRED" in text,
+        "no_action_required": queue_state == "NO_ACTION_REQUIRED" or "NO_ACTION_REQUIRED" in text,
         "validator_command": [
             "python3",
             "plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py",
@@ -355,7 +424,9 @@ def step4_readiness_summary(root: Path, mode: str, ready_queue: list[dict[str, s
             "--mode",
             "step4",
         ],
-        "validator_status": "not_run_by_prepare",
+        "validator_status": validation.get("validator_status", "unknown"),
+        "validator_output_sha256": validation.get("validator_output_sha256", ""),
+        "execution_queue_state": queue_state,
         "execution_gate": "step4_validator_must_pass_before_product_changes",
         "mode": mode,
     }
@@ -397,7 +468,7 @@ def create_apply_run(
     run_dir = (output_dir or root / ".codexqb" / "apply-runs" / run_id).resolve()
     if not is_inside(root, run_dir):
         raise ValueError("output_dir must be inside the target repository")
-    validate_step4_queue(root, mode)
+    step4_validation = validate_step4_queue(root, mode)
     if run_dir.exists() and not replace:
         raise ValueError(f"apply_run_already_exists={run_dir.relative_to(root).as_posix()}")
     if run_dir.exists() and replace:
@@ -429,7 +500,7 @@ def create_apply_run(
         "agent_profiles": AGENT_PROFILES,
         "source_snapshot": snapshot,
         "source_snapshot_digest": snapshot_digest(snapshot),
-        "step4_readiness": step4_readiness_summary(root, mode, ready_queue),
+        "step4_readiness": step4_readiness_summary(root, mode, ready_queue, step4_validation),
         "external_superpowers": {
             "required": mode == "external_superpowers",
             "availability": "not_checked",

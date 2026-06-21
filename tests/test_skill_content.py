@@ -232,6 +232,9 @@ class SkillContentTests(unittest.TestCase):
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["apply_run_schema_version"]["const"], 1)
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["artifact_schema_version"]["const"], 3)
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["handoff_contract_version"]["const"], 2)
+        step4_readiness = schema_defs["ApplyRun"]["properties"]["step4_readiness"]
+        self.assertIn("validator_output_sha256", step4_readiness["required"])
+        self.assertIn("execution_queue_state", step4_readiness["required"])
         self.assertEqual(schema_defs["DispatchPacket"]["properties"]["spawn_tool"]["const"], "multi_agent_v1.spawn_agent")
         self.assertIn("references/apply-run-schema.json", skill)
         self.assertIn("plugins/codexqb/skills/codexqb/references/apply-run-schema.json", validate_script)
@@ -261,6 +264,8 @@ class SkillContentTests(unittest.TestCase):
             "apply_run.py transition",
             "apply_run.py recover-lock",
             "apply_run.py finalize",
+            "strict Step 4 validation",
+            "validator output hash",
             "Dispatch-Packet.json",
             "Agent-Run-<role>-<nn>.json",
             "multi_agent_v1.spawn_agent",
@@ -278,6 +283,7 @@ class SkillContentTests(unittest.TestCase):
             "recover-lock --run-dir",
             "finalize --run-dir",
             "Events.jsonl",
+            "strict Step 4 validation",
             "missing dispatch packets",
             "missing spawned/completed agent lifecycle records",
             "agent profile drift",

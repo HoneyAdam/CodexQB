@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.test_validate_planner_docs import write_audit, write_valid_step2_fixture
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APPLY_RUN = REPO_ROOT / "plugins/codexqb/skills/codexqb/scripts/apply_run.py"
@@ -27,16 +29,14 @@ APPLY_MODULE = load_apply_module()
 
 class ApplyRunTests(unittest.TestCase):
     def write_apply_fixture(self, root: Path) -> None:
-        docs = root / "Planner-docs"
-        (docs / "Faz-1-Plans").mkdir(parents=True)
-        (docs / "Main-Planing.md").write_text("# Main Planing\n", encoding="utf-8")
-        (docs / "Sub-Planing-Index.md").write_text("# Sub-Planing Index\n", encoding="utf-8")
-        (docs / "Faz-1-Plans" / "Faz1.1-local-contract.md").write_text(
-            "\n".join(
+        docs = write_valid_step2_fixture(root)
+        subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+        subplan.write_text(
+            subplan.read_text(encoding="utf-8")
+            + "\n".join(
                 [
-                    "# Faz 1.1 - Local Contract",
                     "",
-                    "## Implementation Contract",
+                    "Additional Apply fresh-context signals:",
                     "- behavioral acceptance: API returns durable state.",
                     "- allowed write paths: src/example.py",
                     "- forbidden paths: .env",
@@ -50,9 +50,19 @@ class ApplyRunTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        (docs / "Sub-Planing-Audit.md").write_text(
-            "# Sub-Planing Audit\n\nREADY: Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md\n",
-            encoding="utf-8",
+        write_audit(docs, "PASS")
+
+    def write_no_action_fixture(self, root: Path) -> None:
+        docs = write_valid_step2_fixture(root)
+        write_audit(
+            docs,
+            "PASS",
+            readiness_rows=[
+                "| Sub-Plan Path | Status | Finding IDs | Dependency State | Reason | Required Repair |",
+                "|---|---|---|---|---|---|",
+                "| Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md | COMPLETE | none | satisfied | Already verified. | none |",
+                "| Planner-docs/Faz-2-Plans/Faz2.1-live-gateway.md | SUPERSEDED | none | satisfied | Replaced by later plan. | none |",
+            ],
         )
 
     def first_task_id(self, run_dir: Path) -> str:
@@ -189,9 +199,9 @@ class ApplyRunTests(unittest.TestCase):
                 "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
             )
             contract = progress["tasks"][0]["fresh_context_contract"]
-            self.assertIn("behavioral acceptance", contract["acceptance_criteria"][0])
-            self.assertIn("allowed write paths", contract["allowed_paths"][0])
-            self.assertIn("validation command argv", contract["structured_validation_commands"][0])
+            self.assertTrue(any("behavioral acceptance" in item for item in contract["acceptance_criteria"]))
+            self.assertTrue(any("allowed write paths" in item for item in contract["allowed_paths"]))
+            self.assertTrue(any("validation command argv" in item for item in contract["structured_validation_commands"]))
             brief = (run_dir / task_id / "Brief.md").read_text(encoding="utf-8")
             self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", brief)
             self.assertIn("fresh_context_contract", brief)
@@ -300,12 +310,15 @@ class ApplyRunTests(unittest.TestCase):
 
     def test_no_action_mode_has_no_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = APPLY_MODULE.create_apply_run(Path(temp_dir), "no_action")
+            root = Path(temp_dir)
+            self.write_no_action_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "no_action")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
             self.assertEqual(progress["tasks"], [])
             self.assertEqual(run["mode"], "no_action")
+            self.assertEqual(run["step4_readiness"]["execution_queue_state"], "NO_ACTION_REQUIRED")
 
     def test_apply_run_rejects_output_dir_outside_repo(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside:
@@ -544,13 +557,8 @@ class ApplyRunTests(unittest.TestCase):
     def test_apply_run_snapshot_mismatch_blocks_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            self.write_apply_fixture(root)
             docs = root / "Planner-docs"
-            (docs / "Faz-1-Plans").mkdir(parents=True)
-            (docs / "Faz-1-Plans" / "Faz1.1-local-contract.md").write_text("# Faz 1.1 - Local Contract\n", encoding="utf-8")
-            (docs / "Sub-Planing-Audit.md").write_text(
-                "READY: Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md\n",
-                encoding="utf-8",
-            )
             result = APPLY_MODULE.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             (docs / "Sub-Planing-Audit.md").write_text("changed\n", encoding="utf-8")
@@ -603,7 +611,9 @@ class ApplyRunTests(unittest.TestCase):
 
     def test_apply_run_rejects_task_id_traversal_and_no_action_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            no_action = APPLY_MODULE.create_apply_run(Path(temp_dir), "no_action")
+            root = Path(temp_dir)
+            self.write_no_action_fixture(root)
+            no_action = APPLY_MODULE.create_apply_run(root, "no_action")
             run_dir = Path(no_action["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             progress["tasks"] = [{"task_id": "../../outside-task", "state": "BRIEFED", "readiness_status": "READY"}]
@@ -656,6 +666,15 @@ class ApplyRunTests(unittest.TestCase):
             self.assertIn(f"verified_requires_files_changed={task_id}", errors)
             self.assertIn(f"verified_requires_validation_evidence={task_id}", errors)
             self.assertIn(f"verified_requires_review_evidence={task_id}", errors)
+
+    def test_apply_prepare_requires_passing_step4_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            (root / "Planner-docs" / "Sub-Planing-Audit.md").write_text("# broken audit\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "step4_validator_failed="):
+                APPLY_MODULE.create_apply_run(root, "direct")
 
 
 if __name__ == "__main__":

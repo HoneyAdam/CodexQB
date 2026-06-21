@@ -11,9 +11,11 @@
 - Added shared safety contracts for planner, Goal, Apply, and export helpers; safe command profiles now reject arbitrary `python -c`, unchecked shell scripts, unsafe path arguments, mutating `make` targets, and custom package-manager scripts.
 - Hardened sanitized export against symlink traversal and untracked secret leakage. The helper defaults to tracked files; `make export-sanitized` explicitly includes untracked files only after symlink and content secret scanning.
 - Hardened Goal previews with stage prerequisite blockers, relative project scope, unsafe glob/path overlap checks, stored snapshot digest validation, render-time validation, and no silent overwrite of existing Goal run artifacts.
+- Hardened Goal preview preparation so stage prerequisites run the bundled validator and produce blocked results instead of execution prompts when Step 1, Step 3 preflight, or Step 4 readiness validation fails.
 - Hardened Goal run semantic controls for supported stage modes, non-empty objectives and work steps, safe validation checkpoints, single-depth subagent plans, and bounded token-risk declarations.
 - Added project-specific Goal scope collectors for active sub-plans and Step 4 READY queues.
 - Hardened Apply artifacts with audit-derived task queues, no silent progress overwrite, no-action queue consistency, task ID traversal rejection, shared validation-command policy, immutable plan snapshot separation from `Planing-Ledger.md`, workspace baseline hashes, and evidence-bearing VERIFIED/final-review gates.
+- Hardened Apply preparation so `prepare` runs strict Step 4 validation, records validator evidence in `Apply-Run.json`, and derives READY queues from both prose and readiness-table audit rows.
 - Added Apply transition control with `prepare`/`transition` CLI support, append-only `Events.jsonl`, atomic JSON writes, create-exclusive `Writer-Lock.json`, state-transition validation, and agent profile drift checks.
 - Added `dispatch` and `record-agent` CLI support for `subagent_serial` runs so fresh-context `Dispatch-Packet.json` artifacts and spawned/completed/failed agent-run records bind task briefs to parent Codex `multi_agent_v1.spawn_agent` execution before implementation states advance.
 - Added expired writer-lock validation and `recover-lock` CLI support for abandoned `IMPLEMENTING` tasks.
