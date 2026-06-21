@@ -1,6 +1,6 @@
 # CodexQB Dynamic Goal Compiler
 
-The Dynamic Goal Compiler turns CodexQB source contracts into a deterministic Goal preview before a user starts Goal mode.
+The Dynamic Goal Compiler turns CodexQB source contracts into a deterministic Goal spec and a unique Goal preview run before a user starts Goal mode.
 
 It is not an executor. It does not run validation commands, edit global Codex configuration, install dependencies, sync plugin caches, commit, push, create pull requests, deploy, or mutate external systems.
 
@@ -15,7 +15,7 @@ It is not an executor. It does not run validation commands, edit global Codex co
 
 ## Outputs
 
-The compiler writes a deterministic run directory:
+The compiler writes a per-invocation run directory:
 
 ```text
 Planner-docs/Goal-Runs/<goal-run-id>/
@@ -24,9 +24,11 @@ Planner-docs/Goal-Runs/<goal-run-id>/
   Goal-Result.json
 ```
 
-`Goal-Run.json` records source snapshot hashes, stage, handoff contract version, artifact schema version, output paths, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked.
+`Goal-Run.json` records source snapshot hashes, deterministic `goal_spec_id`, invocation-specific `goal_run_id`, stage, handoff contract version, artifact schema version, output paths, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked.
 
 `Goal-Prompt.md` must be rendered deterministically from a valid `Goal-Run.json`. Rendering must first validate schema version, secret hygiene, source snapshot integrity, current snapshot match, allowed/forbidden path policy, and glob overlap.
+
+`goal_spec_id` is stable for the same source snapshot, mode, objective, and active scope. `goal_run_id` includes an invocation suffix so repeated prepares create separate run directories unless the caller explicitly supplies the same `--output-dir`.
 
 ## Security Rules
 
@@ -35,7 +37,7 @@ Planner-docs/Goal-Runs/<goal-run-id>/
 - Source snapshots include hashes and relative paths only.
 - Active scope must use portable repo-relative roots such as `"."`, not local absolute paths.
 - Allowed and forbidden write patterns must be repo-relative. Absolute paths, traversal, unsafe wildcards, and overlapping allowed/forbidden patterns are blockers.
-- Existing run directories must not be overwritten unless `--replace` or `--resume` is explicit.
+- Existing run directories must not be overwritten unless `--replace` is explicit. `--resume` requires an explicit output directory and validates the existing `Goal-Run.json` before rendering or reporting it.
 - The compiler must never include secrets, environment values, local credentials, or full logs.
 - The compiler must never execute validation commands from planner docs.
 - Step 4 prompts must preserve no-commit/no-push/no-PR/no-deploy defaults unless the user explicitly opts in during the implementation run.

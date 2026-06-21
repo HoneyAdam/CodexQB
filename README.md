@@ -8,7 +8,7 @@
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
-The current 0.3.0 release adds deterministic Goal previews and an artifact-based Step 4 apply-run protocol on top of adaptive Step 2 planning horizons and semantic plan-quality gates. Repository marketplace distribution remains hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and sanitized exports through `make export-sanitized`.
+The current 0.3.0 release adds deterministic Goal/apply specs with unique invocation run artifacts on top of adaptive Step 2 planning horizons and semantic plan-quality gates. Repository marketplace distribution remains hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, and sanitized exports through `make export-sanitized`.
 
 Release contracts:
 
@@ -29,9 +29,9 @@ apply_run_schema_version: 1
 - **Implementation-ready planning gates:** Active sub-plans keep the 13-section human-readable structure and add a machine-readable implementation contract with repo-relative paths, exact validation commands, parent acceptance signal IDs, dependency labels, concrete outputs, and security review flags.
 - **Structured command and risk contracts:** Step 2 contracts prefer `argv` validation commands with cwd, expected exit code, timeout, network, and probe tier fields. Strict validation uses shared safe command profiles and rejects shell chaining, command substitution, arbitrary `python -c`, unchecked shell scripts, unsafe path arguments, mutation/deploy intent, and high-risk work without security review.
 - **QA before implementation:** The audit step checks coverage, naming, ordering, section structure, readiness, ontology consistency, planning-history continuity, framework ownership, algorithmic invariants, security/governance, vibecoding slice quality, and implementation preparedness.
-- **Deterministic Goal previews:** `scripts/goal_run.py` compiles source snapshots, active sub-plan inventory, Step 4 READY queues, and canonical handoffs into `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json` without executing commands. Missing stage prerequisites produce a blocked result instead of an execution prompt.
+- **Deterministic Goal specs, unique Goal runs:** `scripts/goal_run.py` compiles source snapshots, active sub-plan inventory, Step 4 READY queues, and canonical handoffs into `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json` without executing commands. `goal_spec_id` is stable for the same source/mode/objective/scope, while `goal_run_id` is unique per invocation. Missing stage prerequisites produce a blocked result instead of an execution prompt.
 - **Gated execution handoff:** CodexQB does not implement product changes itself. It prints a separate Goal mode prompt only when the audit says implementation can begin, then guides that run through the READY queue in small verified slices and asks Step 4 to append concise implementation summaries to `Planing-Ledger.md`.
-- **Artifact-based apply runs:** `scripts/apply_run.py` creates and validates `.codexqb/apply-runs/<apply-run-id>/` artifacts for `direct`, `subagent_serial`, `external_superpowers`, and `no_action` modes. It derives task briefs from Step 4 READY audit entries and rejects unsafe task IDs, no-action queues, unsafe validation commands, silent progress overwrite, eventless state jumps, stale writer locks, agent profile drift, and VERIFIED tasks without implementation/review/final-validation evidence. Commit, push, PR, deploy, and external mutation remain opt-in.
+- **Artifact-based apply runs:** `scripts/apply_run.py` creates and validates `.codexqb/apply-runs/<apply-run-id>/` artifacts for `direct`, `subagent_serial`, `external_superpowers`, and `no_action` modes. `apply_spec_id` is stable for the selected mode, source snapshot, and READY queue; `apply_run_id` is unique per invocation. It derives task briefs from Step 4 READY audit entries and rejects unsafe task IDs, no-action queues, unsafe validation commands, silent progress overwrite, eventless state jumps, stale writer locks, agent profile drift, unchecked/unreconciled external Superpowers adapters, and VERIFIED tasks without implementation/review/final-validation evidence. Commit, push, PR, deploy, and external mutation remain opt-in.
 
 
 ## Vibecoding-First Behavior
@@ -58,9 +58,10 @@ CodexQB 0.3.0 also includes optional local preview helpers:
 python3 plugins/codexqb/skills/codexqb/scripts/goal_run.py --root /path/to/project --stage step2
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py prepare --root /path/to/project --mode subagent_serial
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py transition --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id task-1 --to IMPLEMENTING --actor impl-1 --evidence "brief accepted"
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py reconcile --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
 ```
 
-These helpers write deterministic artifacts inside the target repository and do not execute implementation, validation, commit, push, PR, deploy, dependency install, or global Codex configuration changes.
+These helpers write deterministic spec records with unique run directories inside the target repository and do not execute implementation, product validation, commit, push, PR, deploy, dependency install, or global Codex configuration changes.
 `Goal-Run.json` uses `goal_run_schema_version: 1`; `Apply-Run.json` uses `apply_run_schema_version: 1`.
 
 ## Quick Start
@@ -136,6 +137,8 @@ Planner-docs/
     Final-Review.json
     Result.json
 ```
+
+`<goal-run-id>` and `<apply-run-id>` include invocation suffixes so repeated prepares do not collide. Use an explicit `--output-dir` plus `--resume` to continue an existing run, or `--replace` only when intentionally regenerating that directory.
 
 ## Evidence-Based Project Comprehension
 

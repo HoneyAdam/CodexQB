@@ -37,16 +37,17 @@ class GoalRunTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_compile_goal_writes_deterministic_step2_artifacts(self) -> None:
+    def test_compile_goal_writes_stable_spec_and_unique_run_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_goal_fixture(root)
 
-            first = GOAL_MODULE.compile_goal(root, "step2")
-            second = GOAL_MODULE.compile_goal(root, "step2", replace=True)
+            first = GOAL_MODULE.compile_goal(root, "step2", run_id_suffix="one")
+            second = GOAL_MODULE.compile_goal(root, "step2", run_id_suffix="two")
 
-            self.assertEqual(first["result"]["goal_run_id"], second["result"]["goal_run_id"])
             self.assertEqual(first["run"]["goal_spec_id"], second["run"]["goal_spec_id"])
+            self.assertEqual(first["run"]["goal_spec_digest"], second["run"]["goal_spec_digest"])
+            self.assertNotEqual(first["result"]["goal_run_id"], second["result"]["goal_run_id"])
             out_dir = Path(first["output_dir"])
             self.assertIn("Planner-docs/Goal-Runs", out_dir.as_posix())
             self.assertTrue((out_dir / "Goal-Run.json").is_file())
@@ -61,6 +62,8 @@ class GoalRunTests(unittest.TestCase):
             self.assertEqual(run["handoff_contract_version"], 2)
             self.assertEqual(run["stage"], "step2")
             self.assertIn("source_snapshot_digest", run)
+            self.assertIn("goal_spec_digest", run)
+            self.assertEqual(run["goal_run_invocation_id"], "one")
             self.assertIn("required_inputs", run)
             self.assertIn("allowed_writes", run)
             self.assertIn("forbidden_writes", run)
@@ -164,9 +167,12 @@ class GoalRunTests(unittest.TestCase):
             first = GOAL_MODULE.compile_goal(root, "step2", mode="wave", objective="A")
             second = GOAL_MODULE.compile_goal(root, "step2", mode="full", objective="B")
 
+            self.assertNotEqual(first["run"]["goal_spec_id"], second["run"]["goal_spec_id"])
             self.assertNotEqual(first["result"]["goal_run_id"], second["result"]["goal_run_id"])
+            fixed = root / "Planner-docs" / "Goal-Runs" / "fixed"
+            GOAL_MODULE.compile_goal(root, "step2", mode="wave", objective="A", output_dir=fixed)
             with self.assertRaises(ValueError):
-                GOAL_MODULE.compile_goal(root, "step2", mode="wave", objective="A")
+                GOAL_MODULE.compile_goal(root, "step2", mode="wave", objective="A", output_dir=fixed)
 
     def test_goal_run_detects_tampered_stored_snapshot_digest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

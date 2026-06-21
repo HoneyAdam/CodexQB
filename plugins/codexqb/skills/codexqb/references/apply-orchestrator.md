@@ -25,12 +25,13 @@ These runtime directories are created in the target repository, not in the Codex
 Non-`no_action` runs derive initial task briefs from Step 4 READY or READY_WITH_WARNINGS entries in `Planner-docs/Sub-Planing-Audit.md` when available. The audit-derived source sub-plan path and hash are recorded in both `Progress.json` and `Brief.md`.
 When present in the active sub-plan, the controller also copies fresh-context contract signals into each task: acceptance criteria, allowed/forbidden paths, parent signals, dependencies, framework ownership, algorithmic invariants, structured validation commands, and security requirements.
 Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. Use `apply_run.py transition` for state changes so `Events.jsonl` remains the append-only transition truth. `Progress.json` is the current state snapshot.
+`apply_spec_id` is deterministic for the selected mode, source snapshot, and Step 4 READY queue. `apply_run_id` is unique per invocation. To continue a run, pass `--resume` with the exact `--output-dir`; to intentionally regenerate one directory, pass `--replace`.
 
 ## Modes
 
 - `direct`: parent-only execution for a bounded selected batch.
 - `subagent_serial`: parent controller dispatches one fresh implementer at a time, then runs independent reviews.
-- `external_superpowers`: optional adapter when Superpowers is already installed; CodexQB remains top-level controller.
+- `external_superpowers`: optional adapter when Superpowers is already installed; CodexQB remains top-level controller. Availability must be checked before dispatch. If unavailable, run `apply_run.py reconcile` so the artifact mode becomes `subagent_serial` before implementation starts.
 - `no_action`: record NO_ACTION_REQUIRED without starting implementation.
 
 ## State Machine
@@ -108,4 +109,5 @@ Fresh-context role templates live under `references/apply/`:
 - JSON snapshots are written with temp-file plus replace; writer lock uses create-exclusive semantics.
 - `no_action` runs must not contain queued tasks.
 - Task IDs must use the controller-generated `task-<n>` format and resolve inside the apply-run directory.
+- `external_superpowers` runs must record adapter availability and metadata before dispatch; unavailable adapters must be reconciled to `subagent_serial`.
 - VERIFIED tasks require matching brief hashes, implementer identity, changed-file inventory, passing validation evidence, independent reviewer identity, review evidence, and final repo-level validation evidence.

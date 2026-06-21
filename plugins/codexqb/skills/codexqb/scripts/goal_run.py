@@ -9,8 +9,10 @@ the target repo.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -137,6 +139,18 @@ def goal_spec_digest(stage: str, sources: list[dict[str, str]], mode: str, objec
     return sha256_bytes(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
+def invocation_suffix(value: str | None = None) -> str:
+    raw = value or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{os.getpid()}"
+    suffix = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-._")
+    if not suffix:
+        raise ValueError("invalid_run_id_suffix")
+    return suffix[:64]
+
+
+def goal_run_id_for(stage: str, spec_digest: str, run_id_suffix: str | None = None) -> str:
+    return f"goal-{stage}-{spec_digest[:12]}-{invocation_suffix(run_id_suffix)}"
+
+
 def stage_prerequisite_blockers(root: Path, stage: str) -> list[str]:
     docs = root / "Planner-docs"
     blockers: list[str] = []
@@ -243,14 +257,21 @@ def validation_checkpoints_for(stage: str) -> list[dict[str, object]]:
     ]
 
 
-def default_goal_run(root: Path, stage: str, mode: str | None = None, objective: str | None = None) -> dict[str, object]:
+def default_goal_run(
+    root: Path,
+    stage: str,
+    mode: str | None = None,
+    objective: str | None = None,
+    run_id_suffix: str | None = None,
+) -> dict[str, object]:
     sources = collect_sources(root, stage)
     digest = snapshot_digest(stage, sources)
     selected_mode = mode or ("subagent_serial" if stage == "step4" else "wave")
     selected_objective = objective or f"Run CodexQB {stage} using current repository planning evidence."
     active_scope = collect_stage_scope(root, stage)
     spec_digest = goal_spec_digest(stage, sources, selected_mode, selected_objective, active_scope)
-    run_id = f"goal-{stage}-{spec_digest[:12]}"
+    suffix = invocation_suffix(run_id_suffix)
+    run_id = goal_run_id_for(stage, spec_digest, suffix)
     allowed_writes = {
         "step15": ["Planner-docs/Autopsy.md", "Planner-docs/Project-Ontology.md", "Planner-docs/Project-Comprehension.md"],
         "step2": ["Planner-docs/Sub-Planing-Index.md", "Planner-docs/Planing-Ledger.md", "Planner-docs/Faz-*-Plans/*.md"],
@@ -262,7 +283,9 @@ def default_goal_run(root: Path, stage: str, mode: str | None = None, objective:
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
         "handoff_contract_version": HANDOFF_CONTRACT_VERSION,
         "goal_spec_id": f"spec-{stage}-{spec_digest[:16]}",
+        "goal_spec_digest": spec_digest,
         "goal_run_id": run_id,
+        "goal_run_invocation_id": suffix,
         "stage": stage,
         "stage_contract_version": HANDOFF_CONTRACT_VERSION,
         "plugin_version": PLUGIN_VERSION,
@@ -282,7 +305,7 @@ def default_goal_run(root: Path, stage: str, mode: str | None = None, objective:
         "context_token_budget": {"risk": "medium", "confirmation_required": stage in {"step2", "step4"}},
         "final_report_contract": ["files changed", "validations", "blockers", "next action"],
         "user_confirmation_required": stage in {"step2", "step4"},
-        "generated_at": f"deterministic:{digest[:16]}",
+        "generated_at": f"invocation:{suffix}",
         "safety": {
             "executes_commands": False,
             "allows_global_config_edits": False,
@@ -302,6 +325,23 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
         errors.append("invalid_goal_run_schema_version")
     if run.get("plugin_version") != PLUGIN_VERSION:
         errors.append("invalid_plugin_version")
+    spec_digest = goal_spec_digest(
+        stage,
+        run.get("source_snapshot", []) if isinstance(run.get("source_snapshot"), list) else [],
+        str(run.get("mode", "")),
+        str(run.get("objective", "")),
+        run.get("active_scope", {}) if isinstance(run.get("active_scope"), dict) else {},
+    )
+    if run.get("goal_spec_digest") != spec_digest:
+        errors.append("stored_goal_spec_digest_mismatch")
+    if run.get("goal_spec_id") != f"spec-{stage}-{spec_digest[:16]}":
+        errors.append("stored_goal_spec_id_mismatch")
+    invocation = str(run.get("goal_run_invocation_id", ""))
+    if not invocation or invocation_suffix(invocation) != invocation:
+        errors.append("invalid_goal_run_invocation_id")
+    expected_run_id = f"goal-{stage}-{spec_digest[:12]}-{invocation}" if invocation else ""
+    if run.get("goal_run_id") != expected_run_id:
+        errors.append("stored_goal_run_id_mismatch")
     text = json.dumps(run, sort_keys=True)
     if has_secret_like(text):
         errors.append("secret_like_content")
@@ -393,17 +433,35 @@ def compile_goal(
     *,
     replace: bool = False,
     resume: bool = False,
+    run_id_suffix: str | None = None,
 ) -> dict[str, object]:
     root = root.resolve()
     if stage not in STAGE_REFERENCES:
         raise ValueError(f"unsupported stage: {stage}")
-    run = default_goal_run(root, stage, mode, objective)
+    if resume and output_dir is None:
+        raise ValueError("resume_requires_output_dir")
+    run = default_goal_run(root, stage, mode, objective, run_id_suffix)
     errors = validate_goal_run(root, run)
     if errors:
         raise ValueError(";".join(errors))
     out_dir = (output_dir or root / "Planner-docs" / "Goal-Runs" / str(run["goal_run_id"])).resolve()
     if not is_inside(root, out_dir):
         raise ValueError("output_dir must be inside the target repository")
+    if resume:
+        run_path = out_dir / "Goal-Run.json"
+        if not run_path.is_file():
+            raise ValueError(f"goal_run_resume_missing={out_dir.relative_to(root).as_posix()}")
+        existing = load_goal_run(run_path)
+        existing_errors = validate_goal_run(root, existing)
+        if existing_errors:
+            raise ValueError(";".join(existing_errors))
+        result_path = out_dir / "Goal-Result.json"
+        result = load_goal_run(result_path) if result_path.is_file() else {
+            "goal_run_id": existing.get("goal_run_id"),
+            "stage": existing.get("stage"),
+            "status": "resumed",
+        }
+        return {"run": existing, "result": result, "output_dir": out_dir.as_posix()}
     if out_dir.exists() and not replace and not resume:
         raise ValueError(f"goal_run_already_exists={out_dir.relative_to(root).as_posix()}")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -475,6 +533,7 @@ def main(argv: list[str] | None = None) -> int:
     prepare.add_argument("--output-dir")
     prepare.add_argument("--replace", action="store_true")
     prepare.add_argument("--resume", action="store_true")
+    prepare.add_argument("--run-id-suffix")
     validate = sub.add_parser("validate", help="Validate Goal-Run.json against current snapshot.")
     validate.add_argument("--root", default=".")
     validate.add_argument("--goal-run", required=True)
@@ -511,6 +570,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.objective,
                 replace=args.replace,
                 resume=args.resume,
+                run_id_suffix=args.run_id_suffix,
             )
             print(f"goal_run_status={compiled['result']['status']}")
             print(f"goal_run_id={compiled['result']['goal_run_id']}")

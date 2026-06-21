@@ -178,31 +178,32 @@ The implementation handoff tells Codex to use relevant skills/plugins or subagen
 
 Step 4 should not stop after the first successful slice. It should continue to the next acceptance criterion or next eligible sub-plan until the queue is complete or a stop gate is hit, such as a P0/P1 finding, failing test, missing source file, required credential/live approval, unsafe external mutation, unrelated dirty worktree, or token/context budget pressure.
 
-Step 4 apply modes are `direct`, `subagent_serial`, `external_superpowers`, and `no_action`. Non-trivial slices should use a fresh-slice implementer when useful, followed by independent spec review, quality/security review, fix/re-review when needed, and final review for the selected batch or queue. Commit, push, PR, deploy, and external mutation remain opt-in.
+Step 4 apply modes are `direct`, `subagent_serial`, `external_superpowers`, and `no_action`. `external_superpowers` requires an explicit availability check before dispatch; if the adapter is unavailable, reconcile the run to `subagent_serial` before implementation. Non-trivial slices should use a fresh-slice implementer when useful, followed by independent spec review, quality/security review, fix/re-review when needed, and final review for the selected batch or queue. Commit, push, PR, deploy, and external mutation remain opt-in.
 
 ## Goal Preview and Apply Artifacts
 
-CodexQB 0.3.0 includes dependency-free helpers for local preview and artifact validation. They do not execute implementation or validation commands.
+CodexQB 0.3.0 includes dependency-free helpers for local preview and artifact validation. They do not execute implementation or product validation commands.
 
-Compile a deterministic Goal preview:
+Compile a Goal preview:
 
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/goal_run.py --root /path/to/project --stage step2
 ```
 
-Supported stages are `step15`, `step2`, `step3`, and `step4`. Output is written under `Planner-docs/Goal-Runs/<goal-run-id>/` as `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json`. Step 2/3 previews include active sub-plan inventory when present; Step 4 previews include READY/READY_WITH_WARNINGS audit queue entries when present.
-If a stage prerequisite is missing, `Goal-Result.json` is written with `status: blocked` and no `Goal-Prompt.md` execution prompt is produced. Rendering an existing `Goal-Run.json` validates schema, source snapshot, path policy, and secret hygiene before writing prompt text. Existing run directories are not overwritten unless `--replace` or `--resume` is explicit.
+Supported stages are `step15`, `step2`, `step3`, and `step4`. Output is written under `Planner-docs/Goal-Runs/<goal-run-id>/` as `Goal-Run.json`, `Goal-Prompt.md`, and `Goal-Result.json`. `goal_spec_id` is deterministic for the same source snapshot, mode, objective, and active scope; `goal_run_id` is unique per invocation. Step 2/3 previews include active sub-plan inventory when present; Step 4 previews include READY/READY_WITH_WARNINGS audit queue entries when present.
+If a stage prerequisite is missing, `Goal-Result.json` is written with `status: blocked` and no `Goal-Prompt.md` execution prompt is produced. Rendering an existing `Goal-Run.json` validates schema, source snapshot, path policy, and secret hygiene before writing prompt text. Existing run directories are not overwritten unless `--replace` is explicit. `--resume` requires an explicit `--output-dir` for the run being continued.
 
 Create or validate an apply-run artifact directory:
 
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py prepare --root /path/to/project --mode subagent_serial
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py transition --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id task-1 --to IMPLEMENTING --actor impl-1 --evidence "brief accepted"
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py reconcile --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py validate --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
 ```
 
-Output is written under `.codexqb/apply-runs/<apply-run-id>/` as `Apply-Run.json`, `Progress.json`, `Events.jsonl`, optional `Writer-Lock.json`, per-task brief/report/review/fix artifacts, `Final-Review.json`, and `Result.json`. Non-`no_action` modes derive initial task briefs from Step 4 READY/READY_WITH_WARNINGS audit entries when available. The default commit policy is `none`.
-Apply validation rejects unsafe validation commands, path-traversal task IDs, no-action runs with queued tasks, recursive subagent depth, multiple writers, silent progress overwrite, eventless state jumps, stale writer locks, agent profile drift, and VERIFIED tasks that lack files changed, validation evidence, independent review evidence, and final repo-level validation evidence.
+Output is written under `.codexqb/apply-runs/<apply-run-id>/` as `Apply-Run.json`, `Progress.json`, `Events.jsonl`, optional `Writer-Lock.json`, per-task brief/report/review/fix artifacts, `Final-Review.json`, and `Result.json`. `apply_spec_id` is deterministic for the selected mode, source snapshot, and READY queue; `apply_run_id` is unique per invocation. Non-`no_action` modes derive initial task briefs from Step 4 READY/READY_WITH_WARNINGS audit entries when available. The default commit policy is `none`.
+Apply validation rejects unsafe validation commands, path-traversal task IDs, no-action runs with queued tasks, recursive subagent depth, multiple writers, silent progress overwrite, eventless state jumps, stale writer locks, agent profile drift, unchecked/unreconciled external Superpowers adapters, and VERIFIED tasks that lack files changed, validation evidence, independent review evidence, and final repo-level validation evidence.
 `Goal-Run.json` records `goal_run_schema_version: 1`; `Apply-Run.json` records `apply_run_schema_version: 1`.
 
 ## Direct Step Invocation

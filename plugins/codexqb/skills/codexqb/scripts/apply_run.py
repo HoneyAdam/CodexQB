@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -185,8 +186,29 @@ def snapshot_digest(snapshot: list[dict[str, str]]) -> str:
     return sha256_bytes(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
-def apply_run_id(mode: str, snapshot: list[dict[str, str]]) -> str:
-    return f"apply-{mode}-{snapshot_digest(snapshot)[:12]}"
+def invocation_suffix(value: str | None = None) -> str:
+    raw = value or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{os.getpid()}"
+    suffix = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-._")
+    if not suffix:
+        raise ValueError("invalid_run_id_suffix")
+    return suffix[:64]
+
+
+def apply_spec_digest(mode: str, snapshot: list[dict[str, str]], ready_queue: list[dict[str, str]]) -> str:
+    payload = {
+        "mode": mode,
+        "source_snapshot": snapshot,
+        "ready_queue": ready_queue,
+        "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
+        "handoff_contract_version": HANDOFF_CONTRACT_VERSION,
+        "apply_run_schema_version": APPLY_RUN_SCHEMA_VERSION,
+    }
+    return sha256_bytes(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def apply_run_id(mode: str, snapshot: list[dict[str, str]], ready_queue: list[dict[str, str]] | None = None, run_id_suffix: str | None = None) -> str:
+    digest = apply_spec_digest(mode, snapshot, ready_queue or [])
+    return f"apply-{mode}-{digest[:12]}-{invocation_suffix(run_id_suffix)}"
 
 
 def infer_root(run_dir: Path) -> Path | None:
@@ -264,10 +286,10 @@ def extract_subplan_contract(root: Path, subplan_path: str) -> dict[str, list[st
     return extract_contract_signals(path.read_text(encoding="utf-8", errors="replace"))
 
 
-def default_tasks(root: Path, mode: str) -> list[dict[str, object]]:
+def default_tasks(root: Path, mode: str, ready_queue: list[dict[str, str]] | None = None) -> list[dict[str, object]]:
     if mode == "no_action":
         return []
-    queue = extract_ready_queue(root)
+    queue = ready_queue if ready_queue is not None else extract_ready_queue(root)
     tasks: list[dict[str, object]] = []
     for index, item in enumerate(queue, start=1):
         subplan_path = item["subplan_path"]
@@ -291,6 +313,28 @@ def default_tasks(root: Path, mode: str) -> list[dict[str, object]]:
     return tasks
 
 
+def step4_readiness_summary(root: Path, mode: str, ready_queue: list[dict[str, str]]) -> dict[str, object]:
+    audit = root / "Planner-docs" / "Sub-Planing-Audit.md"
+    text = audit_text(root)
+    return {
+        "audit_path": "Planner-docs/Sub-Planing-Audit.md",
+        "audit_present": audit.is_file(),
+        "ready_queue_count": len(ready_queue),
+        "no_action_required": "NO_ACTION_REQUIRED" in text,
+        "validator_command": [
+            "python3",
+            "plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py",
+            "--root",
+            ".",
+            "--mode",
+            "step4",
+        ],
+        "validator_status": "not_run_by_prepare",
+        "execution_gate": "step4_validator_must_pass_before_product_changes",
+        "mode": mode,
+    }
+
+
 def create_apply_run(
     root: Path,
     mode: str,
@@ -299,6 +343,7 @@ def create_apply_run(
     *,
     replace: bool = False,
     resume: bool = False,
+    run_id_suffix: str | None = None,
 ) -> dict[str, object]:
     root = root.resolve()
     if mode not in APPLY_MODES:
@@ -307,25 +352,44 @@ def create_apply_run(
         raise ValueError(f"unsupported commit policy: {commit_policy}")
     if commit_policy != "none":
         raise ValueError("commit_policy defaults to none; other policies require explicit controller approval outside apply_run.py")
+    if resume and output_dir is None:
+        raise ValueError("resume_requires_output_dir")
+    if resume:
+        run_dir = output_dir.resolve() if output_dir else root
+        if not is_inside(root, run_dir):
+            raise ValueError("output_dir must be inside the target repository")
+        run = load_json_strict(run_dir / "Apply-Run.json")
+        errors = validate_apply_run(run_dir, root)
+        if errors:
+            raise ValueError(";".join(errors))
+        return {"apply_run_id": str(run["apply_run_id"]), "run_dir": run_dir.as_posix(), "state": "resumed"}
     snapshot = collect_snapshot(root)
-    run_id = apply_run_id(mode, snapshot)
+    ready_queue = [] if mode == "no_action" else extract_ready_queue(root)
+    spec_digest = apply_spec_digest(mode, snapshot, ready_queue)
+    suffix = invocation_suffix(run_id_suffix)
+    run_id = apply_run_id(mode, snapshot, ready_queue, suffix)
     run_dir = (output_dir or root / ".codexqb" / "apply-runs" / run_id).resolve()
     if not is_inside(root, run_dir):
         raise ValueError("output_dir must be inside the target repository")
     validate_step4_queue(root, mode)
-    if run_dir.exists() and not replace and not resume:
+    if run_dir.exists() and not replace:
         raise ValueError(f"apply_run_already_exists={run_dir.relative_to(root).as_posix()}")
-    if resume:
-        return {"apply_run_id": run_id, "run_dir": run_dir.as_posix(), "state": "resumed"}
+    if run_dir.exists() and replace:
+        shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    tasks = default_tasks(root, mode)
+    tasks = default_tasks(root, mode, ready_queue)
     run = {
         "apply_run_schema_version": APPLY_RUN_SCHEMA_VERSION,
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
         "handoff_contract_version": HANDOFF_CONTRACT_VERSION,
         "plugin_version": PLUGIN_VERSION,
+        "apply_requested_mode": mode,
+        "apply_spec_id": f"apply-spec-{mode}-{spec_digest[:16]}",
+        "apply_spec_digest": spec_digest,
+        "apply_spec_inputs": {"ready_queue": ready_queue},
         "apply_run_id": run_id,
+        "apply_run_invocation_id": suffix,
         "mode": mode,
         "workspace_requested": "isolated_worktree",
         "workspace_detected": "git" if run_git(root, ["rev-parse", "--is-inside-work-tree"]) == "true" else "non_git",
@@ -339,10 +403,12 @@ def create_apply_run(
         "agent_profiles": AGENT_PROFILES,
         "source_snapshot": snapshot,
         "source_snapshot_digest": snapshot_digest(snapshot),
+        "step4_readiness": step4_readiness_summary(root, mode, ready_queue),
         "external_superpowers": {
             "required": mode == "external_superpowers",
             "availability": "not_checked",
             "fallback_mode": "subagent_serial",
+            "adapter_policy": "reconcile_before_dispatch",
         },
         "safety": {
             "executes_implementation": False,
@@ -410,6 +476,54 @@ def create_apply_run(
         },
     )
     return {"apply_run_id": run_id, "run_dir": run_dir.as_posix(), "state": result["status"]}
+
+
+def reconcile_external_superpowers(run_dir: Path) -> dict[str, object]:
+    run_dir = run_dir.resolve()
+    run = load_json_strict(run_dir / "Apply-Run.json")
+    progress = load_json_strict(run_dir / "Progress.json")
+    external = run.get("external_superpowers")
+    if run.get("mode") != "external_superpowers":
+        return {"state": "unchanged", "mode": run.get("mode")}
+    if not isinstance(external, dict):
+        raise ValueError("external_superpowers_policy_missing")
+    availability = external.get("availability")
+    if availability == "not_checked":
+        raise ValueError("external_superpowers_readiness_not_checked")
+    if availability == "available":
+        missing = []
+        for key in ("version", "source_path", "adapter_policy"):
+            if not external.get(key):
+                missing.append(key)
+        if external.get("license_acknowledged") is not True:
+            missing.append("license_acknowledged")
+        if missing:
+            raise ValueError(f"external_superpowers_available_metadata_missing={','.join(missing)}")
+        return {"state": "ready", "mode": "external_superpowers"}
+    if availability != "unavailable":
+        raise ValueError(f"external_superpowers_invalid_availability={availability}")
+    if external.get("fallback_mode") != "subagent_serial":
+        raise ValueError("external_superpowers_unavailable_requires_subagent_serial_fallback")
+
+    run["mode"] = "subagent_serial"
+    external["reconciled_to"] = "subagent_serial"
+    external["reconciled_at"] = utc_now()
+    external["adapter_policy"] = "fallback_to_subagent_serial"
+    progress["mode"] = "subagent_serial"
+    event = append_event(
+        run_dir,
+        {
+            "event_type": "external_superpowers_reconciled",
+            "from": "external_superpowers",
+            "to": "subagent_serial",
+            "actor": "apply_run.py",
+            "evidence": ["external_superpowers availability unavailable; fallback_mode subagent_serial"],
+        },
+    )
+    progress["events"] = [{"sequence": event["sequence"], "event_type": "external_superpowers_reconciled", "to": "subagent_serial"}]
+    atomic_write_json(run_dir / "Apply-Run.json", run)
+    atomic_write_json(run_dir / "Progress.json", progress)
+    return {"state": "reconciled", "mode": "subagent_serial", "event_sequence": event["sequence"]}
 
 
 def load_json(path: Path, errors: list[str], label: str) -> object:
@@ -718,8 +832,48 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         errors.append("invalid_artifact_schema_version")
     if run.get("handoff_contract_version") != HANDOFF_CONTRACT_VERSION:
         errors.append("invalid_handoff_contract_version")
+    if run.get("plugin_version") != PLUGIN_VERSION:
+        errors.append("invalid_plugin_version")
     if run.get("mode") not in APPLY_MODES:
         errors.append(f"invalid_mode={run.get('mode')}")
+    requested_mode = str(run.get("apply_requested_mode", run.get("mode", "")))
+    if requested_mode not in APPLY_MODES:
+        errors.append(f"invalid_apply_requested_mode={requested_mode or 'missing'}")
+    source_snapshot = run.get("source_snapshot")
+    if not isinstance(source_snapshot, list):
+        errors.append("invalid_source_snapshot")
+        source_snapshot = []
+    spec_inputs = run.get("apply_spec_inputs")
+    ready_queue: list[dict[str, str]] = []
+    if isinstance(spec_inputs, dict) and isinstance(spec_inputs.get("ready_queue"), list):
+        for item in spec_inputs["ready_queue"]:
+            if isinstance(item, dict):
+                ready_queue.append({str(key): str(value) for key, value in item.items()})
+            else:
+                errors.append("invalid_apply_spec_ready_queue")
+                break
+    else:
+        errors.append("missing_apply_spec_inputs")
+    spec_digest = apply_spec_digest(requested_mode, source_snapshot, ready_queue)
+    if run.get("apply_spec_digest") != spec_digest:
+        errors.append("stored_apply_spec_digest_mismatch")
+    if run.get("apply_spec_id") != f"apply-spec-{requested_mode}-{spec_digest[:16]}":
+        errors.append("stored_apply_spec_id_mismatch")
+    invocation = str(run.get("apply_run_invocation_id", ""))
+    if not invocation or invocation_suffix(invocation) != invocation:
+        errors.append("invalid_apply_run_invocation_id")
+    expected_run_id = f"apply-{requested_mode}-{spec_digest[:12]}-{invocation}" if invocation else ""
+    if run.get("apply_run_id") != expected_run_id:
+        errors.append("stored_apply_run_id_mismatch")
+    if run.get("source_snapshot_digest") != snapshot_digest(source_snapshot):
+        errors.append("stored_source_snapshot_digest_mismatch")
+    readiness = run.get("step4_readiness")
+    if (
+        not isinstance(readiness, dict)
+        or not readiness.get("validator_command")
+        or readiness.get("execution_gate") != "step4_validator_must_pass_before_product_changes"
+    ):
+        errors.append("step4_readiness_summary_missing")
     if run.get("commit_policy") != "none":
         errors.append("commit_policy_must_default_to_none")
     if run.get("push_allowed") is not False:
@@ -735,8 +889,25 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
     if run.get("mode") == "external_superpowers":
         if not isinstance(external, dict):
             errors.append("external_superpowers_policy_missing")
-        elif external.get("availability") == "unavailable" and external.get("fallback_mode") != "subagent_serial":
-            errors.append("external_superpowers_unavailable_requires_subagent_serial_fallback")
+        else:
+            availability = external.get("availability")
+            if availability == "not_checked":
+                errors.append("external_superpowers_readiness_not_checked")
+            elif availability == "unavailable":
+                if external.get("fallback_mode") != "subagent_serial":
+                    errors.append("external_superpowers_unavailable_requires_subagent_serial_fallback")
+                errors.append("external_superpowers_unavailable_must_reconcile_mode")
+            elif availability == "available":
+                for key in ("version", "source_path", "adapter_policy"):
+                    if not external.get(key):
+                        errors.append(f"external_superpowers_available_metadata_missing={key}")
+                if external.get("license_acknowledged") is not True:
+                    errors.append("external_superpowers_license_acknowledgement_required")
+            else:
+                errors.append(f"external_superpowers_invalid_availability={availability}")
+    elif isinstance(external, dict) and external.get("required") is True and external.get("availability") == "unavailable":
+        if run.get("mode") != "subagent_serial" or external.get("reconciled_to") != "subagent_serial":
+            errors.append("external_superpowers_unavailable_must_reconcile_mode")
 
     if root is not None and run.get("source_snapshot_digest") != snapshot_digest(collect_snapshot(root)):
         errors.append("source_snapshot_mismatch")
@@ -797,6 +968,7 @@ def main(argv: list[str] | None = None) -> int:
         prepare.add_argument("--output-dir")
         prepare.add_argument("--replace", action="store_true")
         prepare.add_argument("--resume", action="store_true")
+        prepare.add_argument("--run-id-suffix")
     check = sub.add_parser("validate", help="Validate an apply-run artifact directory.")
     check.add_argument("--run-dir", required=True)
     check.add_argument("--root")
@@ -806,6 +978,8 @@ def main(argv: list[str] | None = None) -> int:
     transition.add_argument("--to", required=True, choices=sorted(TASK_STATES))
     transition.add_argument("--actor", required=True)
     transition.add_argument("--evidence", action="append", default=[])
+    reconcile = sub.add_parser("reconcile", help="Reconcile external adapter readiness before dispatch.")
+    reconcile.add_argument("--run-dir", required=True)
     args = parser.parse_args(argv)
 
     try:
@@ -816,6 +990,7 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.output_dir) if args.output_dir else None,
                 replace=args.replace,
                 resume=args.resume,
+                run_id_suffix=args.run_id_suffix,
             )
             print("apply_run_status=initialized")
             print(f"apply_run_id={result['apply_run_id']}")
@@ -827,6 +1002,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"event_sequence={event['sequence']}")
             print(f"task_id={args.task_id}")
             print(f"state={args.to}")
+            return 0
+        if args.command == "reconcile":
+            result = reconcile_external_superpowers(Path(args.run_dir))
+            print(f"apply_run_status={result['state']}")
+            print(f"mode={result['mode']}")
+            if "event_sequence" in result:
+                print(f"event_sequence={result['event_sequence']}")
             return 0
         errors = validate_apply_run(Path(args.run_dir), Path(args.root) if args.root else None)
     except Exception as exc:

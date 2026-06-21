@@ -383,6 +383,7 @@ class ApplyRunTests(unittest.TestCase):
             self.write_apply_fixture(root)
             result = APPLY_MODULE.create_apply_run(root, "external_superpowers")
             run_dir = Path(result["run_dir"])
+            self.assertIn("external_superpowers_readiness_not_checked", APPLY_MODULE.validate_apply_run(run_dir))
             run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
             run["external_superpowers"]["availability"] = "unavailable"
             run["external_superpowers"]["fallback_mode"] = "direct"
@@ -391,8 +392,15 @@ class ApplyRunTests(unittest.TestCase):
             errors = APPLY_MODULE.validate_apply_run(run_dir)
 
             self.assertIn("external_superpowers_unavailable_requires_subagent_serial_fallback", errors)
+            self.assertIn("external_superpowers_unavailable_must_reconcile_mode", errors)
             run["external_superpowers"]["fallback_mode"] = "subagent_serial"
             (run_dir / "Apply-Run.json").write_text(json.dumps(run), encoding="utf-8")
+            self.assertIn("external_superpowers_unavailable_must_reconcile_mode", APPLY_MODULE.validate_apply_run(run_dir))
+            reconciled = APPLY_MODULE.reconcile_external_superpowers(run_dir)
+
+            self.assertEqual(reconciled["state"], "reconciled")
+            run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
+            self.assertEqual(run["mode"], "subagent_serial")
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
 
     def test_apply_run_rejects_task_id_traversal_and_no_action_queue(self) -> None:
@@ -412,13 +420,21 @@ class ApplyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self.write_apply_fixture(root)
-            first = APPLY_MODULE.create_apply_run(root, "direct")
+            first = APPLY_MODULE.create_apply_run(root, "direct", run_id_suffix="one")
+            second = APPLY_MODULE.create_apply_run(root, "direct", run_id_suffix="two")
+            first_run = json.loads((Path(first["run_dir"]) / "Apply-Run.json").read_text(encoding="utf-8"))
+            second_run = json.loads((Path(second["run_dir"]) / "Apply-Run.json").read_text(encoding="utf-8"))
 
+            self.assertEqual(first_run["apply_spec_id"], second_run["apply_spec_id"])
+            self.assertNotEqual(first["apply_run_id"], second["apply_run_id"])
+
+            fixed = root / ".codexqb" / "apply-runs" / "fixed"
+            fixed_result = APPLY_MODULE.create_apply_run(root, "direct", fixed)
             with self.assertRaises(ValueError):
-                APPLY_MODULE.create_apply_run(root, "direct")
+                APPLY_MODULE.create_apply_run(root, "direct", fixed)
 
-            resumed = APPLY_MODULE.create_apply_run(root, "direct", resume=True)
-            self.assertEqual(resumed["run_dir"], first["run_dir"])
+            resumed = APPLY_MODULE.create_apply_run(root, "direct", fixed, resume=True)
+            self.assertEqual(resumed["run_dir"], fixed_result["run_dir"])
 
     def test_verified_task_requires_evidence_bearing_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
