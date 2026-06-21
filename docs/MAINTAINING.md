@@ -22,7 +22,7 @@ make check
 
 This checks JSON manifests, required package files, `agents/openai.yaml` semantic fields, stale invocation names, vibecoding/subagent/ledger/ontology/comprehension prompt wiring, deterministic fixture corpus inputs, downstream Step 2 -> Step 4 Goal/Apply dry-run coverage, Goal/Apply prompt-size metric checks, tracked-file secret hygiene, archive hygiene, sanitized zip path/content hygiene, and the Python unit test suite. It intentionally uses only shell and Python standard-library commands so CI does not depend on local Codex validator dependencies.
 
-On a normal local development machine, `make check` is expected to complete under 45 seconds. Validator CLI smoke tests have a 30-second timeout for focused fixture runs, and any timeout or hang is a release blocker. CI pins Python 3.12 with `actions/setup-python`.
+On a normal local development machine, `make check` is expected to complete under 45 seconds. Validator CLI smoke tests have a 30-second timeout for focused fixture runs, and any timeout or hang is a release blocker. CI runs the dependency-free gate on Python 3.12 and 3.13 with `actions/setup-python`.
 
 Keep the language contract stable: required Planner-docs headings stay English for validator stability, while body content may use another language only when the user explicitly asks. If a future release adds language selection, document and test a `PLANNER_DOC_LANGUAGE` or equivalent intake-level setting before changing prompt behavior.
 

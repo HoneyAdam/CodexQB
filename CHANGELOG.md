@@ -15,6 +15,7 @@
 - Hardened Goal run semantic controls for supported stage modes, non-empty objectives and work steps, safe validation checkpoints, single-depth subagent plans, and bounded token-risk declarations.
 - Added project-specific Goal scope collectors for active sub-plans and Step 4 READY queues.
 - Added no-subplans Step 2 planning horizon collection from `Main-Planing.md`, validation command ID propagation, and contract-derived Step 4 work steps.
+- Added Python 3.13 to the GitHub Actions validation matrix.
 - Hardened Apply artifacts with audit-derived task queues, no silent progress overwrite, no-action queue consistency, task ID traversal rejection, shared validation-command policy, immutable plan snapshot separation from `Planing-Ledger.md`, schema-documented workspace baseline hashes, Git untracked inventory drift detection, non-Git file inventory drift detection, and evidence-bearing VERIFIED/final-review gates.
 - Hardened Apply workspace safety so action modes block non-Git repositories by default unless the caller explicitly passes `--allow-non-git-unsafe`, which records `workspace_mode: non_git_unsafe` and `user_approval: true`.
 - Hardened Apply Git workspace posture so action modes record `worktree_path`, `base_branch`, `working_branch`, and `dirty_state`, then block dirty or protected current Git worktrees unless `--allow-unverified-git-worktree` records explicit user approval.
