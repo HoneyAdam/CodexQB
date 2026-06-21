@@ -34,6 +34,7 @@ ARTIFACT_SCHEMA_VERSION = 3
 HANDOFF_CONTRACT_VERSION = 2
 GOAL_RUN_SCHEMA_VERSION = 1
 PLUGIN_VERSION = "0.3.0"
+GOAL_COMPILER_VERSION = 1
 
 SCRIPT_PATH = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT_PATH.parents[1]
@@ -148,6 +149,7 @@ def template_bundle(stage: str) -> dict[str, object]:
         templates.append({"path": rel, "sha256": sha256_bytes(path.read_bytes())})
     compiler = {
         "path": "scripts/goal_run.py",
+        "version": GOAL_COMPILER_VERSION,
         "sha256": sha256_bytes(SCRIPT_PATH.read_bytes()),
     }
     payload = {"templates": templates, "compiler": compiler}
@@ -346,6 +348,13 @@ def validation_command_ids(implementation_contract: dict[str, object]) -> list[s
     return ids
 
 
+def implementation_contract_digest(implementation_contract: dict[str, object]) -> str | None:
+    if not implementation_contract:
+        return None
+    payload = json.dumps(implementation_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return sha256_bytes(payload)
+
+
 def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
     path = root / subplan_path
     text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
@@ -356,6 +365,7 @@ def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
         "subplan_sha256": sha256_bytes(path.read_bytes()) if path.is_file() else None,
         "contract_signals": contract,
         "implementation_contract": implementation_contract,
+        "implementation_contract_digest": implementation_contract_digest(implementation_contract),
     }
     structured_security = implementation_contract.get("security_review_required")
     item["security_review_required"] = (

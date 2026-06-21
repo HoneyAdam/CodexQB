@@ -60,6 +60,7 @@ class GoalRunTests(unittest.TestCase):
             self.assertIn("goal_spec_digest", run)
             self.assertIn("template_bundle_digest", run)
             self.assertIn("compiler", run)
+            self.assertEqual(run["compiler"]["version"], 1)
             self.assertEqual(run["goal_run_invocation_id"], "one")
             self.assertIn("required_inputs", run)
             self.assertIn("allowed_writes", run)
@@ -251,6 +252,10 @@ class GoalRunTests(unittest.TestCase):
             self.assertTrue(any("validation_commands" in item for item in step2_contract["contract_signals"]["structured_validation_commands"]))
             self.assertTrue(step2_contract["security_review_required"])
             implementation_contract = step2_contract["implementation_contract"]
+            implementation_digest = GOAL_MODULE.sha256_bytes(
+                json.dumps(implementation_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            )
+            self.assertEqual(step2_contract["implementation_contract_digest"], implementation_digest)
             self.assertEqual(implementation_contract["contract_version"], 1)
             self.assertEqual(implementation_contract["parent_signals"], ["MP-PH1-AS-01"])
             self.assertEqual(implementation_contract["outputs"], ["reports/faz1-1-readiness.md"])
@@ -269,6 +274,10 @@ class GoalRunTests(unittest.TestCase):
             self.assertEqual(
                 step4["run"]["active_scope"]["ready_queue"][0]["implementation_contract"]["outputs"],
                 ["reports/faz1-1-readiness.md"],
+            )
+            self.assertEqual(
+                step4["run"]["active_scope"]["ready_queue"][0]["implementation_contract_digest"],
+                implementation_digest,
             )
             self.assertGreaterEqual(step4["run"]["active_scope"]["ready_queue"][0]["validation_command_count"], 1)
             self.assertEqual(step4["run"]["active_scope"]["ready_queue"][0]["structured_validation_command_count"], 1)

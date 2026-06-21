@@ -728,6 +728,9 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn("artifact_schema_version: 3", text, path.name)
             self.assertIn("handoff_contract_version: 2", text, path.name)
             self.assertIn("fixture corpus", text.lower(), path.name)
+            self.assertIn("compiler version", text.lower(), path.name)
+            self.assertIn("template bundle digest", text.lower(), path.name)
+            self.assertIn("implementation contract digest", text.lower(), path.name)
 
     def test_local_skill_sync_docs_exclude_python_caches(self) -> None:
         install = (REPO_ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
