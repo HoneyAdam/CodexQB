@@ -335,7 +335,16 @@
     },
     "Task": {
       "type": "object",
-      "required": ["task_id", "state", "readiness_status", "writer_lock", "validation_commands", "dispatch", "agent_runs"],
+      "required": [
+        "task_id",
+        "state",
+        "readiness_status",
+        "writer_lock",
+        "validation_commands",
+        "implementation_contract",
+        "dispatch",
+        "agent_runs"
+      ],
       "properties": {
         "task_id": { "$ref": "#/$defs/TaskId" },
         "state": { "$ref": "#/$defs/TaskState" },
@@ -343,6 +352,7 @@
         "source_subplan_path": { "type": ["string", "null"] },
         "source_subplan_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
         "fresh_context_contract": { "type": "object" },
+        "implementation_contract": { "type": "object" },
         "finding_ids": {
           "type": "array",
           "items": { "type": "string" }

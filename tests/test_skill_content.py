@@ -254,6 +254,8 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("git_status_porcelain_sha256", workspace_baseline["required"])
         self.assertIn("untracked_inventory_sha256", workspace_baseline["required"])
         self.assertIn("workspace_file_inventory_sha256", workspace_baseline["required"])
+        self.assertIn("implementation_contract", schema_defs["Task"]["required"])
+        self.assertEqual(schema_defs["Task"]["properties"]["implementation_contract"]["type"], "object")
         self.assertEqual(schema_defs["Task"]["properties"]["validation_commands"]["items"]["$ref"], "#/$defs/PlannedValidationCommand")
         self.assertEqual(
             schema_defs["ImplementerReport"]["properties"]["validation_evidence"]["items"]["$ref"],

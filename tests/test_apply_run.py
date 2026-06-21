@@ -222,6 +222,15 @@ class ApplyRunTests(unittest.TestCase):
             self.assertTrue(progress["tasks"][0]["security_review_required"])
             self.assertEqual(progress["tasks"][0]["finding_ids"], [])
             self.assertEqual(progress["tasks"][0]["dependency_state"], "independent")
+            implementation_contract = progress["tasks"][0]["implementation_contract"]
+            self.assertEqual(implementation_contract["contract_version"], 1)
+            self.assertEqual(implementation_contract["parent_signals"], ["MP-PH1-AS-01"])
+            self.assertEqual(implementation_contract["outputs"], ["reports/faz1-1-readiness.md"])
+            self.assertEqual(
+                implementation_contract["dependencies"]["activation_conditions"],
+                ["local fixture files exist"],
+            )
+            self.assertEqual(implementation_contract["implementation_paths"][0]["path"], "src/feature_1_1.py")
             self.assertEqual(progress["tasks"][0]["validation_commands"][0]["id"], "VAL-01")
             self.assertEqual(
                 progress["tasks"][0]["validation_commands"][0]["argv"],
@@ -230,6 +239,8 @@ class ApplyRunTests(unittest.TestCase):
             brief = (run_dir / task_id / "Brief.md").read_text(encoding="utf-8")
             self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", brief)
             self.assertIn("fresh_context_contract", brief)
+            self.assertIn("implementation_contract", brief)
+            self.assertIn('"outputs":["reports/faz1-1-readiness.md"]', brief)
             self.assertIn("security_review_required: true", brief)
             self.assertIn('"id":"VAL-01"', brief)
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
@@ -259,6 +270,8 @@ class ApplyRunTests(unittest.TestCase):
             self.assertEqual(packet["spawn_request"]["agent_type"], "worker")
             self.assertFalse(packet["spawn_request"]["fork_context"])
             self.assertIn("Use only this fresh task context", packet["spawn_request"]["message"])
+            self.assertIn("## Structured Implementation Contract", packet["spawn_request"]["message"])
+            self.assertIn('"outputs": [', packet["spawn_request"]["message"])
             self.assertIsNone(packet["model_override"])
             with self.assertRaisesRegex(ValueError, "subagent_dispatch_spawn_required"):
                 APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
