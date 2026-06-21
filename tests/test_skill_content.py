@@ -259,6 +259,8 @@ class SkillContentTests(unittest.TestCase):
             "safety_contracts.py",
             "goal-compiler.md",
             "apply-orchestrator.md",
+            "sanitized_zip_hygiene=passed",
+            "sanitized_zip_hygiene_failed",
         ]:
             self.assertIn(phrase, validate_script)
 

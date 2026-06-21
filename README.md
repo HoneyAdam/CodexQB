@@ -57,7 +57,7 @@ CodexQB 0.3.0 also includes optional local preview helpers:
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/goal_run.py --root /path/to/project --stage step2
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py prepare --root /path/to/project --mode subagent_serial
-python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py transition --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id task-1 --to IMPLEMENTING --actor impl-1 --evidence "brief accepted"
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py transition --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id <task-id> --to IMPLEMENTING --actor impl-1 --evidence "brief accepted"
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py reconcile --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
 ```
 
@@ -129,16 +129,16 @@ Planner-docs/
     Progress.json
     Events.jsonl
     Writer-Lock.json
-    task-<n>/Brief.md
-    task-<n>/Implementer-Report.json
-    task-<n>/Review-Package.patch
-    task-<n>/Task-Review.json
-    task-<n>/Fix-Report.json
+    AR-<apply-run-id>-T<nnn>/Brief.md
+    AR-<apply-run-id>-T<nnn>/Implementer-Report.json
+    AR-<apply-run-id>-T<nnn>/Review-Package.patch
+    AR-<apply-run-id>-T<nnn>/Task-Review.json
+    AR-<apply-run-id>-T<nnn>/Fix-Report.json
     Final-Review.json
     Result.json
 ```
 
-`<goal-run-id>` and `<apply-run-id>` include invocation suffixes so repeated prepares do not collide. Use an explicit `--output-dir` plus `--resume` to continue an existing run, or `--replace` only when intentionally regenerating that directory.
+`<goal-run-id>` and `<apply-run-id>` include invocation suffixes so repeated prepares do not collide. Apply task IDs use `AR-<apply-run-id>-T<nnn>` and resolve inside the apply-run directory. Use an explicit `--output-dir` plus `--resume` to continue an existing run, or `--replace` only when intentionally regenerating that directory.
 
 ## Evidence-Based Project Comprehension
 

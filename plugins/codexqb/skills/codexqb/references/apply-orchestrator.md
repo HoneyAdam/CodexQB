@@ -12,11 +12,11 @@ Target repositories store apply artifacts under:
   Progress.json
   Events.jsonl
   Writer-Lock.json
-  task-<n>/Brief.md
-  task-<n>/Implementer-Report.json
-  task-<n>/Review-Package.patch
-  task-<n>/Task-Review.json
-  task-<n>/Fix-Report.json
+  AR-<apply-run-id>-T<nnn>/Brief.md
+  AR-<apply-run-id>-T<nnn>/Implementer-Report.json
+  AR-<apply-run-id>-T<nnn>/Review-Package.patch
+  AR-<apply-run-id>-T<nnn>/Task-Review.json
+  AR-<apply-run-id>-T<nnn>/Fix-Report.json
   Final-Review.json
   Result.json
 ```
@@ -26,6 +26,10 @@ Non-`no_action` runs derive initial task briefs from Step 4 READY or READY_WITH_
 When present in the active sub-plan, the controller also copies fresh-context contract signals into each task: acceptance criteria, allowed/forbidden paths, parent signals, dependencies, framework ownership, algorithmic invariants, structured validation commands, and security requirements.
 Use `apply_run.py prepare` for new runs; `init` remains a compatibility alias. Use `apply_run.py transition` for state changes so `Events.jsonl` remains the append-only transition truth. `Progress.json` is the current state snapshot.
 `apply_spec_id` is deterministic for the selected mode, source snapshot, and Step 4 READY queue. `apply_run_id` is unique per invocation. To continue a run, pass `--resume` with the exact `--output-dir`; to intentionally regenerate one directory, pass `--replace`.
+
+## Schema Contract
+
+`Apply-Run.json` is the immutable run envelope: schema versions, requested mode, current mode, spec/run IDs, source snapshot, Step 4 readiness summary, workspace posture, safety defaults, agent profiles, and external adapter policy. `Progress.json` is mutable operational state: task list, task states, writer locks, verified task IDs, final-review requirement, and resume cursor. `Events.jsonl` is the append-only transition truth. Per-task directories use the exact task ID and contain the brief, implementer report, review package, task review, and fix report.
 
 ## Modes
 
@@ -85,7 +89,7 @@ Fresh-context role templates live under `references/apply/`:
 
 ```json
 {
-  "task_id": "task-1",
+  "task_id": "AR-apply-subagent_serial-<digest>-<invocation>-T001",
   "spec_compliance": "pass",
   "task_quality": "approved",
   "security_review": "pass",
@@ -108,6 +112,6 @@ Fresh-context role templates live under `references/apply/`:
 - `Events.jsonl` is the append-only transition truth.
 - JSON snapshots are written with temp-file plus replace; writer lock uses create-exclusive semantics.
 - `no_action` runs must not contain queued tasks.
-- Task IDs must use the controller-generated `task-<n>` format and resolve inside the apply-run directory.
+- Task IDs must use the controller-generated `AR-<apply-run-id>-T<nnn>` format and resolve inside the apply-run directory.
 - `external_superpowers` runs must record adapter availability and metadata before dispatch; unavailable adapters must be reconciled to `subagent_serial`.
 - VERIFIED tasks require matching brief hashes, implementer identity, changed-file inventory, passing validation evidence, independent reviewer identity, review evidence, and final repo-level validation evidence.

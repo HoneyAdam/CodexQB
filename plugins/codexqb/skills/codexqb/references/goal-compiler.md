@@ -24,11 +24,11 @@ Planner-docs/Goal-Runs/<goal-run-id>/
   Goal-Result.json
 ```
 
-`Goal-Run.json` records source snapshot hashes, deterministic `goal_spec_id`, invocation-specific `goal_run_id`, stage, handoff contract version, artifact schema version, output paths, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked.
+`Goal-Run.json` records source snapshot hashes, deterministic `goal_spec_id`, invocation-specific `goal_run_id`, stage, handoff contract version, artifact schema version, output paths, pinned template hashes, compiler hash, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked and records `goal_run_sha256` plus `prompt_sha256` when a prompt is rendered.
 
 `Goal-Prompt.md` must be rendered deterministically from a valid `Goal-Run.json`. Rendering must first validate schema version, secret hygiene, source snapshot integrity, current snapshot match, allowed/forbidden path policy, and glob overlap.
 
-`goal_spec_id` is stable for the same source snapshot, mode, objective, and active scope. `goal_run_id` includes an invocation suffix so repeated prepares create separate run directories unless the caller explicitly supplies the same `--output-dir`.
+`goal_spec_id` is stable for the same source snapshot, mode, objective, and active scope. `goal_run_id` includes an invocation suffix so repeated prepares create separate run directories unless the caller explicitly supplies the same `--output-dir`. Rendering must reject template bundle, compiler, source snapshot, or stored digest drift before writing output.
 
 ## Security Rules
 

@@ -125,6 +125,20 @@ def run_id_for(stage: str, sources: list[dict[str, str]]) -> str:
     return f"goal-{stage}-{snapshot_digest(stage, sources)[:12]}"
 
 
+def template_bundle(stage: str) -> dict[str, object]:
+    templates = []
+    for rel in STAGE_REFERENCES[stage]:
+        path = SKILL_ROOT / rel
+        templates.append({"path": rel, "sha256": sha256_bytes(path.read_bytes())})
+    compiler = {
+        "path": "scripts/goal_run.py",
+        "sha256": sha256_bytes(SCRIPT_PATH.read_bytes()),
+    }
+    payload = {"templates": templates, "compiler": compiler}
+    digest = sha256_bytes(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    return {"digest": digest, **payload}
+
+
 def goal_spec_digest(stage: str, sources: list[dict[str, str]], mode: str, objective: str, active_scope: dict[str, object]) -> str:
     payload = {
         "stage": stage,
@@ -270,6 +284,7 @@ def default_goal_run(
     selected_objective = objective or f"Run CodexQB {stage} using current repository planning evidence."
     active_scope = collect_stage_scope(root, stage)
     spec_digest = goal_spec_digest(stage, sources, selected_mode, selected_objective, active_scope)
+    bundle = template_bundle(stage)
     suffix = invocation_suffix(run_id_suffix)
     run_id = goal_run_id_for(stage, spec_digest, suffix)
     allowed_writes = {
@@ -289,6 +304,9 @@ def default_goal_run(
         "stage": stage,
         "stage_contract_version": HANDOFF_CONTRACT_VERSION,
         "plugin_version": PLUGIN_VERSION,
+        "template_bundle": bundle["templates"],
+        "template_bundle_digest": bundle["digest"],
+        "compiler": bundle["compiler"],
         "project_name": project_name(root),
         "mode": selected_mode,
         "objective": selected_objective,
@@ -325,6 +343,13 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
         errors.append("invalid_goal_run_schema_version")
     if run.get("plugin_version") != PLUGIN_VERSION:
         errors.append("invalid_plugin_version")
+    bundle = template_bundle(stage)
+    if run.get("template_bundle") != bundle["templates"]:
+        errors.append("template_bundle_mismatch")
+    if run.get("template_bundle_digest") != bundle["digest"]:
+        errors.append("template_bundle_digest_mismatch")
+    if run.get("compiler") != bundle["compiler"]:
+        errors.append("compiler_digest_mismatch")
     spec_digest = goal_spec_digest(
         stage,
         run.get("source_snapshot", []) if isinstance(run.get("source_snapshot"), list) else [],
@@ -467,16 +492,18 @@ def compile_goal(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     blockers = stage_prerequisite_blockers(root, stage)
+    run_json = json.dumps(run, indent=2, sort_keys=True) + "\n"
     if blockers:
         result = {
             "goal_run_id": run["goal_run_id"],
             "stage": stage,
             "status": "blocked",
             "blockers": blockers,
+            "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
             "source_count": len(run["source_snapshot"]),
             "next_action": "Repair missing prerequisites, then prepare this Goal run again.",
         }
-        (out_dir / "Goal-Run.json").write_text(json.dumps(run, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (out_dir / "Goal-Run.json").write_text(run_json, encoding="utf-8")
         prompt_path = out_dir / "Goal-Prompt.md"
         if prompt_path.exists():
             prompt_path.unlink()
@@ -488,11 +515,12 @@ def compile_goal(
         "goal_run_id": run["goal_run_id"],
         "stage": stage,
         "status": "ready",
+        "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
         "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
         "source_count": len(run["source_snapshot"]),
         "next_action": "Review Goal-Prompt.md, then paste it into Goal mode only if the stage and safety policy match the intended run.",
     }
-    (out_dir / "Goal-Run.json").write_text(json.dumps(run, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out_dir / "Goal-Run.json").write_text(run_json, encoding="utf-8")
     (out_dir / "Goal-Prompt.md").write_text(prompt, encoding="utf-8")
     (out_dir / "Goal-Result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {"run": run, "result": result, "output_dir": out_dir.as_posix()}

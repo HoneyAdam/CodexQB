@@ -63,6 +63,8 @@ class GoalRunTests(unittest.TestCase):
             self.assertEqual(run["stage"], "step2")
             self.assertIn("source_snapshot_digest", run)
             self.assertIn("goal_spec_digest", run)
+            self.assertIn("template_bundle_digest", run)
+            self.assertIn("compiler", run)
             self.assertEqual(run["goal_run_invocation_id"], "one")
             self.assertIn("required_inputs", run)
             self.assertIn("allowed_writes", run)
@@ -73,6 +75,7 @@ class GoalRunTests(unittest.TestCase):
             self.assertFalse(run["safety"]["executes_commands"])
             self.assertFalse(run["safety"]["allows_commit_push_pr_deploy"])
             self.assertEqual(result["status"], "ready")
+            self.assertEqual(result["goal_run_sha256"], GOAL_MODULE.sha256_bytes((out_dir / "Goal-Run.json").read_bytes()))
             self.assertIn("Canonical Handoff", prompt)
             self.assertIn("Goal Compiler Safety", prompt)
             self.assertEqual(prompt, GOAL_MODULE.render_prompt_from_run(run))
@@ -120,6 +123,20 @@ class GoalRunTests(unittest.TestCase):
 
             self.assertIn("secret_like_content", errors)
             self.assertIn("overlapping_allowed_forbidden_writes", errors)
+
+    def test_goal_run_rejects_template_bundle_or_compiler_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            run["template_bundle_digest"] = "0" * 64
+            run["compiler"]["sha256"] = "1" * 64
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("template_bundle_digest_mismatch", errors)
+            self.assertIn("compiler_digest_mismatch", errors)
 
     def test_goal_run_rejects_unsafe_wildcards_and_glob_overlap(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

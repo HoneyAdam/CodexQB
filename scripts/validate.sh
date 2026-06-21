@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+TMPDIR_VALIDATE="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_VALIDATE"' EXIT
 
 python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
 python3 -m json.tool plugins/codexqb/.codex-plugin/plugin.json >/dev/null
@@ -305,6 +307,51 @@ if offenders:
     for offender in offenders:
         print(offender)
     sys.exit(1)
+PY
+
+python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" >/dev/null
+CODEXQB_SANITIZED_ZIP="$TMPDIR_VALIDATE/CodexQB-sanitized.zip" python3 - <<'PY'
+import os
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+safety_dir = Path("plugins/codexqb/skills/codexqb/scripts").resolve()
+sys.path.insert(0, safety_dir.as_posix())
+from safety_contracts import has_secret_like  # noqa: E402
+
+bad = re.compile(
+    r"(^|/)(\.git|\.codexqb|__pycache__|\.env|artifacts|logs|tmp|__MACOSX)(/|$)"
+    r"|\.pyc$|\.pem$|\.key$|\.local($|\.)"
+)
+archive_path = Path(os.environ["CODEXQB_SANITIZED_ZIP"])
+offenders: list[str] = []
+secret_offenders: list[str] = []
+with zipfile.ZipFile(archive_path) as archive:
+    for info in archive.infolist():
+        name = info.filename
+        if bad.search(name):
+            offenders.append(name)
+            continue
+        if info.is_dir():
+            continue
+        data = archive.read(info)
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        if has_secret_like(text):
+            secret_offenders.append(name)
+
+if offenders or secret_offenders:
+    print("sanitized_zip_hygiene_failed")
+    for offender in offenders:
+        print(f"blocked_path={offender}")
+    for offender in secret_offenders:
+        print(f"secret_like_content={offender}")
+    sys.exit(1)
+print("sanitized_zip_hygiene=passed")
 PY
 
 if [[ "${CODEXQB_VALIDATE_SKIP_UNITTESTS:-0}" == "1" ]]; then

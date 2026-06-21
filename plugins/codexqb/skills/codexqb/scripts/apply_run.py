@@ -139,7 +139,7 @@ def load_events(run_dir: Path, errors: list[str]) -> list[dict[str, object]]:
 
 
 def safe_task_id(value: str) -> bool:
-    return bool(re.fullmatch(r"task-\d+", value))
+    return bool(re.fullmatch(r"AR-apply-[A-Za-z0-9_.-]+-T\d{3}", value))
 
 
 def is_inside(parent: Path, child: Path) -> bool:
@@ -286,7 +286,11 @@ def extract_subplan_contract(root: Path, subplan_path: str) -> dict[str, list[st
     return extract_contract_signals(path.read_text(encoding="utf-8", errors="replace"))
 
 
-def default_tasks(root: Path, mode: str, ready_queue: list[dict[str, str]] | None = None) -> list[dict[str, object]]:
+def task_id_for(run_id: str, index: int) -> str:
+    return f"AR-{run_id}-T{index:03d}"
+
+
+def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str, str]] | None = None) -> list[dict[str, object]]:
     if mode == "no_action":
         return []
     queue = ready_queue if ready_queue is not None else extract_ready_queue(root)
@@ -297,7 +301,7 @@ def default_tasks(root: Path, mode: str, ready_queue: list[dict[str, str]] | Non
         contract = extract_subplan_contract(root, subplan_path)
         tasks.append(
             {
-                "task_id": f"task-{index}",
+                "task_id": task_id_for(run_id, index),
                 "state": "BRIEFED",
                 "readiness_status": item["readiness_status"],
                 "source_subplan_path": subplan_path,
@@ -378,7 +382,7 @@ def create_apply_run(
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    tasks = default_tasks(root, mode, ready_queue)
+    tasks = default_tasks(root, mode, run_id, ready_queue)
     run = {
         "apply_run_schema_version": APPLY_RUN_SCHEMA_VERSION,
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -439,7 +443,7 @@ def create_apply_run(
     atomic_write_json(run_dir / "Final-Review.json", {"status": "not_started" if mode != "no_action" else "not_required"})
     atomic_write_json(run_dir / "Result.json", result)
     for index, task in enumerate(tasks, start=1):
-        task_dir = run_dir / f"task-{index}"
+        task_dir = run_dir / str(task["task_id"])
         task_dir.mkdir(parents=True, exist_ok=True)
         brief = "\n".join(
             [

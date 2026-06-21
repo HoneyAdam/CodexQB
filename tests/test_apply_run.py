@@ -55,6 +55,10 @@ class ApplyRunTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def first_task_id(self, run_dir: Path) -> str:
+        progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+        return progress["tasks"][0]["task_id"]
+
     def mark_task_verified(self, run_dir: Path, security: str = "not_required") -> None:
         progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
         task = progress["tasks"][0]
@@ -130,11 +134,13 @@ class ApplyRunTests(unittest.TestCase):
             self.assertTrue((run_dir / "Progress.json").is_file())
             self.assertTrue((run_dir / "Final-Review.json").is_file())
             self.assertTrue((run_dir / "Result.json").is_file())
-            self.assertTrue((run_dir / "task-1" / "Brief.md").is_file())
-            self.assertTrue((run_dir / "task-1" / "Implementer-Report.json").is_file())
-            self.assertTrue((run_dir / "task-1" / "Review-Package.patch").is_file())
-            self.assertTrue((run_dir / "task-1" / "Task-Review.json").is_file())
-            self.assertTrue((run_dir / "task-1" / "Fix-Report.json").is_file())
+            task_id = self.first_task_id(run_dir)
+            self.assertRegex(task_id, r"^AR-apply-subagent_serial-[A-Za-z0-9_.-]+-T001$")
+            self.assertTrue((run_dir / task_id / "Brief.md").is_file())
+            self.assertTrue((run_dir / task_id / "Implementer-Report.json").is_file())
+            self.assertTrue((run_dir / task_id / "Review-Package.patch").is_file())
+            self.assertTrue((run_dir / task_id / "Task-Review.json").is_file())
+            self.assertTrue((run_dir / task_id / "Fix-Report.json").is_file())
             run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
             self.assertEqual(run["apply_run_schema_version"], 1)
             self.assertEqual(run["mode"], "subagent_serial")
@@ -157,7 +163,7 @@ class ApplyRunTests(unittest.TestCase):
             self.assertIn("behavioral acceptance", contract["acceptance_criteria"][0])
             self.assertIn("allowed write paths", contract["allowed_paths"][0])
             self.assertIn("validation command argv", contract["structured_validation_commands"][0])
-            brief = (run_dir / "task-1" / "Brief.md").read_text(encoding="utf-8")
+            brief = (run_dir / task_id / "Brief.md").read_text(encoding="utf-8")
             self.assertIn("Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", brief)
             self.assertIn("fresh_context_contract", brief)
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
@@ -188,12 +194,13 @@ class ApplyRunTests(unittest.TestCase):
             result = APPLY_MODULE.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task_id = progress["tasks"][0]["task_id"]
             progress["tasks"][0]["validation_commands"] = [
                 {"argv": ["sh", "-c", "touch /tmp/codexqb-owned"]}
             ]
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
             errors = APPLY_MODULE.validate_apply_run(run_dir)
-            self.assertIn("unsafe_validation_command=task-1", errors)
+            self.assertIn(f"unsafe_validation_command={task_id}", errors)
 
     def test_apply_run_rejects_agent_profile_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -222,7 +229,7 @@ class ApplyRunTests(unittest.TestCase):
                     "--run-dir",
                     str(run_dir),
                     "--task-id",
-                    "task-1",
+                    self.first_task_id(run_dir),
                     "--to",
                     "IMPLEMENTING",
                     "--actor",
@@ -234,13 +241,14 @@ class ApplyRunTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue((run_dir / "Writer-Lock.json").is_file())
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task_id = progress["tasks"][0]["task_id"]
             self.assertEqual(progress["tasks"][0]["state"], "IMPLEMENTING")
-            self.assertEqual(progress["active_writer_locks"][0]["task_id"], "task-1")
+            self.assertEqual(progress["active_writer_locks"][0]["task_id"], task_id)
 
             with self.assertRaisesRegex(ValueError, "invalid_transition=IMPLEMENTING->VERIFIED"):
-                APPLY_MODULE.transition_task_state(run_dir, "task-1", "VERIFIED", "impl-1", [])
+                APPLY_MODULE.transition_task_state(run_dir, task_id, "VERIFIED", "impl-1", [])
 
-            APPLY_MODULE.transition_task_state(run_dir, "task-1", "IMPLEMENTED", "impl-1", ["implementation complete"])
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTED", "impl-1", ["implementation complete"])
             self.assertFalse((run_dir / "Writer-Lock.json").exists())
             events = [
                 json.loads(line)
@@ -259,12 +267,13 @@ class ApplyRunTests(unittest.TestCase):
             result = APPLY_MODULE.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task_id = progress["tasks"][0]["task_id"]
             progress["tasks"][0]["state"] = "IMPLEMENTED"
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
 
             errors = APPLY_MODULE.validate_apply_run(run_dir)
 
-            self.assertIn("task_state_missing_transition_event=task-1", errors)
+            self.assertIn(f"task_state_missing_transition_event={task_id}", errors)
 
     def test_validate_rejects_missing_writer_lock_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -272,7 +281,8 @@ class ApplyRunTests(unittest.TestCase):
             self.write_apply_fixture(root)
             result = APPLY_MODULE.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
-            APPLY_MODULE.transition_task_state(run_dir, "task-1", "IMPLEMENTING", "impl-1", ["started"])
+            task_id = self.first_task_id(run_dir)
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
             (run_dir / "Writer-Lock.json").unlink()
 
             errors = APPLY_MODULE.validate_apply_run(run_dir)
@@ -286,6 +296,7 @@ class ApplyRunTests(unittest.TestCase):
             result = APPLY_MODULE.create_apply_run(root, "direct")
             run_dir = Path(result["run_dir"])
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task_id = progress["tasks"][0]["task_id"]
             progress["tasks"][0]["state"] = "TASK_REVIEW"
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
             review = {
@@ -294,9 +305,9 @@ class ApplyRunTests(unittest.TestCase):
                 "blocking_findings": ["missing acceptance behavior"],
                 "re_review_required": True,
             }
-            (run_dir / "task-1" / "Task-Review.json").write_text(json.dumps(review), encoding="utf-8")
+            (run_dir / task_id / "Task-Review.json").write_text(json.dumps(review), encoding="utf-8")
             errors = APPLY_MODULE.validate_apply_run(run_dir)
-            self.assertIn("re_review_requires_fix_report=task-1", errors)
+            self.assertIn(f"re_review_requires_fix_report={task_id}", errors)
 
     def test_apply_run_rejects_non_ready_p0_p1_and_policy_violations(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -312,13 +323,14 @@ class ApplyRunTests(unittest.TestCase):
             progress["tasks"][0]["readiness_status"] = "BLOCKED"
             progress["tasks"][0]["finding_ids"] = ["P1"]
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
+            task_id = progress["tasks"][0]["task_id"]
 
             errors = APPLY_MODULE.validate_apply_run(run_dir)
 
             self.assertIn("only_one_writer_permitted", errors)
             self.assertIn("recursive_subagents_rejected", errors)
-            self.assertIn("non_ready_queue_item=task-1:BLOCKED", errors)
-            self.assertIn("p0_p1_queue_item_rejected=task-1", errors)
+            self.assertIn(f"non_ready_queue_item={task_id}:BLOCKED", errors)
+            self.assertIn(f"p0_p1_queue_item_rejected={task_id}", errors)
 
     def test_apply_run_requires_security_review_and_final_review_for_verified_task(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -330,15 +342,16 @@ class ApplyRunTests(unittest.TestCase):
             progress["tasks"][0]["state"] = "VERIFIED"
             progress["tasks"][0]["security_review_required"] = True
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
-            (run_dir / "task-1" / "Implementer-Report.json").write_text(json.dumps({"status": "DONE"}), encoding="utf-8")
-            (run_dir / "task-1" / "Task-Review.json").write_text(
+            task_id = progress["tasks"][0]["task_id"]
+            (run_dir / task_id / "Implementer-Report.json").write_text(json.dumps({"status": "DONE"}), encoding="utf-8")
+            (run_dir / task_id / "Task-Review.json").write_text(
                 json.dumps({"spec_compliance": "pass", "task_quality": "approved", "security_review": "not_required"}),
                 encoding="utf-8",
             )
 
             errors = APPLY_MODULE.validate_apply_run(run_dir)
 
-            self.assertIn("required_security_review_must_pass=task-1", errors)
+            self.assertIn(f"required_security_review_must_pass={task_id}", errors)
             self.assertIn("final_review_required", errors)
 
             self.mark_task_verified(run_dir, security="pass")
@@ -372,10 +385,11 @@ class ApplyRunTests(unittest.TestCase):
             progress["tasks"][0]["state"] = "VERIFIED"
             progress["tasks"][0]["redispatch_count"] = 1
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
+            task_id = progress["tasks"][0]["task_id"]
 
             errors = APPLY_MODULE.validate_apply_run(run_dir)
 
-            self.assertIn("verified_task_not_redispatched=task-1", errors)
+            self.assertIn(f"verified_task_not_redispatched={task_id}", errors)
 
     def test_external_superpowers_unavailable_requires_safe_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -445,8 +459,9 @@ class ApplyRunTests(unittest.TestCase):
             progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
             progress["tasks"][0]["state"] = "VERIFIED"
             (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
-            (run_dir / "task-1" / "Implementer-Report.json").write_text(json.dumps({"status": "DONE"}), encoding="utf-8")
-            (run_dir / "task-1" / "Task-Review.json").write_text(
+            task_id = progress["tasks"][0]["task_id"]
+            (run_dir / task_id / "Implementer-Report.json").write_text(json.dumps({"status": "DONE"}), encoding="utf-8")
+            (run_dir / task_id / "Task-Review.json").write_text(
                 json.dumps({"spec_compliance": "pass", "task_quality": "approved", "security_review": "not_required"}),
                 encoding="utf-8",
             )
@@ -454,9 +469,9 @@ class ApplyRunTests(unittest.TestCase):
 
             errors = APPLY_MODULE.validate_apply_run(run_dir)
 
-            self.assertIn("verified_requires_files_changed=task-1", errors)
-            self.assertIn("verified_requires_validation_evidence=task-1", errors)
-            self.assertIn("verified_requires_review_evidence=task-1", errors)
+            self.assertIn(f"verified_requires_files_changed={task_id}", errors)
+            self.assertIn(f"verified_requires_validation_evidence={task_id}", errors)
+            self.assertIn(f"verified_requires_review_evidence={task_id}", errors)
 
 
 if __name__ == "__main__":
