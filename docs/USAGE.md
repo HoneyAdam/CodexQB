@@ -198,6 +198,7 @@ Create or validate an apply-run artifact directory:
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py prepare --root /path/to/project --mode subagent_serial
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py transition --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id <task-id> --to IMPLEMENTING --actor impl-1 --evidence "brief accepted"
+python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py recover-lock --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --task-id <task-id> --to NEEDS_CONTEXT --actor controller --evidence "writer lock expired"
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py reconcile --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py finalize --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id> --actor controller --evidence "final review passed"
 python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py validate --run-dir /path/to/project/.codexqb/apply-runs/<apply-run-id>
@@ -205,7 +206,7 @@ python3 plugins/codexqb/skills/codexqb/scripts/apply_run.py validate --run-dir /
 
 Output is written under `.codexqb/apply-runs/<apply-run-id>/` as `Apply-Run.json`, `Progress.json`, `Events.jsonl`, optional `Writer-Lock.json`, per-task `AR-<apply-run-id>-T<nnn>/` brief/report/review/fix artifacts, `Final-Review.json`, and `Result.json`. `apply_spec_id` is deterministic for the selected mode, source snapshot, and READY queue; `apply_run_id` is unique per invocation. Non-`no_action` modes derive initial task briefs from Step 4 READY/READY_WITH_WARNINGS audit entries when available. The default commit policy is `none`.
 Apply validation rejects unsafe validation commands, path-traversal task IDs, no-action runs with queued tasks, recursive subagent depth, multiple writers, silent progress overwrite, eventless state jumps, stale writer locks, agent profile drift, unchecked/unreconciled external Superpowers adapters, and VERIFIED tasks that lack files changed, validation evidence, independent review evidence, and final repo-level validation evidence.
-`make check` also runs `evals/run_apply_behavior_smoke.py`, which drives `apply_run.py prepare`, `transition`, `validate`, and `finalize` through subprocesses in a disposable repository to prove the controller artifact lifecycle closes cleanly.
+`make check` also runs `evals/run_apply_behavior_smoke.py`, which drives `apply_run.py prepare`, `transition`, `validate`, `recover-lock`, and `finalize` through subprocesses in a disposable repository to prove the controller artifact lifecycle and stale-lock recovery close cleanly.
 `Goal-Run.json` records `goal_run_schema_version: 1`; `Apply-Run.json` records `apply_run_schema_version: 1`.
 
 ## Direct Step Invocation

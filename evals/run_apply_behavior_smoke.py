@@ -40,6 +40,23 @@ def run_apply(args: list[str], *, cwd: Path) -> str:
     return completed.stdout
 
 
+def run_apply_expect_failure(args: list[str], *, cwd: Path, expected: str) -> str:
+    completed = subprocess.run(
+        [sys.executable, APPLY_RUN.as_posix(), *args],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+    combined = f"{completed.stdout}\n{completed.stderr}"
+    if completed.returncode == 0:
+        fail(f"command_unexpected_success={' '.join(args)} stdout={completed.stdout.strip()}")
+    if expected not in combined:
+        fail(f"expected_failure_missing={expected} stdout={completed.stdout.strip()} stderr={completed.stderr.strip()}")
+    return combined
+
+
 def parse_key(output: str, key: str) -> str:
     prefix = f"{key}="
     for line in output.splitlines():
@@ -195,6 +212,66 @@ def main() -> int:
             fail("missing_finalize_event")
         if [event.get("sequence") for event in events] != list(range(1, len(events) + 1)):
             fail("non_contiguous_event_sequence")
+
+        recovery_output = run_apply(
+            ["prepare", "--root", root.as_posix(), "--mode", "direct", "--run-id-suffix", "recovery-smoke"],
+            cwd=root,
+        )
+        recovery_run_dir = Path(parse_key(recovery_output, "run_dir"))
+        recovery_progress = json.loads((recovery_run_dir / "Progress.json").read_text(encoding="utf-8"))
+        recovery_task = recovery_progress["tasks"][0]
+        recovery_task_id = recovery_task["task_id"]
+        run_apply(
+            [
+                "transition",
+                "--run-dir",
+                recovery_run_dir.as_posix(),
+                "--task-id",
+                recovery_task_id,
+                "--to",
+                "IMPLEMENTING",
+                "--actor",
+                "stale-impl",
+                "--evidence",
+                "behavior smoke starts stale lock scenario",
+            ],
+            cwd=root,
+        )
+        lock_path = recovery_run_dir / "Writer-Lock.json"
+        stale_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        stale_lock["acquired_at"] = "2000-01-01T00:00:00Z"
+        lock_path.write_text(json.dumps(stale_lock, sort_keys=True), encoding="utf-8")
+        recovery_progress = json.loads((recovery_run_dir / "Progress.json").read_text(encoding="utf-8"))
+        recovery_progress["active_writer_locks"] = [stale_lock]
+        recovery_progress["tasks"][0]["writer_lock"] = stale_lock
+        (recovery_run_dir / "Progress.json").write_text(json.dumps(recovery_progress, sort_keys=True), encoding="utf-8")
+        run_apply_expect_failure(
+            ["validate", "--run-dir", recovery_run_dir.as_posix(), "--root", root.as_posix()],
+            cwd=root,
+            expected=f"writer_lock_expired={recovery_task_id}",
+        )
+        run_apply(
+            [
+                "recover-lock",
+                "--run-dir",
+                recovery_run_dir.as_posix(),
+                "--task-id",
+                recovery_task_id,
+                "--to",
+                "NEEDS_CONTEXT",
+                "--actor",
+                "smoke-controller",
+                "--evidence",
+                "behavior smoke recovered expired writer lock",
+            ],
+            cwd=root,
+        )
+        run_apply(["validate", "--run-dir", recovery_run_dir.as_posix(), "--root", root.as_posix()], cwd=root)
+        recovery_progress = json.loads((recovery_run_dir / "Progress.json").read_text(encoding="utf-8"))
+        if recovery_progress["tasks"][0]["state"] != "NEEDS_CONTEXT":
+            fail("recovery_state_not_needs_context")
+        if lock_path.exists():
+            fail("recovery_left_writer_lock_file")
 
     print("apply_behavior_smoke=passed")
     return 0

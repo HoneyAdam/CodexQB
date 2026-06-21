@@ -87,6 +87,18 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def parse_utc_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
@@ -568,6 +580,21 @@ def lock_payload(run_dir: Path, task_id: str, owner: str) -> dict[str, object]:
     }
 
 
+def lock_expiry(lock: dict[str, object]) -> datetime | None:
+    acquired = parse_utc_timestamp(lock.get("acquired_at"))
+    expires = lock.get("expires_in_seconds")
+    if acquired is None or not isinstance(expires, (int, float)) or expires < 0:
+        return None
+    return datetime.fromtimestamp(acquired.timestamp() + float(expires), timezone.utc)
+
+
+def lock_is_expired(lock: dict[str, object], *, now: datetime | None = None) -> bool:
+    expiry = lock_expiry(lock)
+    if expiry is None:
+        return False
+    return (now or datetime.now(timezone.utc)) >= expiry
+
+
 def acquire_writer_lock(run_dir: Path, progress: dict[str, object], task: dict[str, object], owner: str) -> dict[str, object]:
     locks = progress.get("active_writer_locks", [])
     if locks:
@@ -632,6 +659,70 @@ def transition_task_state(run_dir: Path, task_id: str, to_state: str, actor: str
     )
     progress["resume_cursor"] = {"task_id": task_id, "state": to_state, "event_sequence": event["sequence"]}
     progress["events"] = [{"sequence": event["sequence"], "event_type": "task_transition", "task_id": task_id, "to": to_state}]
+    atomic_write_json(run_dir / "Progress.json", progress)
+    return event
+
+
+def recover_stale_writer_lock(
+    run_dir: Path,
+    task_id: str,
+    to_state: str,
+    actor: str,
+    evidence: list[str] | None = None,
+) -> dict[str, object]:
+    run_dir = run_dir.resolve()
+    if not safe_task_id(task_id):
+        raise ValueError(f"invalid_task_id={task_id or 'missing'}")
+    if to_state not in {"BLOCKED", "NEEDS_CONTEXT"}:
+        raise ValueError(f"invalid_recovery_state={to_state}")
+    if not actor.strip():
+        raise ValueError("recovery_actor_required")
+    progress = load_json_strict(run_dir / "Progress.json")
+    task = find_task(progress, task_id)
+    from_state = str(task.get("state", ""))
+    if from_state != "IMPLEMENTING":
+        raise ValueError(f"recovery_requires_implementing_state={from_state or 'missing'}")
+    path = run_dir / WRITER_LOCK_NAME
+    if not path.is_file():
+        raise ValueError("writer_lock_missing")
+    lock = load_json_strict(path)
+    locks = progress.get("active_writer_locks", [])
+    if not isinstance(locks, list) or len(locks) != 1 or locks[0] != lock or task.get("writer_lock") != lock:
+        raise ValueError("writer_lock_recovery_requires_consistent_lock")
+    if lock.get("task_id") != task_id:
+        raise ValueError("writer_lock_task_mismatch")
+    if lock_expiry(lock) is None:
+        raise ValueError("writer_lock_expiry_invalid")
+    if not lock_is_expired(lock):
+        raise ValueError("writer_lock_not_expired")
+
+    path.unlink()
+    progress["active_writer_locks"] = []
+    task["writer_lock"] = None
+    task["state"] = to_state
+    event = append_event(
+        run_dir,
+        {
+            "event_type": "task_transition",
+            "task_id": task_id,
+            "from": from_state,
+            "to": to_state,
+            "actor": actor,
+            "evidence": evidence or [],
+            "writer_lock": {"recovered": True, "stale_lock": lock},
+            "recovery": "stale_writer_lock",
+        },
+    )
+    progress["resume_cursor"] = {"task_id": task_id, "state": to_state, "event_sequence": event["sequence"]}
+    progress["events"] = [
+        {
+            "sequence": event["sequence"],
+            "event_type": "task_transition",
+            "task_id": task_id,
+            "to": to_state,
+            "recovery": "stale_writer_lock",
+        }
+    ]
     atomic_write_json(run_dir / "Progress.json", progress)
     return event
 
@@ -850,6 +941,10 @@ def validate_writer_lock(run_dir: Path, progress: dict[str, object], tasks: list
             errors.append(f"task_writer_lock_mismatch={task_id}")
         if task.get("state") != "IMPLEMENTING":
             errors.append(f"writer_lock_requires_implementing_state={task_id}")
+        if lock_expiry(lock) is None:
+            errors.append(f"writer_lock_expiry_invalid={task_id}")
+        elif lock_is_expired(lock):
+            errors.append(f"writer_lock_expired={task_id}")
 
 
 def validate_agent_profiles(run: dict[str, object], errors: list[str]) -> None:
@@ -1033,6 +1128,12 @@ def main(argv: list[str] | None = None) -> int:
     transition.add_argument("--evidence", action="append", default=[])
     reconcile = sub.add_parser("reconcile", help="Reconcile external adapter readiness before dispatch.")
     reconcile.add_argument("--run-dir", required=True)
+    recover = sub.add_parser("recover-lock", help="Recover an expired writer lock to BLOCKED or NEEDS_CONTEXT.")
+    recover.add_argument("--run-dir", required=True)
+    recover.add_argument("--task-id", required=True)
+    recover.add_argument("--to", required=True, choices=["BLOCKED", "NEEDS_CONTEXT"])
+    recover.add_argument("--actor", required=True)
+    recover.add_argument("--evidence", action="append", default=[])
     finalize = sub.add_parser("finalize", help="Finalize a validated apply-run artifact directory.")
     finalize.add_argument("--run-dir", required=True)
     finalize.add_argument("--actor", required=True)
@@ -1066,6 +1167,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"mode={result['mode']}")
             if "event_sequence" in result:
                 print(f"event_sequence={result['event_sequence']}")
+            return 0
+        if args.command == "recover-lock":
+            event = recover_stale_writer_lock(Path(args.run_dir), args.task_id, args.to, args.actor, args.evidence)
+            print("apply_run_status=recovered")
+            print(f"event_sequence={event['sequence']}")
+            print(f"task_id={args.task_id}")
+            print(f"state={args.to}")
             return 0
         if args.command == "finalize":
             event = finalize_apply_run(Path(args.run_dir), args.actor, args.evidence)

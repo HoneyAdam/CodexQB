@@ -14,6 +14,7 @@
 - Added project-specific Goal scope collectors for active sub-plans and Step 4 READY queues.
 - Hardened Apply artifacts with audit-derived task queues, no silent progress overwrite, no-action queue consistency, task ID traversal rejection, shared validation-command policy, immutable plan snapshot separation from `Planing-Ledger.md`, workspace baseline hashes, and evidence-bearing VERIFIED/final-review gates.
 - Added Apply transition control with `prepare`/`transition` CLI support, append-only `Events.jsonl`, atomic JSON writes, create-exclusive `Writer-Lock.json`, state-transition validation, and agent profile drift checks.
+- Added expired writer-lock validation and `recover-lock` CLI support for abandoned `IMPLEMENTING` tasks.
 - Split deterministic Goal/Apply spec IDs from unique invocation run IDs, made resume require an explicit output directory, recorded Step 4 readiness summaries in apply runs, and added external Superpowers readiness/reconcile validation.
 - Pinned Goal template/compiler hashes into `Goal-Run.json`, added `goal_run_sha256` result evidence, switched generated Apply task IDs to `AR-<apply-run-id>-T<nnn>`, added apply-run `finalize`, and added sanitized zip content/path hygiene to `make check`.
 - Added an apply-run behavior smoke to `make check` that drives `prepare`, `transition`, `validate`, and `finalize` through subprocesses in a disposable repository.

@@ -289,6 +289,41 @@ class ApplyRunTests(unittest.TestCase):
 
             self.assertIn("active_writer_lock_missing_file", errors)
 
+    def test_recover_stale_writer_lock_moves_task_to_needs_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = APPLY_MODULE.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            task_id = self.first_task_id(run_dir)
+            APPLY_MODULE.transition_task_state(run_dir, task_id, "IMPLEMENTING", "impl-1", ["started"])
+
+            lock_path = run_dir / "Writer-Lock.json"
+            stale_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            stale_lock["acquired_at"] = "2000-01-01T00:00:00Z"
+            lock_path.write_text(json.dumps(stale_lock), encoding="utf-8")
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            progress["active_writer_locks"] = [stale_lock]
+            progress["tasks"][0]["writer_lock"] = stale_lock
+            (run_dir / "Progress.json").write_text(json.dumps(progress), encoding="utf-8")
+
+            self.assertIn(f"writer_lock_expired={task_id}", APPLY_MODULE.validate_apply_run(run_dir))
+            event = APPLY_MODULE.recover_stale_writer_lock(
+                run_dir,
+                task_id,
+                "NEEDS_CONTEXT",
+                "controller",
+                ["implementation worker abandoned stale lock"],
+            )
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(event["recovery"], "stale_writer_lock")
+            self.assertEqual(event["from"], "IMPLEMENTING")
+            self.assertEqual(event["to"], "NEEDS_CONTEXT")
+            self.assertFalse(lock_path.exists())
+            self.assertEqual(progress["tasks"][0]["state"], "NEEDS_CONTEXT")
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
+
     def test_apply_run_enforces_review_order(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

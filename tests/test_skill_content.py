@@ -232,13 +232,21 @@ class SkillContentTests(unittest.TestCase):
             "Writer-Lock.json",
             "apply_run.py prepare",
             "apply_run.py transition",
+            "apply_run.py recover-lock",
             "apply_run.py finalize",
             "append-only transition truth",
             "agent_profiles",
             "security_strong",
         ]:
             self.assertIn(phrase, apply_ref)
-        for phrase in ["prepare --root", "transition --run-dir", "finalize --run-dir", "Events.jsonl", "agent profile drift"]:
+        for phrase in [
+            "prepare --root",
+            "transition --run-dir",
+            "recover-lock --run-dir",
+            "finalize --run-dir",
+            "Events.jsonl",
+            "agent profile drift",
+        ]:
             self.assertIn(phrase, readme)
             self.assertIn(phrase, usage)
 
