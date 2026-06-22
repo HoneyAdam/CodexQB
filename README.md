@@ -4,7 +4,9 @@
 
 **Vibecoding-first repo planning for Codex.** CodexQB turns a project repository into a durable planning package: main plan, existing-project autopsy, optional project comprehension, project ontology, planning ledger, phase sub-plans, QA audit, and a gated implementation handoff.
 
-![CodexQB workflow and release validation](docs/assets/codexqb-workflow.png)
+![CodexQB source-bound workflow and release validation](docs/assets/codexqb-workflow.png)
+
+The diagram shows the current 0.3.0 flow: repo-aware intake, existing-project autopsy and comprehension, source-bound sub-plans, P0/P1-gated QA audit, digest-verified Goal/Apply runs, public privacy scanning, and sanitized release validation.
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
