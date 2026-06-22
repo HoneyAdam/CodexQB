@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_validate_planner_docs import write_audit, write_main_plan_with_phases, write_valid_step2_fixture
+from tests.test_validate_planner_docs import write_audit, write_ledger, write_main_plan_with_phases, write_valid_step2_fixture
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,19 @@ class GoalRunTests(unittest.TestCase):
     def write_goal_fixture(self, root: Path) -> None:
         docs = write_valid_step2_fixture(root)
         write_audit(docs, "PASS")
+
+    def rewrite_goal_identity(self, run: dict[str, object]) -> None:
+        stage = str(run["stage"])
+        digest = GOAL_MODULE.goal_spec_digest(
+            stage,
+            run["source_snapshot"],
+            run["mode"],
+            run["objective"],
+            run["active_scope"],
+        )
+        run["goal_spec_digest"] = digest
+        run["goal_spec_id"] = f"spec-{stage}-{digest[:16]}"
+        run["goal_run_id"] = f"goal-{stage}-{digest[:12]}-{run['goal_run_invocation_id']}"
 
     def test_compile_goal_writes_stable_spec_and_unique_run_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -67,6 +81,11 @@ class GoalRunTests(unittest.TestCase):
             self.assertIn("forbidden_writes", run)
             self.assertIn("validation_checkpoints", run)
             self.assertIn("stop_gates", run)
+            self.assertEqual(run["budget_contract"]["max_selected_tasks"], 4)
+            self.assertEqual(run["budget_contract"]["max_agent_attempts_per_role"], 2)
+            self.assertEqual(run["token_usage"]["status"], "not_observed")
+            self.assertEqual(result["budget_contract"], run["budget_contract"])
+            self.assertEqual(result["token_usage"], run["token_usage"])
             self.assertEqual(run["active_scope"]["project_root"], ".")
             self.assertFalse(run["safety"]["executes_commands"])
             self.assertFalse(run["safety"]["allows_commit_push_pr_deploy"])
@@ -90,6 +109,19 @@ class GoalRunTests(unittest.TestCase):
                 compiled = GOAL_MODULE.compile_goal(root, stage)
                 prompt = Path(compiled["output_dir"]) / "Goal-Prompt.md"
                 self.assertIn(f"CodexQB Goal Prompt: {stage}", prompt.read_text(encoding="utf-8"))
+
+    def test_default_cli_reports_blocked_status_for_missing_prerequisites(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = subprocess.run(
+                [sys.executable, str(GOAL_RUN), "--root", temp_dir, "--stage", "step4"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("goal_run_status=blocked", result.stdout)
+            self.assertNotIn("goal_run_status=ready", result.stdout)
 
     def test_goal_run_snapshot_mismatch_blocks_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -168,6 +200,48 @@ class GoalRunTests(unittest.TestCase):
             self.assertIn("invalid_validation_checkpoints", errors)
             self.assertIn("invalid_subagent_plan", errors)
             self.assertIn("invalid_context_token_budget", errors)
+
+    def test_goal_budget_rejects_invalid_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            run["budget_contract"]["soft_input_token_limit"] = -1
+            run["budget_contract"]["hard_total_token_limit"] = 1
+            run["budget_contract"]["pause_on_soft_limit"] = False
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("invalid_budget_contract=soft_input_token_limit", errors)
+            self.assertIn("budget_contract_must_pause_on_soft_limit", errors)
+
+    def test_goal_budget_limits_step4_selected_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            run["budget_contract"]["max_selected_tasks"] = 0
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("budget_selected_tasks_exceeded", errors)
+
+    def test_goal_unknown_runtime_token_usage_is_reported_honestly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            result = json.loads((Path(compiled["output_dir"]) / "Goal-Result.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(run["token_usage"]["input_tokens"], "not_observed")
+            self.assertEqual(result["token_usage"]["total_tokens"], "not_observed")
+            run["token_usage"] = {"status": "not_observed"}
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("token_usage_not_observed_must_be_explicit", errors)
 
     def test_goal_render_validates_before_writing_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -296,6 +370,87 @@ class GoalRunTests(unittest.TestCase):
             self.assertIn("validation_command_ids=VAL-01", work_steps)
             self.assertIn("outputs=reports/faz1-1-readiness.md", work_steps)
 
+    def test_goal_contract_is_bound_to_source_subplan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2")
+            item = compiled["run"]["active_scope"]["subplan_contracts"][0]
+
+            self.assertEqual(item["source_subplan_path"], "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md")
+            self.assertEqual(item["source_subplan_sha256"], item["subplan_sha256"])
+            self.assertTrue(item["implementation_contract_digest"])
+            self.assertEqual(item["parent_acceptance_signal_ids"], ["MP-PH1-AS-01"])
+            self.assertEqual(item["risk_class"], "low")
+            self.assertEqual(item["risk_domains"], ["none"])
+            self.assertEqual(GOAL_MODULE.validate_goal_run(root, compiled["run"]), [])
+
+    def test_goal_rejects_self_consistent_but_source_divergent_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2", run_id_suffix="tamper")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            item = run["active_scope"]["subplan_contracts"][0]
+            item["implementation_contract"]["outputs"] = ["reports/tampered.md"]
+            item["implementation_contract_digest"] = GOAL_MODULE.implementation_contract_digest(item["implementation_contract"])
+            self.rewrite_goal_identity(run)
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("implementation_contract_source_mismatch=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", errors)
+            self.assertIn("implementation_contract_digest_source_mismatch=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", errors)
+
+    def test_goal_rejects_validation_ids_divergent_from_source_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2", run_id_suffix="tamper")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            item = run["active_scope"]["subplan_contracts"][0]
+            item["implementation_contract"]["validation_commands"][0]["id"] = "VAL-99"
+            item["validation_command_ids"] = ["VAL-99"]
+            item["implementation_contract_digest"] = GOAL_MODULE.implementation_contract_digest(item["implementation_contract"])
+            self.rewrite_goal_identity(run)
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("validation_command_ids_source_mismatch=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", errors)
+
+    def test_goal_rejects_security_flags_divergent_from_source_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2", run_id_suffix="tamper")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            item = run["active_scope"]["subplan_contracts"][0]
+            item["implementation_contract"]["security_review_required"] = False
+            item["security_review_required"] = False
+            item["implementation_contract_digest"] = GOAL_MODULE.implementation_contract_digest(item["implementation_contract"])
+            self.rewrite_goal_identity(run)
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("security_review_required_source_mismatch=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", errors)
+
+    def test_goal_rejects_missing_or_duplicate_source_subplan_mappings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step2", run_id_suffix="tamper")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            items = run["active_scope"]["subplan_contracts"]
+            missing = json.loads(json.dumps(items[0]))
+            missing["source_subplan_path"] = "Planner-docs/Missing.md"
+            items.append(missing)
+            items.append(json.loads(json.dumps(items[0])))
+            self.rewrite_goal_identity(run)
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("missing_source_subplan=Planner-docs/Missing.md", errors)
+            self.assertIn("duplicate_source_subplan_mapping=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", errors)
+
     def test_step2_goal_collects_main_plan_horizon_before_subplans_exist(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -340,6 +495,151 @@ class GoalRunTests(unittest.TestCase):
 
             self.assertIn("step3-preflight", modes)
             self.assertIn("step3", modes)
+
+    def test_step3_expected_audit_output_does_not_break_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step3")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            write_audit(docs, "PASS")
+
+            self.assertEqual(GOAL_MODULE.validate_goal_run(root, run), [])
+
+    def test_step3_source_plan_change_breaks_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step3")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+            subplan.write_text(subplan.read_text(encoding="utf-8") + "\nsource drift\n", encoding="utf-8")
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("source_snapshot_mismatch", errors)
+
+    def test_step4_ledger_update_does_not_break_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            write_audit(docs, "PASS")
+            write_ledger(docs)
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            ledger = docs / "Planing-Ledger.md"
+            ledger.write_text(ledger.read_text(encoding="utf-8") + "\nStep 4 expected ledger update.\n", encoding="utf-8")
+
+            self.assertEqual(GOAL_MODULE.validate_goal_run(root, run), [])
+
+    def test_step4_selected_subplan_change_breaks_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            write_audit(docs, "PASS")
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+            subplan.write_text(subplan.read_text(encoding="utf-8") + "\nsource drift\n", encoding="utf-8")
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("source_snapshot_mismatch", errors)
+
+    def test_step4_expected_implementation_paths_can_change_without_snapshot_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            write_audit(docs, "PASS")
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            (root / "src").mkdir()
+            (root / "src" / "feature_1_1.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+            self.assertEqual(GOAL_MODULE.validate_goal_run(root, run), [])
+
+    def test_step4_allowed_writes_include_apply_and_contract_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            prompt = (Path(compiled["output_dir"]) / "Goal-Prompt.md").read_text(encoding="utf-8")
+
+            self.assertIn("Planner-docs/Planing-Ledger.md", run["allowed_writes"])
+            self.assertIn(".codexqb/apply-runs/**", run["allowed_writes"])
+            self.assertIn("src/feature_1_1.py", run["allowed_writes"])
+            self.assertIn("tests/test_feature_1_1.py", run["allowed_writes"])
+            self.assertIn(".codexqb/apply-runs/**", prompt)
+            self.assertIn("src/feature_1_1.py", prompt)
+
+    def test_goal_rejects_work_steps_divergent_from_source_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step4", run_id_suffix="tamper")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+
+            run["work_steps"] = ["Execute a stale validation-command ID from an old sub-plan."]
+
+            self.assertIn("work_steps_mismatch", GOAL_MODULE.validate_goal_run(root, run))
+
+    def test_goal_rejects_subplan_path_alias_for_source_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_goal_fixture(root)
+            compiled = GOAL_MODULE.compile_goal(root, "step4", run_id_suffix="alias")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            ready_item = run["active_scope"]["ready_queue"][0]
+            ready_item["subplan_path"] = "Planner-docs/Faz-1-Plans/Other.md"
+            self.rewrite_goal_identity(run)
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+            self.assertIn(f"subplan_source_path_mismatch={ready_item['source_subplan_path']}", errors)
+
+    def test_unexpected_workspace_change_breaks_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            write_audit(docs, "PASS")
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            (root / "src").mkdir()
+            (root / "src" / "unrelated.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("workspace_baseline_mismatch=workspace_inventory_sha256", errors)
+
+    def test_missing_mutable_output_is_distinguishable_from_immutable_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            write_audit(docs, "PASS")
+            write_ledger(docs)
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            (docs / "Planing-Ledger.md").unlink()
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("mutable_output_removed=Planner-docs/Planing-Ledger.md", errors)
+            self.assertNotIn("source_snapshot_mismatch", errors)
+
+    def test_duplicate_mutable_output_declarations_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = write_valid_step2_fixture(root)
+            write_audit(docs, "PASS")
+            compiled = GOAL_MODULE.compile_goal(root, "step4")
+            run = json.loads((Path(compiled["output_dir"]) / "Goal-Run.json").read_text(encoding="utf-8"))
+            mutable = run["stage_snapshot"]["mutable_outputs"]
+            mutable["declared"].append("Planner-docs/Planing-Ledger.md")
+            mutable["duplicates"].append("Planner-docs/Planing-Ledger.md")
+
+            errors = GOAL_MODULE.validate_goal_run(root, run)
+
+            self.assertIn("duplicate_mutable_output_declarations", errors)
 
 
 if __name__ == "__main__":

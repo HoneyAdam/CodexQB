@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import fnmatch
 import hashlib
 import json
 import os
@@ -23,10 +24,18 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from safety_contracts import (  # noqa: E402
+    budget_limit,
+    canonical_json_digest,
+    default_budget_contract,
     glob_patterns_overlap,
     has_secret_like,
+    implementation_contract_source_binding,
+    implementation_contract_validation_command_ids,
     is_safe_repo_path,
     path_is_inside,
+    token_usage_not_observed,
+    validate_budget_contract,
+    validate_token_usage,
 )
 
 
@@ -63,6 +72,63 @@ PLANNER_DOC_SOURCES = [
     "Planner-docs/Sub-Planing-Audit.md",
     "Planner-docs/Planing-Ledger.md",
 ]
+IMMUTABLE_PLANNER_DOCS_BY_STAGE = {
+    "step15": [
+        "Planner-docs/Main-Planing.md",
+    ],
+    "step2": [
+        "Planner-docs/Main-Planing.md",
+        "Planner-docs/Autopsy.md",
+        "Planner-docs/Project-Ontology.md",
+        "Planner-docs/Project-Comprehension.md",
+    ],
+    "step3": [
+        "Planner-docs/Main-Planing.md",
+        "Planner-docs/Autopsy.md",
+        "Planner-docs/Project-Ontology.md",
+        "Planner-docs/Project-Comprehension.md",
+        "Planner-docs/Sub-Planing-Index.md",
+        "Planner-docs/Planing-Ledger.md",
+    ],
+    "step4": [
+        "Planner-docs/Main-Planing.md",
+        "Planner-docs/Autopsy.md",
+        "Planner-docs/Project-Ontology.md",
+        "Planner-docs/Project-Comprehension.md",
+        "Planner-docs/Sub-Planing-Index.md",
+        "Planner-docs/Sub-Planing-Audit.md",
+    ],
+}
+MUTABLE_OUTPUTS_BY_STAGE = {
+    "step15": [
+        "Planner-docs/Autopsy.md",
+        "Planner-docs/Project-Ontology.md",
+        "Planner-docs/Project-Comprehension.md",
+        "Planner-docs/Planing-Ledger.md",
+    ],
+    "step2": [
+        "Planner-docs/Sub-Planing-Index.md",
+        "Planner-docs/Planing-Ledger.md",
+        "Planner-docs/Faz-*-Plans/*.md",
+    ],
+    "step3": [
+        "Planner-docs/Sub-Planing-Audit.md",
+    ],
+    "step4": [
+        "Planner-docs/Planing-Ledger.md",
+        ".codexqb/apply-runs/**",
+    ],
+}
+WORKSPACE_BASELINE_EXCLUDED_PREFIXES = (
+    ".git/",
+    ".codexqb/",
+    "Planner-docs/Goal-Runs/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".ruff_cache/",
+)
+WORKSPACE_BASELINE_EXCLUDED_NAMES = {"CodexQB-sanitized.zip"}
 GOAL_AGENT_PROFILES = {
     "explorer": {"agent_type": "explorer", "model_profile": "fast", "sandbox": "read-only"},
     "implementer": {"agent_type": "worker", "model_profile": "balanced", "sandbox": "workspace-write"},
@@ -115,22 +181,140 @@ def collect_sources(root: Path, stage: str) -> list[dict[str, str]]:
         data = path.read_bytes()
         sources.append({"scope": "skill", "path": rel, "sha256": sha256_bytes(data)})
 
-    for rel in PLANNER_DOC_SOURCES:
+    for rel in IMMUTABLE_PLANNER_DOCS_BY_STAGE[stage]:
         path = root / rel
         if path.is_file():
             data = path.read_bytes()
             sources.append({"scope": "repo", "path": rel, "sha256": sha256_bytes(data)})
 
-    planner = root / "Planner-docs"
-    for path in sorted(planner.glob("Faz-*-Plans/*.md")) if planner.is_dir() else []:
-        data = path.read_bytes()
-        sources.append({"scope": "repo", "path": repo_relative(root, path), "sha256": sha256_bytes(data)})
+    if stage in {"step3", "step4"}:
+        planner = root / "Planner-docs"
+        for path in sorted(planner.glob("Faz-*-Plans/*.md")) if planner.is_dir() else []:
+            data = path.read_bytes()
+            sources.append({"scope": "repo", "path": repo_relative(root, path), "sha256": sha256_bytes(data)})
 
     branch = run_git(root, ["branch", "--show-current"]) or "unknown"
     commit = run_git(root, ["rev-parse", "HEAD"]) or "unknown"
     sources.append({"scope": "git", "path": "branch", "sha256": sha256_bytes(branch.encode("utf-8")), "value": branch})
     sources.append({"scope": "git", "path": "commit", "sha256": sha256_bytes(commit.encode("utf-8")), "value": commit})
     return sources
+
+
+def goal_mutable_output_patterns(stage: str, active_scope: dict[str, object] | None = None) -> list[str]:
+    patterns = list(MUTABLE_OUTPUTS_BY_STAGE[stage])
+    if stage == "step4" and isinstance(active_scope, dict):
+        for item in active_scope.get("ready_queue", []):
+            if not isinstance(item, dict):
+                continue
+            contract = item.get("implementation_contract")
+            if not isinstance(contract, dict):
+                continue
+            paths = contract.get("implementation_paths")
+            if not isinstance(paths, list):
+                continue
+            for entry in paths:
+                if not isinstance(entry, dict):
+                    continue
+                path = entry.get("path")
+                if isinstance(path, str) and is_safe_repo_path(path) and path not in patterns:
+                    patterns.append(path)
+    return patterns
+
+
+def mutable_output_matches(rel_path: str, patterns: list[str]) -> bool:
+    return any(fnmatch.fnmatch(rel_path, pattern) for pattern in patterns)
+
+
+def mutable_output_baseline(root: Path, patterns: list[str]) -> dict[str, object]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for pattern in patterns:
+        if pattern in seen:
+            duplicates.append(pattern)
+        seen.add(pattern)
+    files: list[dict[str, object]] = []
+    for pattern in patterns:
+        if any(char in pattern for char in "*?[]"):
+            matches = sorted(root.glob(pattern))
+        else:
+            matches = [root / pattern]
+        for path in matches:
+            if path.is_file():
+                files.append(
+                    {
+                        "path": repo_relative(root, path),
+                        "exists": True,
+                        "sha256": sha256_bytes(path.read_bytes()),
+                    }
+                )
+            elif not any(char in pattern for char in "*?[]"):
+                files.append({"path": pattern, "exists": False, "sha256": None})
+    return {"declared": patterns, "duplicates": duplicates, "files": files}
+
+
+def workspace_path_excluded(rel_path: str, mutable_patterns: list[str]) -> bool:
+    if rel_path in WORKSPACE_BASELINE_EXCLUDED_NAMES:
+        return True
+    if any(rel_path == prefix.rstrip("/") or rel_path.startswith(prefix) for prefix in WORKSPACE_BASELINE_EXCLUDED_PREFIXES):
+        return True
+    if any(part == "__pycache__" for part in Path(rel_path).parts):
+        return True
+    return mutable_output_matches(rel_path, mutable_patterns)
+
+
+def workspace_inventory(root: Path, mutable_patterns: list[str]) -> list[str]:
+    entries: list[str] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = repo_relative(root, path)
+        if workspace_path_excluded(rel, mutable_patterns):
+            continue
+        entries.append(f"{rel}\0{sha256_bytes(path.read_bytes())}")
+    return entries
+
+
+def git_hash(root: Path, args: list[str]) -> str:
+    output = run_git(root, args)
+    return sha256_bytes(output.encode("utf-8"))
+
+
+def workspace_baseline(root: Path, mutable_patterns: list[str]) -> dict[str, object]:
+    branch = run_git(root, ["branch", "--show-current"]) or "unknown"
+    commit = run_git(root, ["rev-parse", "HEAD"]) or "unknown"
+    inventory = workspace_inventory(root, mutable_patterns)
+    return {
+        "branch": branch,
+        "base_commit": commit,
+        "staged_diff_hash": git_hash(root, ["diff", "--cached", "--binary"]),
+        "unstaged_diff_hash": git_hash(root, ["diff", "--binary"]),
+        "untracked_inventory_hash": git_hash(root, ["ls-files", "--others", "--exclude-standard"]),
+        "workspace_inventory_sha256": sha256_bytes("\n".join(inventory).encode("utf-8")),
+        "workspace_inventory_count": len(inventory),
+    }
+
+
+def stage_snapshot(
+    root: Path,
+    stage: str,
+    sources: list[dict[str, str]],
+    mutable_patterns: list[str],
+    *,
+    template_bundle_digest: str,
+    goal_spec_digest_value: str,
+) -> dict[str, object]:
+    return {
+        "stage": stage,
+        "branch": run_git(root, ["branch", "--show-current"]) or "unknown",
+        "base_commit": run_git(root, ["rev-parse", "HEAD"]) or "unknown",
+        "immutable_inputs": sources,
+        "immutable_input_digest": snapshot_digest(stage, sources),
+        "mutable_outputs": mutable_output_baseline(root, mutable_patterns),
+        "workspace_baseline": workspace_baseline(root, mutable_patterns),
+        "template_bundle_digest": template_bundle_digest,
+        "compiler_version": GOAL_COMPILER_VERSION,
+        "goal_spec_digest": goal_spec_digest_value,
+    }
 
 
 def snapshot_digest(stage: str, sources: list[dict[str, str]]) -> str:
@@ -311,61 +495,36 @@ def extract_contract_signals(text: str) -> dict[str, list[str]]:
 
 
 def extract_implementation_contract(root: Path, subplan_path: str) -> dict[str, object]:
-    path = root / subplan_path
-    if not path.is_file():
-        return {}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    section_match = re.search(
-        r"### Implementation Contract\s*(.*?)(?:\n### |\n## |\Z)",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    if not section_match:
-        return {}
-    json_match = re.search(r"```json\s*(.*?)\s*```", section_match.group(1), flags=re.DOTALL | re.IGNORECASE)
-    if not json_match:
-        return {}
-    try:
-        contract = json.loads(json_match.group(1))
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(contract, dict):
-        return {}
-    return json.loads(json.dumps(contract, sort_keys=True))
+    binding = implementation_contract_source_binding(root, subplan_path)
+    contract = binding.get("implementation_contract")
+    return contract if isinstance(contract, dict) else {}
 
 
 def validation_command_ids(implementation_contract: dict[str, object]) -> list[str]:
-    commands = implementation_contract.get("validation_commands")
-    if not isinstance(commands, list):
-        return []
-    ids: list[str] = []
-    for command in commands:
-        if not isinstance(command, dict):
-            continue
-        command_id = command.get("id")
-        if isinstance(command_id, str) and command_id.strip():
-            ids.append(command_id.strip())
-    return ids
+    return implementation_contract_validation_command_ids(implementation_contract)
 
 
 def implementation_contract_digest(implementation_contract: dict[str, object]) -> str | None:
     if not implementation_contract:
         return None
-    payload = json.dumps(implementation_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return sha256_bytes(payload)
+    return canonical_json_digest(implementation_contract)
 
 
 def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
     path = root / subplan_path
     text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
     contract = extract_contract_signals(text)
-    implementation_contract = extract_implementation_contract(root, subplan_path)
+    binding = implementation_contract_source_binding(root, subplan_path)
+    implementation_contract = binding.get("implementation_contract")
+    implementation_contract = implementation_contract if isinstance(implementation_contract, dict) else {}
     item: dict[str, object] = {
         "subplan_path": subplan_path,
-        "subplan_sha256": sha256_bytes(path.read_bytes()) if path.is_file() else None,
+        "source_subplan_path": subplan_path,
+        "subplan_sha256": binding.get("source_subplan_sha256") if path.is_file() else None,
+        "source_subplan_sha256": binding.get("source_subplan_sha256") if path.is_file() else None,
         "contract_signals": contract,
         "implementation_contract": implementation_contract,
-        "implementation_contract_digest": implementation_contract_digest(implementation_contract),
+        "implementation_contract_digest": binding.get("implementation_contract_digest"),
     }
     structured_security = implementation_contract.get("security_review_required")
     item["security_review_required"] = (
@@ -379,7 +538,10 @@ def subplan_scope_item(root: Path, subplan_path: str) -> dict[str, object]:
         item["structured_validation_command_count"] = len([command for command in structured_commands if isinstance(command, dict)])
     else:
         item["structured_validation_command_count"] = 0
-    item["validation_command_ids"] = validation_command_ids(implementation_contract)
+    item["validation_command_ids"] = binding.get("validation_command_ids", [])
+    item["parent_acceptance_signal_ids"] = binding.get("parent_acceptance_signal_ids", [])
+    item["risk_class"] = binding.get("risk_class", "")
+    item["risk_domains"] = binding.get("risk_domains", [])
     return item
 
 
@@ -730,6 +892,140 @@ def subagent_plan_is_valid(plan: object) -> bool:
     return True
 
 
+def _scope_source_path(item: dict[str, object]) -> str:
+    value = item.get("source_subplan_path") or item.get("subplan_path")
+    return str(value) if isinstance(value, str) else ""
+
+
+def _validate_goal_scope_source_items(root: Path, label: str, items: object, errors: list[str]) -> None:
+    if items is None:
+        return
+    if not isinstance(items, list):
+        errors.append(f"invalid_{label}")
+        return
+    seen: dict[str, str | None] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            errors.append(f"invalid_{label}_item")
+            continue
+        source_path = _scope_source_path(item)
+        if not source_path:
+            errors.append(f"missing_source_subplan_mapping={label}")
+            continue
+        subplan_path = item.get("subplan_path")
+        if isinstance(subplan_path, str) and subplan_path != source_path:
+            errors.append(f"subplan_source_path_mismatch={source_path}")
+        binding = implementation_contract_source_binding(root, source_path)
+        for error in binding.get("errors", []):
+            errors.append(str(error))
+        source_digest = binding.get("implementation_contract_digest")
+        if source_path in seen:
+            if seen[source_path] != source_digest:
+                errors.append(f"duplicate_source_subplan_mapping={source_path}")
+            else:
+                errors.append(f"duplicate_source_subplan_mapping={source_path}")
+        seen[source_path] = source_digest if isinstance(source_digest, str) else None
+
+        if item.get("source_subplan_path", source_path) != source_path:
+            errors.append(f"source_subplan_path_mismatch={source_path}")
+        for key in ("source_subplan_sha256", "subplan_sha256"):
+            if key in item and item.get(key) != binding.get("source_subplan_sha256"):
+                errors.append(f"{key}_mismatch={source_path}")
+        if item.get("implementation_contract") != binding.get("implementation_contract"):
+            errors.append(f"implementation_contract_source_mismatch={source_path}")
+        if item.get("implementation_contract_digest") != binding.get("implementation_contract_digest"):
+            errors.append(f"implementation_contract_digest_source_mismatch={source_path}")
+        if item.get("validation_command_ids", []) != binding.get("validation_command_ids", []):
+            errors.append(f"validation_command_ids_source_mismatch={source_path}")
+        if item.get("security_review_required") != binding.get("security_review_required"):
+            errors.append(f"security_review_required_source_mismatch={source_path}")
+        if item.get("parent_acceptance_signal_ids", []) != binding.get("parent_acceptance_signal_ids", []):
+            errors.append(f"parent_acceptance_signal_ids_source_mismatch={source_path}")
+        if item.get("risk_class", "") != binding.get("risk_class", ""):
+            errors.append(f"risk_class_source_mismatch={source_path}")
+        if item.get("risk_domains", []) != binding.get("risk_domains", []):
+            errors.append(f"risk_domains_source_mismatch={source_path}")
+
+
+def validate_goal_scope_source_bindings(root: Path, run: dict[str, object], errors: list[str]) -> None:
+    active_scope = run.get("active_scope")
+    if not isinstance(active_scope, dict):
+        errors.append("invalid_active_scope")
+        return
+    _validate_goal_scope_source_items(root, "subplan_contracts", active_scope.get("subplan_contracts"), errors)
+    _validate_goal_scope_source_items(root, "ready_queue", active_scope.get("ready_queue"), errors)
+
+
+def validate_stage_snapshot(root: Path, run: dict[str, object], errors: list[str]) -> None:
+    stage = str(run.get("stage", ""))
+    snapshot = run.get("stage_snapshot")
+    active_scope = run.get("active_scope") if isinstance(run.get("active_scope"), dict) else {}
+    mutable_patterns = goal_mutable_output_patterns(stage, active_scope)
+    if not isinstance(snapshot, dict):
+        errors.append("stage_snapshot_missing")
+        return
+    if snapshot.get("stage") != stage:
+        errors.append("stage_snapshot_stage_mismatch")
+    immutable = snapshot.get("immutable_inputs")
+    if not isinstance(immutable, list):
+        errors.append("stage_snapshot_immutable_inputs_invalid")
+        immutable = []
+    elif snapshot.get("immutable_input_digest") != snapshot_digest(stage, immutable):
+        errors.append("stage_snapshot_immutable_digest_mismatch")
+    if snapshot.get("immutable_input_digest") != run.get("source_snapshot_digest"):
+        errors.append("stage_snapshot_source_digest_mismatch")
+    if snapshot.get("template_bundle_digest") != run.get("template_bundle_digest"):
+        errors.append("stage_snapshot_template_digest_mismatch")
+    if snapshot.get("compiler_version") != GOAL_COMPILER_VERSION:
+        errors.append("stage_snapshot_compiler_version_mismatch")
+    if snapshot.get("goal_spec_digest") != run.get("goal_spec_digest"):
+        errors.append("stage_snapshot_goal_spec_digest_mismatch")
+
+    mutable = snapshot.get("mutable_outputs")
+    if not isinstance(mutable, dict):
+        errors.append("stage_snapshot_mutable_outputs_invalid")
+    else:
+        declared = mutable.get("declared")
+        if declared != mutable_patterns:
+            errors.append("stage_snapshot_mutable_outputs_mismatch")
+        duplicates = mutable.get("duplicates")
+        if duplicates:
+            errors.append("duplicate_mutable_output_declarations")
+        for item in mutable.get("files", []) if isinstance(mutable.get("files"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            if item.get("exists") is True and isinstance(path, str) and not (root / path).is_file():
+                errors.append(f"mutable_output_removed={path}")
+
+    baseline = snapshot.get("workspace_baseline")
+    if not isinstance(baseline, dict):
+        errors.append("stage_snapshot_workspace_baseline_missing")
+        return
+    current = workspace_baseline(root, mutable_patterns)
+    for key in ("branch", "base_commit", "workspace_inventory_sha256"):
+        if baseline.get(key) != current.get(key):
+            errors.append(f"workspace_baseline_mismatch={key}")
+
+
+def validate_goal_budget(run: dict[str, object], errors: list[str]) -> None:
+    budget = run.get("budget_contract")
+    errors.extend(validate_budget_contract(budget))
+    errors.extend(validate_token_usage(run.get("token_usage")))
+    if not isinstance(budget, dict):
+        return
+    if run.get("stage") == "step4":
+        active_scope = run.get("active_scope")
+        ready_queue = active_scope.get("ready_queue") if isinstance(active_scope, dict) else []
+        if isinstance(ready_queue, list) and len(ready_queue) > budget_limit(budget, "max_selected_tasks"):
+            errors.append("budget_selected_tasks_exceeded")
+    subagent_plan = run.get("subagent_plan")
+    if isinstance(subagent_plan, dict):
+        roles = subagent_plan.get("roles")
+        if isinstance(roles, list) and len(roles) > len(GOAL_AGENT_PROFILES):
+            errors.append("budget_subagent_role_count_exceeded")
+
+
 def default_goal_run(
     root: Path,
     stage: str,
@@ -737,22 +1033,28 @@ def default_goal_run(
     objective: str | None = None,
     run_id_suffix: str | None = None,
 ) -> dict[str, object]:
-    sources = collect_sources(root, stage)
-    digest = snapshot_digest(stage, sources)
     selected_mode = mode or ("subagent_serial" if stage == "step4" else "wave")
     selected_objective = objective or f"Run CodexQB {stage} using current repository planning evidence."
     active_scope = collect_stage_scope(root, stage, selected_mode)
+    mutable_patterns = goal_mutable_output_patterns(stage, active_scope)
+    sources = collect_sources(root, stage)
+    digest = snapshot_digest(stage, sources)
     subagent_plan = build_subagent_plan(stage, selected_mode, active_scope)
     spec_digest = goal_spec_digest(stage, sources, selected_mode, selected_objective, active_scope)
     bundle = template_bundle(stage)
+    budget_contract = default_budget_contract()
+    token_usage = token_usage_not_observed()
+    snapshot = stage_snapshot(
+        root,
+        stage,
+        sources,
+        mutable_patterns,
+        template_bundle_digest=str(bundle["digest"]),
+        goal_spec_digest_value=spec_digest,
+    )
     suffix = invocation_suffix(run_id_suffix)
     run_id = goal_run_id_for(stage, spec_digest, suffix)
-    allowed_writes = {
-        "step15": ["Planner-docs/Autopsy.md", "Planner-docs/Project-Ontology.md", "Planner-docs/Project-Comprehension.md"],
-        "step2": ["Planner-docs/Sub-Planing-Index.md", "Planner-docs/Planing-Ledger.md", "Planner-docs/Faz-*-Plans/*.md"],
-        "step3": ["Planner-docs/Sub-Planing-Audit.md"],
-        "step4": ["Planner-docs/Planing-Ledger.md"],
-    }[stage]
+    allowed_writes = mutable_patterns
     return {
         "goal_run_schema_version": GOAL_RUN_SCHEMA_VERSION,
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -772,6 +1074,7 @@ def default_goal_run(
         "objective": selected_objective,
         "source_snapshot": sources,
         "source_snapshot_digest": digest,
+        "stage_snapshot": snapshot,
         "required_inputs": [item["path"] for item in sources if item["scope"] in {"repo", "skill"}],
         "allowed_writes": allowed_writes,
         "forbidden_writes": ["~/.codex/**", ".git/**", ".env", "**/*.key", "**/*.pem"],
@@ -781,6 +1084,8 @@ def default_goal_run(
         "stop_gates": ["snapshot mismatch", "P0/P1 blocker", "unsafe path", "required user confirmation missing", "dirty unrelated worktree"],
         "subagent_plan": subagent_plan,
         "context_token_budget": {"risk": "medium", "confirmation_required": stage in {"step2", "step4"}},
+        "budget_contract": budget_contract,
+        "token_usage": token_usage,
         "final_report_contract": ["files changed", "validations", "blockers", "next action"],
         "user_confirmation_required": stage in {"step2", "step4"},
         "generated_at": f"invocation:{suffix}",
@@ -816,6 +1121,8 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
         or any(not isinstance(item, str) or not item.strip() for item in work_steps)
     ):
         errors.append("work_steps_required")
+    elif isinstance(run.get("active_scope"), dict) and work_steps != stage_work_steps(stage, run["active_scope"]):
+        errors.append("work_steps_mismatch")
     checkpoints = run.get("validation_checkpoints")
     if (
         not isinstance(checkpoints, list)
@@ -829,6 +1136,7 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
     token_budget = run.get("context_token_budget")
     if not isinstance(token_budget, dict) or token_budget.get("risk") not in {"low", "medium", "high"}:
         errors.append("invalid_context_token_budget")
+    validate_goal_budget(run, errors)
     bundle = template_bundle(stage)
     if run.get("template_bundle") != bundle["templates"]:
         errors.append("template_bundle_mismatch")
@@ -853,6 +1161,8 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
     expected_run_id = f"goal-{stage}-{spec_digest[:12]}-{invocation}" if invocation else ""
     if run.get("goal_run_id") != expected_run_id:
         errors.append("stored_goal_run_id_mismatch")
+    validate_goal_scope_source_bindings(root, run, errors)
+    validate_stage_snapshot(root, run, errors)
     text = json.dumps(run, sort_keys=True)
     if has_secret_like(text):
         errors.append("secret_like_content")
@@ -900,6 +1210,7 @@ def render_prompt_from_run(run: dict[str, object]) -> str:
         f"Expected writes: {', '.join(run['allowed_writes'])}",
         f"Validation: {len(run['validation_checkpoints'])} checkpoint(s)",
         f"Risk: context/token {run['context_token_budget']['risk']}",
+        f"Budget contract: max_selected_tasks={run['budget_contract']['max_selected_tasks']} max_agent_attempts_per_role={run['budget_contract']['max_agent_attempts_per_role']} max_fix_cycles={run['budget_contract']['max_fix_cycles']} hard_total_token_limit={run['budget_contract']['hard_total_token_limit']} token_usage={run['token_usage']['status']}",
         f"Subagents: {json.dumps(run['subagent_plan'], sort_keys=True, separators=(',', ':'))}",
         f"User confirmation required: {run['user_confirmation_required']}",
         f"Stop gates: {', '.join(run['stop_gates'])}",
@@ -986,6 +1297,8 @@ def compile_goal(
             "status": "blocked",
             "blockers": blockers,
             "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
+            "budget_contract": run["budget_contract"],
+            "token_usage": run["token_usage"],
             "source_count": len(run["source_snapshot"]),
             "next_action": "Repair missing prerequisites, then prepare this Goal run again.",
         }
@@ -1003,6 +1316,8 @@ def compile_goal(
         "status": "ready",
         "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
         "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
+        "budget_contract": run["budget_contract"],
+        "token_usage": run["token_usage"],
         "source_count": len(run["source_snapshot"]),
         "next_action": "Review Goal-Prompt.md, then paste it into Goal mode only if the stage and safety policy match the intended run.",
     }
@@ -1066,10 +1381,10 @@ def main(argv: list[str] | None = None) -> int:
             if not args.stage:
                 parser.error("--stage is required")
             compiled = compile_goal(Path(args.root), args.stage, Path(args.output_dir) if args.output_dir else None)
-            print("goal_run_status=ready")
+            print(f"goal_run_status={compiled['result']['status']}")
             print(f"goal_run_id={compiled['result']['goal_run_id']}")
             print(f"output_dir={compiled['output_dir']}")
-            return 0
+            return 0 if compiled["result"]["status"] == "ready" else 1
         if args.command == "collect":
             root = Path(args.root).resolve()
             sources = collect_sources(root, args.stage)

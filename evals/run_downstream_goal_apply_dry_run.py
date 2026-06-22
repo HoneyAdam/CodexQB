@@ -246,18 +246,28 @@ def first_task(run_dir: Path) -> tuple[str, str, bool]:
     task_id = str(task.get("task_id", ""))
     brief_sha = str(task.get("brief_sha256", ""))
     security_required = task.get("security_review_required") is True
+    implementation_contract_digest = str(task.get("implementation_contract_digest", ""))
+    task_contract_digest = str(task.get("task_contract_digest", ""))
     if not task_id or not brief_sha:
         fail("task_missing_id_or_brief_hash")
     if "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md" != task.get("source_subplan_path"):
         fail(f"unexpected_task_subplan={task.get('source_subplan_path')}")
-    return task_id, brief_sha, security_required
+    return task_id, brief_sha, implementation_contract_digest, task_contract_digest, security_required
 
 
 def run_apply(root: Path, args: list[str]) -> str:
     return run_command([sys.executable, APPLY_RUN.as_posix(), *args], cwd=root)
 
 
-def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, security_required: bool) -> None:
+def write_verified_reports(
+    run_dir: Path,
+    task_id: str,
+    brief_sha256: str,
+    *,
+    implementation_contract_digest: str,
+    task_contract_digest: str,
+    security_required: bool,
+) -> None:
     task_dir = run_dir / task_id
     (task_dir / "Implementer-Report.json").write_text(
         json.dumps(
@@ -265,6 +275,8 @@ def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, se
                 "status": "DONE",
                 "task_id": task_id,
                 "brief_sha256": brief_sha256,
+                "implementation_contract_digest": implementation_contract_digest,
+                "task_contract_digest": task_contract_digest,
                 "implementer_agent_id": "downstream-impl-agent",
                 "files_changed": ["src/feature_1_1.py", "tests/test_feature_1_1.py"],
                 "validation_evidence": [
@@ -284,6 +296,8 @@ def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, se
     review: dict[str, object] = {
         "task_id": task_id,
         "brief_sha256": brief_sha256,
+        "implementation_contract_digest": implementation_contract_digest,
+        "task_contract_digest": task_contract_digest,
         "reviewer_agent_id": "downstream-review-agent",
         "spec_compliance": "pass",
         "task_quality": "approved",
@@ -315,7 +329,7 @@ def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, se
 
 
 def drive_subagent_apply(root: Path, run_dir: Path) -> None:
-    task_id, brief_sha, security_required = first_task(run_dir)
+    task_id, brief_sha, implementation_contract_digest, task_contract_digest, security_required = first_task(run_dir)
     run_apply(root, ["validate", "--run-dir", run_dir.as_posix(), "--root", root.as_posix()])
     packet_output = run_apply(
         root,
@@ -423,7 +437,14 @@ def drive_subagent_apply(root: Path, run_dir: Path) -> None:
                 f"downstream dry run reached {state}",
             ],
         )
-    write_verified_reports(run_dir, task_id, brief_sha, security_required=security_required)
+    write_verified_reports(
+        run_dir,
+        task_id,
+        brief_sha,
+        implementation_contract_digest=implementation_contract_digest,
+        task_contract_digest=task_contract_digest,
+        security_required=security_required,
+    )
     run_apply(root, ["validate", "--run-dir", run_dir.as_posix(), "--root", root.as_posix()])
     run_apply(
         root,

@@ -1,9 +1,9 @@
 # CodexQB Feedback Closure Audit
 
-Date: 2026-06-21
+Date: 2026-06-22
 Reviewed feedback sources:
-- `/Users/alicankiraz/.codex/attachments/da1c91fd-abab-48c9-ad43-d8a986a37d30/pasted-text-1.txt`
-- `/Users/alicankiraz/.codex/attachments/94d2c333-895d-405b-bcf0-ab474c80cb27/pasted-text.txt`
+- `<local-codex-attachment>/pasted-text-1.txt`
+- `<local-codex-attachment>/pasted-text.txt`
 Review baseline head: current `main` plus in-flight feedback hardening changes
 
 This audit maps the external feedback items to current repository evidence. It is not a release tag decision; it records what is closed, what is partially covered, and what still needs stronger evidence before declaring the full feedback objective complete.
@@ -15,10 +15,10 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 | Area | Current status | Evidence |
 |---|---|---|
 | Release-blocker safety defects | Mostly closed | `scripts/export_sanitized.py`, `scripts/validate.sh`, `scripts/safety_contracts.py`, `tests/test_export_sanitized.py`, `tests/test_validate_planner_docs.py`, `tests/test_goal_run.py`, `tests/test_apply_run.py` |
-| Goal compiler project-specificity | Mostly closed for preview artifacts | `plugins/codexqb/skills/codexqb/scripts/goal_run.py`, `tests/test_goal_run.py::test_step2_goal_collects_main_plan_horizon_before_subplans_exist`, `tests/test_goal_run.py::test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue` |
-| Apply orchestrator durability | Mostly closed for artifact controller semantics | `plugins/codexqb/skills/codexqb/scripts/apply_run.py`, `plugins/codexqb/skills/codexqb/references/apply-run-schema.json`, `evals/run_apply_behavior_smoke.py` |
+| Goal compiler project-specificity | Mostly closed for preview artifacts | `plugins/codexqb/skills/codexqb/scripts/goal_run.py`, source-bound contract validation, stage-aware snapshots, `tests/test_goal_run.py::test_step2_goal_collects_main_plan_horizon_before_subplans_exist`, `tests/test_goal_run.py::test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue` |
+| Apply orchestrator durability | Mostly closed for artifact controller semantics | `plugins/codexqb/skills/codexqb/scripts/apply_run.py`, `plugins/codexqb/skills/codexqb/references/apply-run-schema.json`, source-bound task contracts, budget caps, `evals/run_apply_behavior_smoke.py` |
 | Subagent methodology contracts | Mostly closed at artifact/prompt level | `plugins/codexqb/skills/codexqb/references/apply/*.md`, `tests/test_skill_content.py::test_apply_role_templates_and_durable_controller_contract_are_wired` |
-| Live release-grade orchestration proof | Closed for bounded live Apply e2e; Ralph-scale regression remains separate | `evals/run_downstream_goal_apply_dry_run.py` proves the Step 2 -> Step 3 -> Step 4 -> Goal -> Apply artifact chain in a disposable git-backed downstream project. `docs/release-evidence/0.3.0-live-subagent-smoke.md` records live read-only exploration, bounded docs-scope writing, independent read-only review, re-review, and a bounded live `subagent_serial` Apply run with implementer, task reviewer, fixer, re-review, security reviewer, final reviewer, finalization, and resume evidence. |
+| Live release-grade orchestration proof | Partial for bounded live Apply e2e; Ralph-scale regression remains separate | `evals/run_downstream_goal_apply_dry_run.py` proves the Step 2 -> Step 3 -> Step 4 -> Goal -> Apply artifact chain in a disposable git-backed downstream project. `docs/release-evidence/0.3.0-live-subagent-smoke.md` records sanitized observed live behavior, but raw runtime JSON artifacts are not tracked and cannot be independently inspected from the public repository. |
 
 ## Release Blocker Items
 
@@ -38,6 +38,9 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 | Task ID traversal | Closed | Generated IDs use `AR-<run>-T<nnn>` and validation resolves task dirs inside run dir; covered by `test_apply_run_rejects_task_id_traversal_and_no_action_queue`. |
 | VERIFIED task evidence schema | Closed for artifact validation | `apply_run.py::validate_task_artifacts` requires matching brief hash, implementer identity, changed files, passing validation evidence, independent reviewer identity, review evidence, and final validation evidence. Covered by `test_verified_task_requires_evidence_bearing_reports`. |
 | `no_action` queue consistency | Closed | `apply_run.py::validate_apply_run`; covered by `test_no_action_mode_has_no_queue` and `test_apply_run_rejects_task_id_traversal_and_no_action_queue`. |
+| Public release evidence privacy scan | Closed for tracked public docs | `scripts/check_public_privacy.py` and `make check-public-privacy` reject local user paths, attachment paths/UUIDs, and live Codex IDs in release-facing docs. |
+| No-Git extracted package fallback is explicit | Closed | `tests/test_skill_content.py::test_validate_script_runs_without_git_metadata` verifies filesystem hygiene mode and requires `CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE=1` for package-copy fallback instead of silently skipping behavior coverage. |
+| Budget contract and honest token usage state | Closed for deterministic caps | Shared budget helpers validate max selected tasks, max attempts per role, max fix cycles, token ceilings, and `token_usage: not_observed`; exact live billing remains outside dependency-free CI. |
 
 ## Goal Compiler Items
 
@@ -45,12 +48,14 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 |---|---|---|
 | Step 2 active/deferred scope and sub-plan inventory | Closed for preview | `goal_run.py::collect_stage_scope` and `collect_step2_planning_horizon` derive existing sub-plan inventory plus no-subplans active/deferred planning horizon from `Main-Planing.md`; covered by `test_step2_goal_collects_main_plan_horizon_before_subplans_exist` and `test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue`. |
 | Step 3 exact sub-plan inventory and dual checkpoints | Closed | `validation_checkpoints_for("step3")` emits `step3-preflight` and `step3`; covered by `test_step3_goal_includes_preflight_and_post_audit_checkpoints`. |
-| Step 4 READY queue with sub-plan contracts | Closed for preview | `extract_ready_queue`, `subplan_scope_item`, structured `implementation_contract` inclusion, and `contract_driven_work_steps`; covered by `test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue`. |
+| Step 4 READY queue with sub-plan contracts | Closed for preview | `extract_ready_queue`, `subplan_scope_item`, structured `implementation_contract` inclusion, and `contract_driven_work_steps`; validation rejects stale `work_steps` and Step 4 expected writes include ledger, Apply artifacts, and contract implementation paths. Covered by `test_goal_scope_collectors_include_project_specific_subplans_and_ready_queue`, `test_goal_rejects_work_steps_divergent_from_source_scope`, and `test_step4_allowed_writes_include_apply_and_contract_outputs`. |
 | Acceptance signals, security flags, validation commands, validation command IDs, subagent roles | Mostly closed | `subplan_scope_item` carries contract signals, structured contracts, and `validation_command_ids`; `build_subagent_plan` selects roles and security reviewer when needed. |
 | Absolute local path removal | Closed | `active_scope.project_root` is `"."`; covered in `test_compile_goal_writes_stable_spec_and_unique_run_artifacts`. |
 | Stored snapshot integrity | Closed for current repo validation | `stored_source_snapshot_digest_mismatch`, template bundle digest, compiler digest, result prompt/run hashes. |
+| Source-bound implementation contract integrity | Closed | Goal validation recomputes the structured contract, source sub-plan hash, validation IDs, parent signals, risk domains, security flag, derived work steps, and source/display sub-plan path equality from the source sub-plan. Self-consistent but source-divergent artifacts are rejected. |
+| Stage-aware resume snapshots | Closed | Step 3 audit output and Step 4 ledger/apply outputs are expected mutable outputs; source plan/sub-plan drift remains a resume blocker. |
 | Standalone prompt reproduction from only `Goal-Run.json` | Partial | Current renderer validates the pinned template/compiler hashes against the installed repo copy, then renders from current template files. It does not embed full template bodies in `Goal-Run.json`; byte-identical reproduction therefore still requires the matching template bundle on disk. |
-| Selected batch semantics | Partial | Step 4 queue is compiled and ordered, but there is no explicit `selected_batch` field distinct from the full READY queue. |
+| Selected batch semantics | Mostly closed | Step 4 queue is compiled and ordered, and `budget_contract.max_selected_tasks` caps the selected implementation batch. There is still no separate named `selected_batch` object distinct from the READY queue. |
 
 ## Apply Orchestrator Items
 
@@ -65,6 +70,8 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 | Atomic writer lock and stale recovery | Mostly closed | `Writer-Lock.json` is acquired with create-exclusive semantics and stale recovery is explicit. Covered by `test_recover_stale_writer_lock_moves_task_to_needs_context`. Atomic JSON writes are present via helper-level write/replace behavior in runtime code, but live concurrent multi-process stress is not covered. |
 | External Superpowers readiness and reconcile | Closed for artifact policy | `validate_external_superpowers`, `reconcile_external_superpowers`; covered by `test_external_superpowers_unavailable_requires_safe_fallback`. |
 | Fresh-context implementation contract in task/dispatch | Closed | `implementation_contract`, `validation_commands`, and `validation_command_ids` are included in `Progress.json`, `Brief.md`, and dispatch prompts; covered by `test_init_subagent_serial_creates_safe_artifacts` and `test_subagent_serial_requires_dispatch_packet_before_implementation`. |
+| Source-bound Apply task/report/dispatch integrity | Closed | Apply validation recomputes source sub-plan hashes and contract digests, verifies `Brief.md` and `Dispatch-Packet.json` prompt hashes against the current task contract, requires VERIFIED implementer/review reports to include matching `implementation_contract_digest` and `task_contract_digest`, and fails rootless copied-run validation unless the repository root is provided explicitly. |
+| Subagent retry and fix-cycle budget | Closed | Dispatch preparation blocks attempts beyond `budget_contract.max_agent_attempts_per_role`; validation rejects over-budget agent runs, fix-cycle counts, and fix reports. |
 
 ## Subagent Methodology Items
 
@@ -83,9 +90,9 @@ Requirement-by-requirement closure is tracked in `docs/release-audits/0.3.0-feed
 | Add Goal/Apply/export fixture names | Closed for corpus presence | `evals/run_fixture_corpus_checks.py` requires 20 fixtures including all named Goal/Apply/export fixtures. |
 | Behavioral Apply controller smoke | Closed for local artifact lifecycle | `evals/run_apply_behavior_smoke.py` drives prepare, dispatch, record-agent, transition, validate, finalize, and stale-lock recovery. |
 | Representative downstream Step 2 -> Step 4 Goal/Apply dry run | Closed for artifact dry run | `evals/run_downstream_goal_apply_dry_run.py` builds a disposable git-backed project with source and unit tests, runs strict Step 2, Step 3 preflight, Step 3, and Step 4 validators, compiles Step 2/3/4 Goal previews, prepares a `subagent_serial` Apply run, records fresh-context dispatch and agent lifecycle artifacts, finalizes the run, and prints `downstream_goal_apply_dry_run=passed`. |
-| Live multi-role Apply e2e | Closed for bounded fixture | On 2026-06-21, `docs/release-evidence/0.3.0-live-subagent-smoke.md` recorded the initial live docs-scope smoke and a bounded live Apply run: `apply-subagent_serial-f794e63b5a53-downstream-dry-run`, task `AR-apply-subagent_serial-f794e63b5a53-downstream-dry-run-T001`, `Result.json status=complete`, `event_sequence=33`, finalization by `live-e2e-controller`, and resume evidence without redispatching the verified task. |
+| Live multi-role Apply e2e | Closed for bounded fixture | On 2026-06-21, `docs/release-evidence/0.3.0-live-subagent-smoke.md` recorded the initial live docs-scope smoke and a bounded live Apply run using `<apply-run-id-redacted>` and `<apply-task-id-redacted>` placeholders, `Result.json status=complete`, `event_sequence=33`, finalization by `live-e2e-controller`, and resume evidence without redispatching the verified task. |
 | Token metrics for static vs dynamic prompts and single-agent vs subagent Step 4 | Closed for local estimates | `evals/run_goal_apply_metric_checks.py` emits deterministic approximate-token metrics for static Step 4 handoff text, dynamic direct/subagent Goal prompts, direct Apply briefs, and subagent dispatch prompts, ending with `goal_apply_metric_checks=passed` on success. Live model billing/use remains outside dependency-free CI. |
-| Extracted package smoke | Closed for current closeout | On 2026-06-21, this closeout ran `make export-sanitized` and then `bash scripts/validate.sh` from an extracted package without `.git`; package mode printed `package_secret_hygiene_mode=filesystem`, `sanitized_zip_hygiene=passed`, `goal_apply_metric_checks=passed`, and the full unit suite OK. Repeat this gate before a final release tag if more changes land. |
+| Extracted package smoke | Closed for fallback semantics | The no-Git package-copy fallback is tested with explicit unit and behavior-smoke skips and still verifies filesystem hygiene mode. A strict clean-tree release export and extracted-package validation must be repeated after this dirty closeout is committed. |
 | Release tag/changelog finalization | Remaining | `CHANGELOG.md` still has `0.3.0` under `Unreleased`, which is acceptable before tagging but blocks final release packaging. |
 
 ## Current Decision

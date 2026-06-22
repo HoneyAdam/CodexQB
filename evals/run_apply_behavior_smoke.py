@@ -95,7 +95,15 @@ def write_fixture(root: Path) -> None:
     write_audit(docs, "PASS")
 
 
-def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, security_required: bool) -> None:
+def write_verified_reports(
+    run_dir: Path,
+    task_id: str,
+    brief_sha256: str,
+    *,
+    implementation_contract_digest: str,
+    task_contract_digest: str,
+    security_required: bool,
+) -> None:
     task_dir = run_dir / task_id
     (task_dir / "Implementer-Report.json").write_text(
         json.dumps(
@@ -103,6 +111,8 @@ def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, se
                 "status": "DONE",
                 "task_id": task_id,
                 "brief_sha256": brief_sha256,
+                "implementation_contract_digest": implementation_contract_digest,
+                "task_contract_digest": task_contract_digest,
                 "implementer_agent_id": "smoke-impl",
                 "files_changed": ["src/smoke.py"],
                 "validation_evidence": [
@@ -117,6 +127,8 @@ def write_verified_reports(run_dir: Path, task_id: str, brief_sha256: str, *, se
     task_review = {
         "task_id": task_id,
         "brief_sha256": brief_sha256,
+        "implementation_contract_digest": implementation_contract_digest,
+        "task_contract_digest": task_contract_digest,
         "reviewer_agent_id": "smoke-reviewer",
         "spec_compliance": "pass",
         "task_quality": "approved",
@@ -201,7 +213,14 @@ def main() -> int:
                 cwd=root,
             )
 
-        write_verified_reports(run_dir, task_id, brief_sha256, security_required=security_required)
+        write_verified_reports(
+            run_dir,
+            task_id,
+            brief_sha256,
+            implementation_contract_digest=str(task.get("implementation_contract_digest", "")),
+            task_contract_digest=str(task.get("task_contract_digest", "")),
+            security_required=security_required,
+        )
         run_apply(["validate", "--run-dir", run_dir.as_posix(), "--root", root.as_posix()], cwd=root)
         run_apply(
             [

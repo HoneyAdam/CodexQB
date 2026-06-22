@@ -38,9 +38,13 @@ make check-behavior
 make check-release
 ```
 
-`check-fast` skips behavior smokes while keeping unit/content/schema and fixture checks. `check-behavior` runs the Apply lifecycle, downstream Goal/Apply dry run, and prompt-size metric gates. `check-release` runs the normal gate, creates a strict tracked-only release zip with `PACKAGE-MANIFEST.json`, extracts it, and validates the package copy.
+`check-fast` skips behavior smokes while keeping unit/content/schema and fixture checks. `check-behavior` runs the Apply lifecycle, downstream Goal/Apply dry run, and prompt-size metric gates. `check-release` runs the normal gate, runs the public privacy scan, creates a strict tracked-only release zip with `PACKAGE-MANIFEST.json`, extracts it, and validates the package copy.
 
 `make export-sanitized` is the release export target. It requires a clean Git worktree and fails when `HEAD` differs from `origin/main` if that ref exists. It also records `plugin_version`, `git_commit`, `git_branch`, `working_tree_clean`, `head_matches_origin_main`, `file_count`, and `tree_sha256` in `PACKAGE-MANIFEST.json`. Use `make export-sanitized-worktree` only for explicit pre-commit worktree package checks that intentionally include untracked files.
+
+`make check-public-privacy` runs `scripts/check_public_privacy.py` over public release-facing docs and evidence. It rejects local user paths, attachment paths, UUID-like attachment identifiers, and live Codex agent/thread IDs. Keep raw live runtime logs outside public docs unless they are intentionally redacted and independently reviewable.
+
+When validating an extracted package or copied tree without Git metadata, `scripts/validate.sh` falls back to filesystem package hygiene. Set both `CODEXQB_VALIDATE_SKIP_UNITTESTS=1` and `CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE=1` only for this no-Git package fallback; otherwise behavior smokes remain part of the normal release gate.
 
 ## Optional Codex Validator Checks
 
@@ -160,7 +164,7 @@ CodexQB also tracks deterministic Goal/Apply prompt-size estimates:
 python3 evals/run_goal_apply_metric_checks.py
 ```
 
-This emits approximate token counts for the static Step 4 handoff, dynamic direct and `subagent_serial` Goal prompts, direct Apply briefs, and subagent dispatch messages. These estimates are for regression tracking only; they are not exact model billing.
+This emits approximate token counts for the static Step 4 handoff, dynamic direct and `subagent_serial` Goal prompts, direct Apply briefs, and subagent dispatch messages. These estimates are for regression tracking only; they are not exact model billing. Goal and Apply artifacts include a structured `budget_contract`; runtime token usage stays `not_observed` unless an actual runtime usage source is available.
 
 CodexQB also keeps a repeatable downstream artifact dry run:
 
@@ -202,7 +206,7 @@ Use the sanitized export target:
 make export-sanitized
 ```
 
-This writes `CodexQB-sanitized.zip` with `scripts/export_sanitized.py`. The script default includes only tracked files. The Makefile target passes `--include-untracked` explicitly so release/package smoke tests can include new pre-commit files after safety checks. Export candidates are rejected when they are symlinks, resolve outside the repository, match blocked local/runtime paths such as `.git/`, `.codexqb/`, caches, local env files, runtime folders, local zips, or blocked key/certificate suffixes, or contain a length-bounded secret pattern.
+This writes `CodexQB-sanitized.zip` with `scripts/export_sanitized.py`. The default release target includes only tracked files and requires a clean worktree. Use `make export-sanitized-worktree` only when an explicit pre-commit worktree package check should include scanned untracked files after safety checks. Export candidates are rejected when they are symlinks, resolve outside the repository, match blocked local/runtime paths such as `.git/`, `.codexqb/`, caches, local env files, runtime folders, local zips, or blocked key/certificate suffixes, or contain a length-bounded secret pattern.
 
 The default `make check` gate validates tracked archive contents in Git checkouts and fails if forbidden tracked paths such as `.git/`, `__pycache__/`, `.env`, `artifacts/`, `logs/`, `tmp/`, `__MACOSX/`, `.pyc`, `.pem`, `.key`, or `.local` files would be included. In extracted packages, `make check` performs equivalent package-content hygiene where possible and labels the result as package validation. It also runs the apply-run behavior smoke so the public `prepare`/`transition`/`validate`/`finalize` CLI lifecycle is exercised through subprocesses before release.
 

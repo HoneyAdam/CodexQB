@@ -24,8 +24,16 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from safety_contracts import (  # noqa: E402
+    budget_limit,
+    canonical_json_digest,
+    default_budget_contract,
+    implementation_contract_source_binding,
+    implementation_contract_validation_command_ids,
     path_is_inside,
     safe_validation_command_item,
+    token_usage_not_observed,
+    validate_budget_contract,
+    validate_token_usage,
 )
 
 
@@ -42,6 +50,9 @@ WORKSPACE_BASELINE_EXCLUDED_PREFIXES = (
     ".pytest_cache/",
     "__pycache__/",
 )
+WORKSPACE_BASELINE_EXCLUDED_PATHS = {
+    "Planner-docs/Planing-Ledger.md",
+}
 WORKSPACE_BASELINE_KEYS = [
     "vcs",
     "branch",
@@ -229,6 +240,8 @@ def baseline_path_is_excluded(path: str) -> bool:
         normalized = normalized[2:]
     parts = Path(normalized).parts
     if "__pycache__" in parts or normalized.endswith(".pyc"):
+        return True
+    if normalized in WORKSPACE_BASELINE_EXCLUDED_PATHS:
         return True
     return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in WORKSPACE_BASELINE_EXCLUDED_PREFIXES)
 
@@ -702,24 +715,8 @@ def extract_subplan_contract(root: Path, subplan_path: str) -> dict[str, list[st
 
 
 def extract_implementation_contract(root: Path, subplan_path: str) -> dict[str, object]:
-    path = root / subplan_path
-    if not path.is_file():
-        return {}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    section_match = re.search(
-        r"### Implementation Contract\s*(.*?)(?:\n### |\n## |\Z)",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    if not section_match:
-        return {}
-    json_match = re.search(r"```json\s*(.*?)\s*```", section_match.group(1), flags=re.DOTALL | re.IGNORECASE)
-    if not json_match:
-        return {}
-    try:
-        contract = json.loads(json_match.group(1))
-    except json.JSONDecodeError:
-        return {}
+    binding = implementation_contract_source_binding(root, subplan_path)
+    contract = binding.get("implementation_contract")
     return contract if isinstance(contract, dict) else {}
 
 
@@ -736,12 +733,7 @@ def contract_validation_commands(contract: dict[str, object]) -> list[dict[str, 
 
 
 def validation_command_ids(contract: dict[str, object]) -> list[str]:
-    ids: list[str] = []
-    for command in contract_validation_commands(contract):
-        command_id = command.get("id")
-        if isinstance(command_id, str) and command_id.strip():
-            ids.append(command_id.strip())
-    return ids
+    return implementation_contract_validation_command_ids(contract)
 
 
 def normalized_json_object(value: object) -> dict[str, object]:
@@ -754,6 +746,28 @@ def task_id_for(run_id: str, index: int) -> str:
     return f"AR-{run_id}-T{index:03d}"
 
 
+def task_contract_payload(task: dict[str, object]) -> dict[str, object]:
+    return {
+        "source_subplan_path": task.get("source_subplan_path"),
+        "source_subplan_sha256": task.get("source_subplan_sha256"),
+        "implementation_contract_digest": task.get("implementation_contract_digest"),
+        "validation_command_ids": task.get("validation_command_ids", []),
+        "parent_acceptance_signal_ids": task.get("parent_acceptance_signal_ids", []),
+        "security_review_required": task.get("security_review_required"),
+        "risk_class": task.get("risk_class", ""),
+        "risk_domains": task.get("risk_domains", []),
+    }
+
+
+def task_contract_digest(task: dict[str, object]) -> str:
+    return canonical_json_digest(task_contract_payload(task))
+
+
+def apply_budget_contract(run: dict[str, object]) -> dict[str, object]:
+    contract = run.get("budget_contract")
+    return contract if isinstance(contract, dict) else default_budget_contract()
+
+
 def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str, object]] | None = None) -> list[dict[str, object]]:
     if mode == "no_action":
         return []
@@ -761,31 +775,37 @@ def default_tasks(root: Path, mode: str, run_id: str, ready_queue: list[dict[str
     tasks: list[dict[str, object]] = []
     for index, item in enumerate(queue, start=1):
         subplan_path = str(item["subplan_path"])
-        subplan = root / subplan_path
+        binding = implementation_contract_source_binding(root, subplan_path)
         contract = extract_subplan_contract(root, subplan_path)
-        implementation_contract = extract_implementation_contract(root, subplan_path)
+        implementation_contract = binding.get("implementation_contract")
+        implementation_contract = implementation_contract if isinstance(implementation_contract, dict) else {}
         security_review_required = implementation_contract.get("security_review_required")
         structured_contract = normalized_json_object(implementation_contract)
-        tasks.append(
-            {
-                "task_id": task_id_for(run_id, index),
-                "state": "BRIEFED",
-                "readiness_status": item["readiness_status"],
-                "source_subplan_path": subplan_path,
-                "source_subplan_sha256": sha256_bytes(subplan.read_bytes()) if subplan.is_file() else None,
-                "fresh_context_contract": contract,
-                "implementation_contract": structured_contract,
-                "finding_ids": item.get("finding_ids", []),
-                "dependency_state": item.get("dependency_state", ""),
-                "security_review_required": security_review_required if isinstance(security_review_required, bool) else False,
-                "writer_lock": None,
-                "validation_commands": contract_validation_commands(implementation_contract),
-                "validation_command_ids": validation_command_ids(implementation_contract),
-                "dispatch": None,
-                "agent_runs": [],
-                "redispatch_count": 0,
-            }
-        )
+        task = {
+            "task_id": task_id_for(run_id, index),
+            "state": "BRIEFED",
+            "readiness_status": item["readiness_status"],
+            "source_subplan_path": subplan_path,
+            "source_subplan_sha256": binding.get("source_subplan_sha256"),
+            "fresh_context_contract": contract,
+            "implementation_contract": structured_contract,
+            "implementation_contract_digest": binding.get("implementation_contract_digest"),
+            "finding_ids": item.get("finding_ids", []),
+            "dependency_state": item.get("dependency_state", ""),
+            "security_review_required": security_review_required if isinstance(security_review_required, bool) else False,
+            "parent_acceptance_signal_ids": binding.get("parent_acceptance_signal_ids", []),
+            "risk_class": binding.get("risk_class", ""),
+            "risk_domains": binding.get("risk_domains", []),
+            "writer_lock": None,
+            "validation_commands": contract_validation_commands(implementation_contract),
+            "validation_command_ids": validation_command_ids(implementation_contract),
+            "dispatch": None,
+            "agent_runs": [],
+            "redispatch_count": 0,
+            "fix_cycle_count": 0,
+        }
+        task["task_contract_digest"] = task_contract_digest(task)
+        tasks.append(task)
     return tasks
 
 
@@ -817,6 +837,38 @@ def step4_readiness_summary(
         "execution_gate": "step4_validator_must_pass_before_product_changes",
         "mode": mode,
     }
+
+
+def task_brief_text(index: int, mode: str, task: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            f"# Task {index} Brief",
+            "",
+            f"- task_id: {task['task_id']}",
+            f"- mode: {mode}",
+            "- commit_policy: none",
+            f"- source_subplan_path: {task.get('source_subplan_path')}",
+            f"- source_subplan_sha256: {task.get('source_subplan_sha256')}",
+            f"- implementation_contract_digest: {task.get('implementation_contract_digest')}",
+            f"- task_contract_digest: {task.get('task_contract_digest')}",
+            f"- parent_acceptance_signal_ids: {','.join(str(item) for item in task.get('parent_acceptance_signal_ids', [])) or 'none'}",
+            f"- risk_class: {task.get('risk_class') or 'unknown'}",
+            f"- risk_domains: {','.join(str(item) for item in task.get('risk_domains', [])) or 'none'}",
+            f"- readiness_status: {task.get('readiness_status')}",
+            f"- finding_ids: {json.dumps(task.get('finding_ids', []), sort_keys=True, separators=(',', ':'))}",
+            f"- dependency_state: {task.get('dependency_state')}",
+            f"- security_review_required: {json.dumps(task.get('security_review_required'))}",
+            f"- validation_command_ids: {','.join(str(item) for item in task.get('validation_command_ids', [])) or 'none'}",
+            f"- validation_commands: {json.dumps(task.get('validation_commands', []), sort_keys=True, separators=(',', ':'))}",
+            f"- implementation_contract: {json.dumps(task.get('implementation_contract', {}), sort_keys=True, separators=(',', ':'))}",
+            f"- fresh_context_contract: {json.dumps(task.get('fresh_context_contract', {}), sort_keys=True, separators=(',', ':'))}",
+            "- dispatch_packet: generated by `apply_run.py dispatch` before subagent implementation",
+            "- state_machine: BRIEFED -> IMPLEMENTING -> IMPLEMENTED -> TASK_REVIEW -> VERIFIED",
+            "- report_paths: Dispatch-Packet.json, Implementer-Report.json, Task-Review.json, Fix-Report.json",
+            "- stop_conditions: unsafe path, failing validation, missing evidence, required security review failure, snapshot mismatch",
+            "",
+        ]
+    )
 
 
 def create_apply_run(
@@ -852,6 +904,9 @@ def create_apply_run(
     baseline = workspace_baseline(root)
     snapshot = collect_snapshot(root)
     ready_queue = [] if mode == "no_action" else extract_ready_queue(root)
+    budget_contract = default_budget_contract()
+    if len(ready_queue) > budget_limit(budget_contract, "max_selected_tasks"):
+        raise ValueError("budget_selected_tasks_exceeded")
     spec_digest = apply_spec_digest(mode, snapshot, baseline, ready_queue)
     suffix = invocation_suffix(run_id_suffix)
     run_id = apply_run_id(mode, snapshot, baseline, ready_queue, suffix)
@@ -903,6 +958,8 @@ def create_apply_run(
         "pr_allowed": False,
         "max_writer_agents": 1,
         "max_subagent_depth": 1,
+        "budget_contract": budget_contract,
+        "token_usage": token_usage_not_observed(),
         "agent_profiles": AGENT_PROFILES,
         "source_snapshot": snapshot,
         "source_snapshot_digest": snapshot_digest(snapshot),
@@ -936,6 +993,8 @@ def create_apply_run(
         "status": "no_action" if mode == "no_action" else "initialized",
         "completed_tasks": [],
         "blocked_tasks": [],
+        "budget_contract": budget_contract,
+        "token_usage": token_usage_not_observed(),
         "next_action": "Use the Step 4 handoff to execute tasks; update Progress.json after each state transition.",
     }
     atomic_write_json(run_dir / "Apply-Run.json", run)
@@ -944,30 +1003,7 @@ def create_apply_run(
     for index, task in enumerate(tasks, start=1):
         task_dir = run_dir / str(task["task_id"])
         task_dir.mkdir(parents=True, exist_ok=True)
-        brief = "\n".join(
-            [
-                f"# Task {index} Brief",
-                "",
-                f"- task_id: {task['task_id']}",
-                f"- mode: {mode}",
-                "- commit_policy: none",
-                f"- source_subplan_path: {task.get('source_subplan_path')}",
-                f"- source_subplan_sha256: {task.get('source_subplan_sha256')}",
-                f"- readiness_status: {task.get('readiness_status')}",
-                f"- finding_ids: {json.dumps(task.get('finding_ids', []), sort_keys=True, separators=(',', ':'))}",
-                f"- dependency_state: {task.get('dependency_state')}",
-                f"- security_review_required: {json.dumps(task.get('security_review_required'))}",
-                f"- validation_command_ids: {','.join(str(item) for item in task.get('validation_command_ids', [])) or 'none'}",
-                f"- validation_commands: {json.dumps(task.get('validation_commands', []), sort_keys=True, separators=(',', ':'))}",
-                f"- implementation_contract: {json.dumps(task.get('implementation_contract', {}), sort_keys=True, separators=(',', ':'))}",
-                f"- fresh_context_contract: {json.dumps(task.get('fresh_context_contract', {}), sort_keys=True, separators=(',', ':'))}",
-                "- dispatch_packet: generated by `apply_run.py dispatch` before subagent implementation",
-                "- state_machine: BRIEFED -> IMPLEMENTING -> IMPLEMENTED -> TASK_REVIEW -> VERIFIED",
-                "- report_paths: Dispatch-Packet.json, Implementer-Report.json, Task-Review.json, Fix-Report.json",
-                "- stop_conditions: unsafe path, failing validation, missing evidence, required security review failure, snapshot mismatch",
-                "",
-            ]
-        )
+        brief = task_brief_text(index, mode, task)
         task["brief_sha256"] = sha256_bytes(brief.encode("utf-8"))
         atomic_write_text(task_dir / "Brief.md", brief)
         atomic_write_json(task_dir / "Implementer-Report.json", {"status": "PENDING"})
@@ -1141,6 +1177,14 @@ def transition_task_state(run_dir: Path, task_id: str, to_state: str, actor: str
     if run.get("mode") == "subagent_serial" and from_state == "IMPLEMENTING" and to_state == "IMPLEMENTED":
         if not agent_run_completed(task, "implementer"):
             raise ValueError(f"subagent_dispatch_completion_required={task_id}")
+    if to_state == "FIXING":
+        max_fix_cycles = budget_limit(apply_budget_contract(run), "max_fix_cycles")
+        current_cycles = task.get("fix_cycle_count", 0)
+        if not isinstance(current_cycles, int) or isinstance(current_cycles, bool) or current_cycles < 0:
+            raise ValueError(f"fix_cycle_count_invalid={task_id}")
+        if current_cycles >= max_fix_cycles:
+            raise ValueError(f"budget_max_fix_cycles_exceeded={task_id}")
+        task["fix_cycle_count"] = current_cycles + 1
 
     lock_event: dict[str, object] | None = None
     if to_state == "IMPLEMENTING":
@@ -1239,6 +1283,9 @@ def dispatch_prompt(run: dict[str, object], task: dict[str, object], role: str, 
             f"- model_profile: {profile['model_profile']}",
             f"- sandbox: {profile['sandbox']}",
             f"- source_subplan_path: {source_path}",
+            f"- source_subplan_sha256: {task.get('source_subplan_sha256')}",
+            f"- implementation_contract_digest: {task.get('implementation_contract_digest')}",
+            f"- task_contract_digest: {task.get('task_contract_digest')}",
             f"- brief_sha256: {task.get('brief_sha256')}",
             "",
             "## Fresh Context Contract",
@@ -1303,6 +1350,8 @@ def prepare_dispatch_packet(
     prompt = dispatch_prompt(run, task, role, brief_text)
     prompt_sha = sha256_bytes(prompt.encode("utf-8"))
     attempt = next_agent_attempt(task, role)
+    if attempt > budget_limit(apply_budget_contract(run), "max_agent_attempts_per_role"):
+        raise ValueError(f"budget_max_agent_attempts_exceeded={task_id}:{role}")
     packet = {
         "dispatch_packet_schema_version": 1,
         "task_id": task_id,
@@ -1318,6 +1367,10 @@ def prepare_dispatch_packet(
         "model_profile": AGENT_PROFILES[role]["model_profile"],
         "model_override": None,
         "sandbox": AGENT_PROFILES[role]["sandbox"],
+        "source_subplan_path": task.get("source_subplan_path"),
+        "source_subplan_sha256": task.get("source_subplan_sha256"),
+        "implementation_contract_digest": task.get("implementation_contract_digest"),
+        "task_contract_digest": task.get("task_contract_digest"),
         "brief_sha256": brief_sha,
         "prompt_sha256": prompt_sha,
         "run_relative_task_dir": task_id,
@@ -1580,6 +1633,8 @@ def finalize_apply_run(run_dir: Path, actor: str, evidence: list[str] | None = N
         "finalized_at": event["timestamp"],
         "finalized_by": actor,
         "event_sequence": event["sequence"],
+        "budget_contract": run.get("budget_contract", default_budget_contract()),
+        "token_usage": run.get("token_usage", token_usage_not_observed()),
         "next_action": "Apply run is finalized; start a new apply run for additional READY queue work.",
     }
     atomic_write_json(run_dir / "Result.json", result)
@@ -1648,8 +1703,22 @@ def validate_dispatch_packet(run_dir: Path, run: dict[str, object], task: dict[s
         errors.append(f"dispatch_model_profile_mismatch={task_id}")
     if packet.get("sandbox") != AGENT_PROFILES[role]["sandbox"]:
         errors.append(f"dispatch_sandbox_mismatch={task_id}")
+    for key in (
+        "source_subplan_path",
+        "source_subplan_sha256",
+        "implementation_contract_digest",
+        "task_contract_digest",
+    ):
+        if packet.get(key) != task.get(key):
+            errors.append(f"dispatch_{key}_mismatch={task_id}")
     if packet.get("attempt") is not None and not isinstance(packet.get("attempt"), int):
         errors.append(f"dispatch_attempt_invalid={task_id}")
+    elif isinstance(packet.get("attempt"), int) and packet["attempt"] > budget_limit(apply_budget_contract(run), "max_agent_attempts_per_role"):
+        errors.append(f"budget_max_agent_attempts_exceeded={task_id}:{role}")
+    if isinstance(message, str) and brief_path.is_file():
+        expected_prompt = dispatch_prompt(run, task, role, brief_path.read_text(encoding="utf-8"))
+        if message != expected_prompt:
+            errors.append(f"dispatch_prompt_contract_mismatch={task_id}")
     dispatch = task.get("dispatch")
     if isinstance(dispatch, dict):
         status = dispatch.get("status")
@@ -1678,6 +1747,8 @@ def validate_dispatch_packet(run_dir: Path, run: dict[str, object], task: dict[s
             errors.append(f"invalid_agent_run_status={task_id}:{run_status or 'missing'}")
         if not isinstance(item.get("attempt"), int) or item.get("attempt", 0) < 1:
             errors.append(f"invalid_agent_run_attempt={task_id}")
+        elif item["attempt"] > budget_limit(apply_budget_contract(run), "max_agent_attempts_per_role"):
+            errors.append(f"budget_max_agent_attempts_exceeded={task_id}:{run_role}")
         if not safe_agent_id(agent_id):
             errors.append(f"invalid_agent_run_agent_id={task_id}:{agent_id or 'missing'}")
         if not item.get("packet_sha256"):
@@ -1707,7 +1778,47 @@ def validate_dispatch_packet(run_dir: Path, run: dict[str, object], task: dict[s
             errors.append(f"subagent_dispatch_completion_required={task_id}")
 
 
-def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list[str]) -> None:
+def validate_task_source_binding(root: Path, task: dict[str, object], errors: list[str]) -> None:
+    task_id = str(task.get("task_id", ""))
+    source_path = task.get("source_subplan_path")
+    if not isinstance(source_path, str) or not source_path.strip():
+        errors.append(f"missing_source_subplan_path={task_id}")
+        return
+    binding = implementation_contract_source_binding(root, source_path)
+    for error in binding.get("errors", []):
+        errors.append(str(error))
+    if task.get("source_subplan_sha256") != binding.get("source_subplan_sha256"):
+        errors.append(f"source_subplan_sha256_mismatch={task_id}")
+    if task.get("implementation_contract") != binding.get("implementation_contract"):
+        errors.append(f"implementation_contract_source_mismatch={task_id}")
+    if task.get("implementation_contract_digest") != binding.get("implementation_contract_digest"):
+        errors.append(f"implementation_contract_digest_source_mismatch={task_id}")
+    if task.get("validation_commands") != contract_validation_commands(
+        binding.get("implementation_contract") if isinstance(binding.get("implementation_contract"), dict) else {}
+    ):
+        errors.append(f"validation_commands_source_mismatch={task_id}")
+    if task.get("validation_command_ids", []) != binding.get("validation_command_ids", []):
+        errors.append(f"validation_command_ids_source_mismatch={task_id}")
+    if task.get("parent_acceptance_signal_ids", []) != binding.get("parent_acceptance_signal_ids", []):
+        errors.append(f"parent_acceptance_signal_ids_source_mismatch={task_id}")
+    if task.get("security_review_required") != binding.get("security_review_required"):
+        errors.append(f"security_review_required_source_mismatch={task_id}")
+    if task.get("risk_class", "") != binding.get("risk_class", ""):
+        errors.append(f"risk_class_source_mismatch={task_id}")
+    if task.get("risk_domains", []) != binding.get("risk_domains", []):
+        errors.append(f"risk_domains_source_mismatch={task_id}")
+    if task.get("task_contract_digest") != task_contract_digest(task):
+        errors.append(f"task_contract_digest_mismatch={task_id}")
+
+
+def validate_task_artifacts(
+    run_dir: Path,
+    task: dict[str, object],
+    errors: list[str],
+    *,
+    run: dict[str, object],
+    task_index: int,
+) -> None:
     task_id = str(task.get("task_id", ""))
     state = str(task.get("state", ""))
     if not safe_task_id(task_id):
@@ -1731,6 +1842,12 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
         expected_commands = contract_validation_commands(implementation_contract)
         if task.get("validation_commands") != expected_commands:
             errors.append(f"implementation_contract_validation_command_mismatch={task_id}")
+        if task.get("validation_command_ids") != validation_command_ids(implementation_contract):
+            errors.append(f"implementation_contract_validation_command_ids_mismatch={task_id}")
+        if task.get("implementation_contract_digest") != canonical_json_digest(implementation_contract):
+            errors.append(f"implementation_contract_digest_mismatch={task_id}")
+        if task.get("task_contract_digest") != task_contract_digest(task):
+            errors.append(f"task_contract_digest_mismatch={task_id}")
         expected_security = implementation_contract.get("security_review_required")
         if isinstance(expected_security, bool) and task.get("security_review_required") is not expected_security:
             errors.append(f"implementation_contract_security_flag_mismatch={task_id}")
@@ -1744,6 +1861,13 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
         return
     if not (task_dir / "Brief.md").is_file():
         errors.append(f"missing_task_brief={task_id}")
+    else:
+        brief_text = (task_dir / "Brief.md").read_text(encoding="utf-8")
+        if task.get("brief_sha256") != sha256_bytes(brief_text.encode("utf-8")):
+            errors.append(f"task_brief_hash_mismatch={task_id}")
+        brief_mode = str(run.get("apply_requested_mode", run.get("mode", "")))
+        if brief_text != task_brief_text(task_index, brief_mode, task):
+            errors.append(f"task_brief_contract_mismatch={task_id}")
 
     implementer = load_json(task_dir / "Implementer-Report.json", errors, f"{task_id}_implementer_report")
     review = load_json(task_dir / "Task-Review.json", errors, f"{task_id}_task_review")
@@ -1775,7 +1899,15 @@ def validate_task_artifacts(run_dir: Path, task: dict[str, object], errors: list
         errors.append(f"failed_quality_requires_re_review={task_id}")
     if review.get("re_review_required") is True and not fix.get("fixes"):
         errors.append(f"re_review_requires_fix_report={task_id}")
+    fixes = fix.get("fixes")
+    if isinstance(fixes, list) and len(fixes) > budget_limit(apply_budget_contract(run), "max_fix_cycles"):
+        errors.append(f"budget_max_fix_cycles_exceeded={task_id}")
     if state == "VERIFIED":
+        for report_name, report in (("implementer", implementer), ("task_review", review)):
+            if report.get("implementation_contract_digest") != task.get("implementation_contract_digest"):
+                errors.append(f"{report_name}_contract_digest_mismatch={task_id}")
+            if report.get("task_contract_digest") != task.get("task_contract_digest"):
+                errors.append(f"{report_name}_task_contract_digest_mismatch={task_id}")
         if task.get("security_review_required") is True and security != "pass":
             errors.append(f"required_security_review_must_pass={task_id}")
         if task.get("security_review_required") is True or security in {"fail", "pass"}:
@@ -1904,6 +2036,8 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
     errors: list[str] = []
     run_dir = run_dir.resolve()
     root = root.resolve() if root else infer_root(run_dir)
+    if root is None:
+        errors.append("source_binding_root_required")
     run = load_json(run_dir / "Apply-Run.json", errors, "apply_run_json")
     progress = load_json(run_dir / "Progress.json", errors, "progress_json")
     final_review = load_json(run_dir / "Final-Review.json", errors, "final_review_json")
@@ -1985,6 +2119,12 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         errors.append("only_one_writer_permitted")
     if run.get("max_subagent_depth") != 1:
         errors.append("recursive_subagents_rejected")
+    budget_contract = apply_budget_contract(run)
+    errors.extend(validate_budget_contract(run.get("budget_contract")))
+    errors.extend(validate_token_usage(run.get("token_usage")))
+    if isinstance(result, dict):
+        errors.extend(validate_budget_contract(result.get("budget_contract"), "result_budget_contract"))
+        errors.extend(validate_token_usage(result.get("token_usage"), "result_token_usage"))
     if not isinstance(run.get("workspace_requested"), str):
         errors.append("workspace_requested_missing")
     if not isinstance(run.get("workspace_detected"), str):
@@ -2079,6 +2219,8 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
     if not isinstance(tasks, list):
         errors.append("progress_tasks_must_be_list")
         tasks = []
+    if len(tasks) > budget_limit(budget_contract, "max_selected_tasks"):
+        errors.append("budget_selected_tasks_exceeded")
     task_ids: set[str] = set()
     if run.get("mode") == "no_action" and tasks:
         errors.append("no_action_must_not_have_tasks")
@@ -2095,10 +2237,39 @@ def validate_apply_run(run_dir: Path, root: Path | None = None) -> list[str]:
         if task_id in task_ids:
             errors.append(f"duplicate_task_id={task_id}")
         task_ids.add(task_id)
+        fix_cycle_count = task.get("fix_cycle_count", 0)
+        if not isinstance(fix_cycle_count, int) or isinstance(fix_cycle_count, bool) or fix_cycle_count < 0:
+            errors.append(f"fix_cycle_count_invalid={task_id}")
+        elif fix_cycle_count > budget_limit(budget_contract, "max_fix_cycles"):
+            errors.append(f"budget_max_fix_cycles_exceeded={task_id}")
+        runs = task.get("agent_runs", [])
+        if isinstance(runs, list):
+            for run_item in runs:
+                if not isinstance(run_item, dict):
+                    continue
+                attempt = run_item.get("attempt")
+                role = str(run_item.get("role", ""))
+                if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > budget_limit(
+                    budget_contract,
+                    "max_agent_attempts_per_role",
+                ):
+                    errors.append(f"budget_max_agent_attempts_exceeded={task_id}:{role or 'missing'}")
         if task.get("state") == "VERIFIED" and task.get("redispatch_count", 0) not in {0, None}:
             errors.append(f"verified_task_not_redispatched={task_id}")
+    source_task_digests: dict[str, str] = {}
+    for index, task in enumerate([item for item in tasks if isinstance(item, dict)], start=1):
+        task_id = str(task.get("task_id", ""))
+        if root is not None:
+            validate_task_source_binding(root, task, errors)
+        source_path = task.get("source_subplan_path")
+        digest = task.get("task_contract_digest")
+        if isinstance(source_path, str) and isinstance(digest, str):
+            previous = source_task_digests.get(source_path)
+            if previous is not None and previous != digest:
+                errors.append(f"duplicate_task_source_subplan_mismatch={source_path}")
+            source_task_digests[source_path] = digest
         validate_dispatch_packet(run_dir, run, task, errors)
-        validate_task_artifacts(run_dir, task, errors)
+        validate_task_artifacts(run_dir, task, errors, run=run, task_index=index)
 
     validate_events(events, tasks, errors)
     validate_writer_lock(run_dir, progress, tasks, errors)

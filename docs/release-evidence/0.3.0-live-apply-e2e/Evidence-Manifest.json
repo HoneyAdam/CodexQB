@@ -1,0 +1,49 @@
+{
+  "artifact_schema_version": 1,
+  "evidence_package": "0.3.0-live-apply-e2e",
+  "plugin_version": "0.3.0",
+  "source_commit_at_capture": "454803e4f0cb899fa26b5e970ce6c570f8d4f2ca",
+  "source_branch_at_capture": "main",
+  "privacy": {
+    "redacted": true,
+    "redacted_fields": [
+      "workspace",
+      "temporary_fixture_root",
+      "apply_run_id",
+      "apply_task_id",
+      "agent_ids",
+      "local_attachment_paths"
+    ],
+    "private_paths_included": false,
+    "raw_prompts_included": false,
+    "secrets_included": false,
+    "environment_dump_included": false
+  },
+  "raw_artifact_access": {
+    "available_in_repository": false,
+    "reason": "The live runtime directory was an ignored local fixture and is not tracked in this public release package.",
+    "redacted_runtime_json_files_included": []
+  },
+  "claims": {
+    "can_verify_from_repository": [
+      "The public evidence summary is sanitized.",
+      "SHA-256 values copied from the original summary are recorded.",
+      "The closure matrix marks raw-artifact reviewability as partial."
+    ],
+    "cannot_verify_from_repository": [
+      "Full Apply-Run.json contents from the live runtime.",
+      "Full Progress.json contents from the live runtime.",
+      "Full Events.jsonl transition log from the live runtime.",
+      "Full task review, security review, final review, and result artifacts from the live runtime."
+    ]
+  },
+  "referenced_hashes": {
+    "Apply-Run.json_sha256": "2a3a52598b9caffe3ca3260f1272f970652b88b6caf80a798dd3f8fa34e26efc",
+    "Progress.json_sha256": "baba0eda92bca9e001835bd9c536552641ef34d52c9793afd2852ce9722656f9",
+    "Result.json_sha256": "28eda86d44fbc1684665d16bf8f86c9b9caedd891c5f48b0a74071d4955591b8",
+    "Final-Review.json_sha256": "99927ca124b2d7dac32dd198facfbff5230fd1027a3caebce797309984c338eb",
+    "Events.jsonl_sha256": "100381d78769fb248bc2700512eddfc9dc01c37a7b4a8b6f7b588547f94b1cc4"
+  },
+  "fb_011_status": "PARTIAL",
+  "fb_012_status": "OPEN"
+}

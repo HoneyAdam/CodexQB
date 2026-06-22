@@ -2,7 +2,7 @@
 
 ## Current-State Audit
 
-- Repository: `/Users/alicankiraz/Desktop/BillionDollarsIdeas/CodexQB`.
+- Repository: `<repo-root>`.
 - Branch state at kickoff: `main...origin/main`, clean worktree.
 - Baseline validation:
   - `python3 -m unittest discover -s tests -v` passed with 84 tests.

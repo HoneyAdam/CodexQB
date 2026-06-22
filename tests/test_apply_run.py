@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_validate_planner_docs import write_audit, write_valid_step2_fixture
+from tests.test_validate_planner_docs import write_audit, write_ledger, write_valid_step2_fixture
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -137,6 +138,8 @@ class ApplyRunTests(unittest.TestCase):
                     "status": "DONE",
                     "task_id": task_id,
                     "brief_sha256": brief_hash,
+                    "implementation_contract_digest": task.get("implementation_contract_digest"),
+                    "task_contract_digest": task.get("task_contract_digest"),
                     "implementer_agent_id": "impl-1",
                     "files_changed": ["src/example.py"],
                     "validation_evidence": [{"id": "VAL-01", "argv": ["python3", "-m", "unittest"], "exit_code": 0}],
@@ -148,6 +151,8 @@ class ApplyRunTests(unittest.TestCase):
         task_review = {
             "task_id": task_id,
             "brief_sha256": brief_hash,
+            "implementation_contract_digest": task.get("implementation_contract_digest"),
+            "task_contract_digest": task.get("task_contract_digest"),
             "reviewer_agent_id": "review-1",
             "spec_compliance": "pass",
             "task_quality": "approved",
@@ -196,6 +201,10 @@ class ApplyRunTests(unittest.TestCase):
             self.assertFalse(run["pr_allowed"])
             self.assertEqual(run["max_writer_agents"], 1)
             self.assertEqual(run["max_subagent_depth"], 1)
+            self.assertEqual(run["budget_contract"]["max_selected_tasks"], 4)
+            self.assertEqual(run["budget_contract"]["max_agent_attempts_per_role"], 2)
+            self.assertEqual(run["budget_contract"]["max_fix_cycles"], 2)
+            self.assertEqual(run["token_usage"]["status"], "not_observed")
             self.assertEqual(run["workspace_mode"], "non_git_unsafe")
             self.assertTrue(run["user_approval"])
             self.assertEqual(run["worktree_path"], ".")
@@ -246,6 +255,258 @@ class ApplyRunTests(unittest.TestCase):
             self.assertIn("validation_command_ids: VAL-01", brief)
             self.assertIn('"id":"VAL-01"', brief)
             self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir), [])
+
+    def test_apply_budget_rejects_invalid_limits_and_selected_task_overflow(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            run_path = run_dir / "Apply-Run.json"
+            run = json.loads(run_path.read_text(encoding="utf-8"))
+            run["budget_contract"]["max_agent_attempts_per_role"] = -1
+            run["budget_contract"]["hard_total_token_limit"] = 1
+            run["budget_contract"]["soft_input_token_limit"] = 2
+            run_path.write_text(json.dumps(run), encoding="utf-8")
+            progress_path = run_dir / "Progress.json"
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            template = progress["tasks"][0]
+            progress["tasks"] = [json.loads(json.dumps(template)) for _ in range(5)]
+            for index, task in enumerate(progress["tasks"], start=1):
+                task["task_id"] = f"{template['task_id'][:-3]}{index:03d}"
+            progress_path.write_text(json.dumps(progress), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("invalid_budget_contract=max_agent_attempts_per_role", errors)
+            self.assertIn("budget_contract_hard_below_soft", errors)
+            self.assertIn("budget_selected_tasks_exceeded", errors)
+
+    def test_subagent_attempt_budget_is_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "subagent_serial")
+            run_dir = Path(result["run_dir"])
+            task_id = self.first_task_id(run_dir)
+
+            for attempt in range(1, 3):
+                APPLY_MODULE.prepare_dispatch_packet(run_dir, task_id, "implementer", "controller", [f"packet {attempt}"])
+                APPLY_MODULE.record_agent_status(
+                    run_dir,
+                    task_id,
+                    "implementer",
+                    f"agent-impl-{attempt}",
+                    "spawned",
+                    "controller",
+                    [f"spawn {attempt}"],
+                )
+                APPLY_MODULE.record_agent_status(
+                    run_dir,
+                    task_id,
+                    "implementer",
+                    f"agent-impl-{attempt}",
+                    "failed",
+                    "controller",
+                    [f"failure {attempt}"],
+                    "recoverable setup failure",
+                )
+
+            with self.assertRaisesRegex(ValueError, f"budget_max_agent_attempts_exceeded={task_id}:implementer"):
+                APPLY_MODULE.prepare_dispatch_packet(run_dir, task_id, "implementer", "controller", ["third packet"])
+
+    def test_apply_validator_rejects_attempt_and_fix_cycle_over_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            progress_path = run_dir / "Progress.json"
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+            task_id = task["task_id"]
+            task["fix_cycle_count"] = 3
+            task["agent_runs"] = [
+                {
+                    "task_id": task_id,
+                    "role": "implementer",
+                    "attempt": 3,
+                    "agent_id": "agent-impl-3",
+                    "status": "failed",
+                    "packet_sha256": "a" * 64,
+                    "prompt_sha256": "b" * 64,
+                    "spawn_tool": "multi_agent_v1.spawn_agent",
+                    "summary": "attempt exceeds budget",
+                    "failed_at": "2026-01-01T00:00:00Z",
+                }
+            ]
+            progress_path.write_text(json.dumps(progress), encoding="utf-8")
+            (run_dir / task_id / "Fix-Report.json").write_text(
+                json.dumps({"fixes": [{"finding": "a"}, {"finding": "b"}, {"finding": "c"}]}),
+                encoding="utf-8",
+            )
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn(f"budget_max_fix_cycles_exceeded={task_id}", errors)
+            self.assertIn(f"budget_max_agent_attempts_exceeded={task_id}:implementer", errors)
+
+    def test_apply_unknown_runtime_token_usage_is_reported_honestly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            run = json.loads((run_dir / "Apply-Run.json").read_text(encoding="utf-8"))
+            result_payload = json.loads((run_dir / "Result.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(run["token_usage"]["total_tokens"], "not_observed")
+            self.assertEqual(result_payload["token_usage"]["source"], "runtime_not_available")
+            run["token_usage"] = {"status": "observed", "input_tokens": 10, "output_tokens": 5, "total_tokens": 99, "source": "test"}
+            (run_dir / "Apply-Run.json").write_text(json.dumps(run), encoding="utf-8")
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("token_usage_total_mismatch", errors)
+
+    def test_apply_task_contract_is_bound_to_source_subplan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+
+            self.assertEqual(task["source_subplan_path"], "Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md")
+            self.assertTrue(task["source_subplan_sha256"])
+            self.assertTrue(task["implementation_contract_digest"])
+            self.assertTrue(task["task_contract_digest"])
+            self.assertEqual(task["parent_acceptance_signal_ids"], ["MP-PH1-AS-01"])
+            self.assertEqual(task["risk_class"], "low")
+            self.assertEqual(task["risk_domains"], ["none"])
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir, root), [])
+
+    def test_apply_rejects_task_contract_divergent_from_source_subplan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            progress_path = run_dir / "Progress.json"
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+            task["implementation_contract"]["outputs"] = ["reports/tampered.md"]
+            task["implementation_contract_digest"] = APPLY_MODULE.canonical_json_digest(task["implementation_contract"])
+            task["task_contract_digest"] = APPLY_MODULE.task_contract_digest(task)
+            progress_path.write_text(json.dumps(progress), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn(f"implementation_contract_source_mismatch={task['task_id']}", errors)
+            self.assertIn(f"implementation_contract_digest_source_mismatch={task['task_id']}", errors)
+
+    def test_apply_rejects_source_subplan_hash_and_path_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            progress_path = run_dir / "Progress.json"
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+            task["source_subplan_sha256"] = "0" * 64
+            task["source_subplan_path"] = "Planner-docs/Missing.md"
+            task["task_contract_digest"] = APPLY_MODULE.task_contract_digest(task)
+            progress_path.write_text(json.dumps(progress), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn("missing_source_subplan=Planner-docs/Missing.md", errors)
+            self.assertIn(f"source_subplan_sha256_mismatch={task['task_id']}", errors)
+
+    def test_apply_rejects_validation_ids_divergent_from_source_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            progress_path = run_dir / "Progress.json"
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+            task["validation_command_ids"] = ["VAL-99"]
+            task["task_contract_digest"] = APPLY_MODULE.task_contract_digest(task)
+            progress_path.write_text(json.dumps(progress), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn(f"validation_command_ids_source_mismatch={task['task_id']}", errors)
+            self.assertIn(f"implementation_contract_validation_command_ids_mismatch={task['task_id']}", errors)
+
+    def test_apply_brief_contract_hash_matches_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            progress = json.loads((run_dir / "Progress.json").read_text(encoding="utf-8"))
+            task = progress["tasks"][0]
+            brief_path = run_dir / task["task_id"] / "Brief.md"
+            brief_path.write_text(
+                brief_path.read_text(encoding="utf-8").replace("reports/faz1-1-readiness.md", "reports/tampered.md"),
+                encoding="utf-8",
+            )
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn(f"task_brief_hash_mismatch={task['task_id']}", errors)
+            self.assertIn(f"task_brief_contract_mismatch={task['task_id']}", errors)
+
+    def test_apply_dispatch_contract_hash_matches_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "subagent_serial")
+            run_dir = Path(result["run_dir"])
+            task_id = self.first_task_id(run_dir)
+            APPLY_MODULE.prepare_dispatch_packet(run_dir, task_id, "implementer", "controller", ["packet ready"])
+            packet_path = run_dir / task_id / "Dispatch-Packet.json"
+            packet = json.loads(packet_path.read_text(encoding="utf-8"))
+            packet["spawn_request"]["message"] = packet["spawn_request"]["message"].replace(
+                "reports/faz1-1-readiness.md",
+                "reports/tampered.md",
+            )
+            packet["prompt_sha256"] = APPLY_MODULE.sha256_bytes(packet["spawn_request"]["message"].encode("utf-8"))
+            packet_path.write_text(json.dumps(packet, sort_keys=True), encoding="utf-8")
+            progress_path = run_dir / "Progress.json"
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            progress["tasks"][0]["dispatch"]["packet_sha256"] = APPLY_MODULE.sha256_bytes(packet_path.read_bytes())
+            progress_path.write_text(json.dumps(progress), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn(f"dispatch_prompt_contract_mismatch={task_id}", errors)
+
+    def test_apply_report_and_review_reference_expected_contract_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            self.mark_task_verified(run_dir, "pass")
+            task_id = self.first_task_id(run_dir)
+            report_path = run_dir / task_id / "Implementer-Report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["task_contract_digest"] = "0" * 64
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            review_path = run_dir / task_id / "Task-Review.json"
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["implementation_contract_digest"] = "1" * 64
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+
+            errors = APPLY_MODULE.validate_apply_run(run_dir, root)
+
+            self.assertIn(f"implementer_task_contract_digest_mismatch={task_id}", errors)
+            self.assertIn(f"task_review_contract_digest_mismatch={task_id}", errors)
 
     def test_subagent_serial_requires_dispatch_packet_before_implementation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -669,6 +930,18 @@ class ApplyRunTests(unittest.TestCase):
 
             self.assertIn("source_snapshot_mismatch", errors)
 
+    def test_apply_validation_requires_root_for_source_binding_when_not_inferred(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            copied = Path(outside_dir) / "copied-apply-run"
+            shutil.copytree(run_dir, copied)
+
+            self.assertIn("source_binding_root_required", APPLY_MODULE.validate_apply_run(copied))
+            self.assertEqual(APPLY_MODULE.validate_apply_run(copied, root), [])
+
     def test_apply_run_workspace_baseline_detects_non_git_source_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -682,6 +955,19 @@ class ApplyRunTests(unittest.TestCase):
             errors = APPLY_MODULE.validate_apply_run(run_dir, root)
 
             self.assertIn("workspace_baseline_mismatch=workspace_file_inventory_sha256", errors)
+
+    def test_step4_ledger_update_does_not_break_apply_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_apply_fixture(root)
+            docs = root / "Planner-docs"
+            write_ledger(docs)
+            result = self.create_apply_run(root, "direct")
+            run_dir = Path(result["run_dir"])
+            ledger = docs / "Planing-Ledger.md"
+            ledger.write_text(ledger.read_text(encoding="utf-8") + "\nStep 4 expected ledger update.\n", encoding="utf-8")
+
+            self.assertEqual(APPLY_MODULE.validate_apply_run(run_dir, root), [])
 
     def test_apply_run_workspace_baseline_detects_git_untracked_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -750,6 +1036,8 @@ class ApplyRunTests(unittest.TestCase):
                         "status": "DONE",
                         "task_id": task_id,
                         "brief_sha256": brief_hash,
+                        "implementation_contract_digest": task.get("implementation_contract_digest"),
+                        "task_contract_digest": task.get("task_contract_digest"),
                         "implementer_agent_id": "impl-1",
                         "files_changed": ["src/feature_1_1.py"],
                         "validation_evidence": [
@@ -769,6 +1057,8 @@ class ApplyRunTests(unittest.TestCase):
                     {
                         "task_id": task_id,
                         "brief_sha256": brief_hash,
+                        "implementation_contract_digest": task.get("implementation_contract_digest"),
+                        "task_contract_digest": task.get("task_contract_digest"),
                         "reviewer_agent_id": "review-1",
                         "security_reviewer_agent_id": "security-1",
                         "spec_compliance": "pass",

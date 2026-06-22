@@ -219,6 +219,8 @@ class SkillContentTests(unittest.TestCase):
         schema_defs = apply_schema["$defs"]
         for name in [
             "ApplyRun",
+            "BudgetContract",
+            "TokenUsage",
             "WorkspaceBaseline",
             "Progress",
             "DispatchPacket",
@@ -233,6 +235,14 @@ class SkillContentTests(unittest.TestCase):
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["apply_run_schema_version"]["const"], 1)
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["artifact_schema_version"]["const"], 3)
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["handoff_contract_version"]["const"], 2)
+        self.assertIn("budget_contract", schema_defs["ApplyRun"]["required"])
+        self.assertIn("token_usage", schema_defs["ApplyRun"]["required"])
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["budget_contract"]["$ref"], "#/$defs/BudgetContract")
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["token_usage"]["$ref"], "#/$defs/TokenUsage")
+        budget_contract = schema_defs["BudgetContract"]
+        self.assertEqual(budget_contract["properties"]["budget_schema_version"]["const"], 1)
+        self.assertEqual(budget_contract["properties"]["max_agent_attempts_per_role"]["maximum"], 10)
+        self.assertEqual(budget_contract["properties"]["pause_on_soft_limit"]["const"], True)
         step4_readiness = schema_defs["ApplyRun"]["properties"]["step4_readiness"]
         self.assertIn("validator_output_sha256", step4_readiness["required"])
         self.assertIn("execution_queue_state", step4_readiness["required"])
@@ -255,8 +265,12 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("untracked_inventory_sha256", workspace_baseline["required"])
         self.assertIn("workspace_file_inventory_sha256", workspace_baseline["required"])
         self.assertIn("implementation_contract", schema_defs["Task"]["required"])
+        self.assertIn("implementation_contract_digest", schema_defs["Task"]["required"])
+        self.assertIn("task_contract_digest", schema_defs["Task"]["required"])
         self.assertIn("validation_command_ids", schema_defs["Task"]["required"])
         self.assertEqual(schema_defs["Task"]["properties"]["implementation_contract"]["type"], "object")
+        self.assertEqual(schema_defs["Task"]["properties"]["task_contract_digest"]["$ref"], "#/$defs/Sha256")
+        self.assertEqual(schema_defs["Task"]["properties"]["fix_cycle_count"]["minimum"], 0)
         self.assertEqual(schema_defs["Task"]["properties"]["validation_commands"]["items"]["$ref"], "#/$defs/PlannedValidationCommand")
         self.assertEqual(schema_defs["Task"]["properties"]["validation_command_ids"]["items"]["pattern"], "^VAL-[A-Za-z0-9_.:-]+$")
         self.assertEqual(
@@ -268,6 +282,9 @@ class SkillContentTests(unittest.TestCase):
             "#/$defs/ValidationEvidence",
         )
         self.assertEqual(schema_defs["DispatchPacket"]["properties"]["spawn_tool"]["const"], "multi_agent_v1.spawn_agent")
+        self.assertIn("task_contract_digest", schema_defs["DispatchPacket"]["required"])
+        self.assertEqual(schema_defs["Result"]["properties"]["budget_contract"]["$ref"], "#/$defs/BudgetContract")
+        self.assertEqual(schema_defs["Result"]["properties"]["token_usage"]["$ref"], "#/$defs/TokenUsage")
         self.assertIn("references/apply-run-schema.json", skill)
         self.assertIn("plugins/codexqb/skills/codexqb/references/apply-run-schema.json", validate_script)
         self.assertIn("references/apply-run-schema.json", maintaining)
@@ -400,10 +417,9 @@ class SkillContentTests(unittest.TestCase):
             "FB-012",
             "collect_step2_planning_horizon",
             "contract_driven_work_steps",
-            "CLOSED for bounded live Apply e2e",
-            "apply-subagent_serial-f794e63b5a53-downstream-dry-run",
+            "PARTIAL",
             "full Ralph 40-plan live regression",
-            "0.3.0 feature-complete candidate",
+            "0.3.0 release-integrity candidate",
         ]:
             self.assertIn(phrase, matrix)
 
@@ -421,54 +437,48 @@ class SkillContentTests(unittest.TestCase):
             "Sandbox / approval mode",
             "Goal / Apply Run IDs",
             "Docs-scope smoke Goal run ID: not produced for the initial smoke",
-            "Live Apply run ID: `apply-subagent_serial-f794e63b5a53-downstream-dry-run`",
-            "Live Apply task ID: `AR-apply-subagent_serial-f794e63b5a53-downstream-dry-run-T001`",
+            "Live Apply run ID: `<apply-run-id-redacted>`",
+            "Live Apply task ID: `<apply-task-id-redacted>`",
             "Security review required: `true`",
             "`multi_agent_v1.spawn_agent`",
-            "`019eeb62-31b2-7442-939a-5efca138380b`",
-            "Nash",
-            "`019eeb67-4242-7c12-a140-4d3f90140353`",
-            "Noether",
-            "`019eeb6a-ac9e-7eb3-9a01-08c1859f79c0`",
-            "Jason",
-            "`019eeb6d-5bc1-7d92-a39d-f72b2a730687`",
-            "Curie",
-            "`019eeb6e-a2df-79f3-be1c-466322eccc5b`",
-            "Euclid",
+            "agent ID redacted",
             "`STATUS: DONE`",
             "Wrote docs and content test files",
             "Live Multi-Role Apply E2E Evidence",
-            "`019eeb8c-227a-7b60-94d3-9965c9129fc6`",
-            "Ampere",
-            "`019eeb8e-19a6-7740-b643-db85eb2ecd5b`",
-            "Raman",
-            "`019eeb8f-3e43-7a03-972a-50e094536ba7`",
-            "Erdos",
-            "`019eeb9e-2f2c-7fe3-bcdd-d856a3c9bcc7`",
-            "Galileo",
-            "`019eeba0-00f4-7271-b711-bd99ecf04a52`",
-            "Godel",
+            "<agent-id-redacted>",
             "Result.json status=complete",
             "`event_sequence=33`",
             "`finalized_by=live-e2e-controller`",
             "`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`: passed",
             "Apply-Run.json_sha256=2a3a52598b9caffe3ca3260f1272f970652b88b6caf80a798dd3f8fa34e26efc",
-            "`FB-011` is closed for bounded live Apply e2e evidence",
-            "`FB-012` remains open",
+            "`FB-011` is partial for bounded live Apply e2e evidence",
+            "remains open until changelog",
             "not a full Ralph 40-plan live regression",
             "No commit, push, PR, deploy, dependency install, or external credential action",
         ]:
             self.assertIn(phrase, smoke)
 
+        manifest = REPO_ROOT / "docs/release-evidence/0.3.0-live-apply-e2e/Evidence-Manifest.json"
+        events = REPO_ROOT / "docs/release-evidence/0.3.0-live-apply-e2e/Events.summary.json"
+        self.assertTrue(manifest.is_file())
+        self.assertTrue(events.is_file())
+        manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+        self.assertEqual(manifest_payload["fb_011_status"], "PARTIAL")
+        self.assertFalse(manifest_payload["raw_artifact_access"]["available_in_repository"])
+
         matrix = (REPO_ROOT / "docs/release-audits/0.3.0-feedback-closure.md").read_text(encoding="utf-8")
         audit = (REPO_ROOT / "docs/FEEDBACK-CLOSURE-AUDIT.md").read_text(encoding="utf-8")
         combined = "\n".join([smoke, matrix, audit])
-        self.assertIn("CLOSED for bounded live Apply e2e", matrix)
+        self.assertIn("FB-011 | Observe real subagent invocation behavior. | PARTIAL", matrix)
         self.assertIn("Ralph-scale regression remains separate", audit)
         self.assertIn("full Ralph 40-plan live regression", matrix)
         self.assertIn("FB-012 | Align changelog/tag/release state. | OPEN", matrix)
         self.assertNotIn("full downstream apply/ralph multi-role e2e closed", combined.lower())
         self.assertNotIn("0.3.0 final release", combined.lower())
+        self.assertNotIn("apply-subagent_serial-f794", combined)
+        self.assertNotIn("AR-apply-subagent_serial-f794", combined)
+        self.assertNotRegex(combined, r"/Users/|/private/(?:tmp|var)|\\.codex/attachments")
+        self.assertNotRegex(combined, r"\b019e[a-f0-9]{28}\b")
 
     def test_shared_safety_contracts_are_wired(self) -> None:
         safety = SKILL_ROOT / "scripts/safety_contracts.py"
@@ -640,6 +650,7 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("scripts/export_sanitized.py", makefile)
         self.assertIn("check-fast", makefile)
         self.assertIn("check-behavior", makefile)
+        self.assertIn("check-public-privacy", makefile)
         self.assertIn("check-release", makefile)
         self.assertIn("export-sanitized-worktree", makefile)
         export_script = (REPO_ROOT / "scripts/export_sanitized.py").read_text(encoding="utf-8")
@@ -763,6 +774,7 @@ class SkillContentTests(unittest.TestCase):
             shutil.copytree(REPO_ROOT, package_root, ignore=ignore)
             env = os.environ.copy()
             env["CODEXQB_VALIDATE_SKIP_UNITTESTS"] = "1"
+            env["CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE"] = "1"
             result = subprocess.run(
                 ["bash", "scripts/validate.sh"],
                 cwd=package_root,
@@ -777,6 +789,8 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn("package_secret_hygiene_mode=filesystem", result.stdout)
             self.assertIn("package_hygiene_mode=filesystem", result.stdout)
             self.assertIn("unit_tests_skipped=1", result.stdout)
+            self.assertIn("behavior_smokes_skipped=1", result.stdout)
+            self.assertNotIn("apply_behavior_smoke=passed", result.stdout)
 
     def test_archive_hygiene_pattern_matches_forbidden_paths(self) -> None:
         pattern = re.compile(
@@ -805,6 +819,23 @@ class SkillContentTests(unittest.TestCase):
             self.assertRegex(path, pattern)
         for path in allowed:
             self.assertNotRegex(path, pattern)
+
+    def test_public_release_docs_reject_private_user_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            evidence = root / "docs" / "release-evidence"
+            evidence.mkdir(parents=True)
+            (evidence / "leak.md").write_text("path: /Users/example/private\n", encoding="utf-8")
+            result = subprocess.run(
+                [os.environ.get("PYTHON", "python3"), str(REPO_ROOT / "scripts/check_public_privacy.py"), "--root", str(root)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("docs/release-evidence/leak.md:1:mac_user_path", result.stdout)
+            self.assertNotIn("/Users/example/private", result.stdout)
 
     def test_autopsy_validator_mode_is_documented(self) -> None:
         validator = (SKILL_ROOT / "scripts/validate_planner_docs.py").read_text(encoding="utf-8")

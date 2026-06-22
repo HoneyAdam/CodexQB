@@ -24,15 +24,17 @@ Planner-docs/Goal-Runs/<goal-run-id>/
   Goal-Result.json
 ```
 
-`Goal-Run.json` records source snapshot hashes, deterministic `goal_spec_id`, invocation-specific `goal_run_id`, stage, handoff contract version, artifact schema version, output paths, pinned template hashes, compiler hash, Step 2 `planning_horizon` metadata, active sub-plan inventories, structured `implementation_contract` objects when present, `validation_command_ids`, contract-derived Step 4 work steps, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked and records `goal_run_sha256` plus `prompt_sha256` when a prompt is rendered.
+`Goal-Run.json` records source snapshot hashes, deterministic `goal_spec_id`, invocation-specific `goal_run_id`, stage, handoff contract version, artifact schema version, output paths, pinned template hashes, compiler hash, Step 2 `planning_horizon` metadata, active sub-plan inventories, source sub-plan paths and SHA-256 hashes, structured `implementation_contract` objects when present, `implementation_contract_digest`, `validation_command_ids`, contract-derived Step 4 work steps, `budget_contract`, `token_usage`, and safety policy. `Goal-Prompt.md` is the user-facing Goal prompt. `Goal-Result.json` is a preview result describing whether the prompt is ready or blocked and records `goal_run_sha256`, budget and token-usage state, plus `prompt_sha256` when a prompt is rendered.
 
-`Goal-Prompt.md` must be rendered deterministically from a valid `Goal-Run.json`. Rendering must first validate schema version, secret hygiene, source snapshot integrity, current snapshot match, allowed/forbidden path policy, and glob overlap.
+`Goal-Prompt.md` must be rendered deterministically from a valid `Goal-Run.json`. Rendering must first validate schema version, secret hygiene, source snapshot integrity, current stage snapshot match, source-bound implementation contracts, allowed/forbidden path policy, and glob overlap.
 
 `goal_spec_id` is stable for the same source snapshot, mode, objective, and active scope. `goal_run_id` includes an invocation suffix so repeated prepares create separate run directories unless the caller explicitly supplies the same `--output-dir`. Rendering must reject template bundle, compiler, source snapshot, or stored digest drift before writing output.
 
 `prepare` must run the bundled validator for the selected stage prerequisite before writing an execution prompt. Missing prerequisites or validator failures write `Goal-Result.json` with `status: blocked` and remove/avoid `Goal-Prompt.md`.
 
-Validation also rejects semantic drift in run controls: unsupported stage modes, blank objectives, empty work steps, unsafe validation checkpoints, recursive subagent depth, and invalid context-token risk declarations. These fields are execution safety controls, not display-only metadata.
+Validation also rejects semantic drift in run controls: unsupported stage modes, blank objectives, empty work steps, unsafe validation checkpoints, recursive subagent depth, invalid context-token risk declarations, invalid budget limits, selected-task budget overflow, and dishonest token-usage state. These fields are execution safety controls, not display-only metadata.
+
+Stage snapshots are stage-aware. Step 3 treats `Sub-Planing-Audit.md` as expected mutable output while keeping Step 2 source artifacts immutable. Step 4 treats `Planing-Ledger.md`, `.codexqb/apply-runs/**`, and implementation paths declared by READY queue contracts as mutable outputs while keeping the Main Plan, index, audit, and selected source sub-plans immutable.
 
 ## Security Rules
 

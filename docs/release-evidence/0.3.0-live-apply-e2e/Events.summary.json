@@ -1,0 +1,28 @@
+{
+  "artifact_schema_version": 1,
+  "summary_source": "docs/release-evidence/0.3.0-live-subagent-smoke.md",
+  "raw_events_available_in_repository": false,
+  "observed_sequence_summary": [
+    "bounded live subagent_serial Apply fixture was initialized",
+    "implementer completed the focused change",
+    "task reviewer requested additional coverage",
+    "fixer added coverage",
+    "re-review passed",
+    "security reviewer found fixture hygiene issue",
+    "fixer restored tracked bytecode fixture hygiene",
+    "security re-review passed after one timed-out reviewer was recorded as failed",
+    "final reviewer passed the run",
+    "controller finalized the run",
+    "resume of the finalized run did not redispatch the verified task"
+  ],
+  "redaction": {
+    "apply_run_id": "<apply-run-id-redacted>",
+    "apply_task_id": "<apply-task-id-redacted>",
+    "agent_ids": "<agent-id-redacted>"
+  },
+  "limitations": [
+    "This is a summary, not the original Events.jsonl.",
+    "Transition ordering cannot be independently replayed from this package alone.",
+    "The source evidence remains partial until raw runtime artifacts are captured in redacted form."
+  ]
+}

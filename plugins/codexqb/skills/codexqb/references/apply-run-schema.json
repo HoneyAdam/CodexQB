@@ -101,6 +101,52 @@
       },
       "additionalProperties": false
     },
+    "BudgetContract": {
+      "type": "object",
+      "required": [
+        "budget_schema_version",
+        "soft_input_token_limit",
+        "hard_total_token_limit",
+        "max_subagent_total_tokens",
+        "max_agent_attempts_per_role",
+        "max_fix_cycles",
+        "max_selected_tasks",
+        "checkpoint_after_tasks",
+        "pause_on_soft_limit",
+        "enforcement_mode"
+      ],
+      "properties": {
+        "budget_schema_version": { "const": 1 },
+        "soft_input_token_limit": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        "hard_total_token_limit": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        "max_subagent_total_tokens": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+        "max_agent_attempts_per_role": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "max_fix_cycles": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "max_selected_tasks": { "type": "integer", "minimum": 0, "maximum": 50 },
+        "checkpoint_after_tasks": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "pause_on_soft_limit": { "const": true },
+        "enforcement_mode": { "const": "advisory_or_runtime_supported" }
+      },
+      "additionalProperties": false
+    },
+    "TokenUsage": {
+      "type": "object",
+      "required": ["status", "input_tokens", "output_tokens", "total_tokens", "source"],
+      "properties": {
+        "status": { "enum": ["not_observed", "observed"] },
+        "input_tokens": {
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "const": "not_observed" }]
+        },
+        "output_tokens": {
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "const": "not_observed" }]
+        },
+        "total_tokens": {
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "const": "not_observed" }]
+        },
+        "source": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
     "SourceSnapshotItem": {
       "type": "object",
       "required": ["path", "sha256"],
@@ -190,6 +236,8 @@
         "pr_allowed",
         "max_writer_agents",
         "max_subagent_depth",
+        "budget_contract",
+        "token_usage",
         "agent_profiles",
         "source_snapshot",
         "source_snapshot_digest",
@@ -241,6 +289,8 @@
         "pr_allowed": { "const": false },
         "max_writer_agents": { "const": 1 },
         "max_subagent_depth": { "const": 1 },
+        "budget_contract": { "$ref": "#/$defs/BudgetContract" },
+        "token_usage": { "$ref": "#/$defs/TokenUsage" },
         "agent_profiles": {
           "type": "object",
           "required": [
@@ -343,6 +393,8 @@
         "validation_commands",
         "validation_command_ids",
         "implementation_contract",
+        "implementation_contract_digest",
+        "task_contract_digest",
         "dispatch",
         "agent_runs"
       ],
@@ -354,6 +406,17 @@
         "source_subplan_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
         "fresh_context_contract": { "type": "object" },
         "implementation_contract": { "type": "object" },
+        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
+        "parent_acceptance_signal_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "risk_class": { "type": "string" },
+        "risk_domains": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "finding_ids": {
           "type": "array",
           "items": { "type": "string" }
@@ -378,6 +441,7 @@
           "items": { "$ref": "#/$defs/AgentRun" }
         },
         "redispatch_count": { "type": "integer", "minimum": 0 },
+        "fix_cycle_count": { "type": "integer", "minimum": 0 },
         "brief_sha256": { "$ref": "#/$defs/Sha256" }
       },
       "additionalProperties": true
@@ -481,6 +545,10 @@
         "model_profile",
         "model_override",
         "sandbox",
+        "source_subplan_path",
+        "source_subplan_sha256",
+        "implementation_contract_digest",
+        "task_contract_digest",
         "brief_sha256",
         "prompt_sha256",
         "run_relative_task_dir",
@@ -508,6 +576,10 @@
         "model_profile": { "enum": ["balanced", "security_strong", "strong"] },
         "model_override": { "type": "null" },
         "sandbox": { "enum": ["read-only", "workspace-write"] },
+        "source_subplan_path": { "type": ["string", "null"] },
+        "source_subplan_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
         "brief_sha256": { "$ref": "#/$defs/Sha256" },
         "prompt_sha256": { "$ref": "#/$defs/Sha256" },
         "run_relative_task_dir": { "$ref": "#/$defs/TaskId" },
@@ -553,6 +625,8 @@
         "status": { "enum": ["BLOCKED", "DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "PENDING"] },
         "task_id": { "$ref": "#/$defs/TaskId" },
         "brief_sha256": { "$ref": "#/$defs/Sha256" },
+        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
         "implementer_agent_id": { "$ref": "#/$defs/AgentId" },
         "files_changed": {
           "type": "array",
@@ -573,6 +647,8 @@
         "status": { "enum": ["PENDING"] },
         "task_id": { "$ref": "#/$defs/TaskId" },
         "brief_sha256": { "$ref": "#/$defs/Sha256" },
+        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
         "reviewer_agent_id": { "$ref": "#/$defs/AgentId" },
         "security_reviewer_agent_id": { "$ref": "#/$defs/AgentId" },
         "spec_compliance": { "enum": ["cannot_verify", "fail", "pass", "PENDING"] },
@@ -600,7 +676,12 @@
         "status": { "enum": ["PENDING"] },
         "fixes": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "anyOf": [
+              { "type": "string" },
+              { "type": "object", "additionalProperties": true }
+            ]
+          }
         }
       },
       "additionalProperties": true
@@ -627,7 +708,15 @@
     },
     "Result": {
       "type": "object",
-      "required": ["apply_run_id", "status", "completed_tasks", "blocked_tasks", "next_action"],
+      "required": [
+        "apply_run_id",
+        "status",
+        "completed_tasks",
+        "blocked_tasks",
+        "budget_contract",
+        "token_usage",
+        "next_action"
+      ],
       "properties": {
         "apply_run_id": {
           "type": "string",
@@ -642,6 +731,8 @@
           "type": "array",
           "items": { "$ref": "#/$defs/TaskId" }
         },
+        "budget_contract": { "$ref": "#/$defs/BudgetContract" },
+        "token_usage": { "$ref": "#/$defs/TokenUsage" },
         "finalized_at": { "$ref": "#/$defs/IsoTimestamp" },
         "finalized_by": { "type": "string" },
         "event_sequence": { "type": "integer", "minimum": 1 },

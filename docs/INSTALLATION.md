@@ -98,7 +98,9 @@ diff -ru -x __pycache__ plugins/codexqb/skills/codexqb "$HOME/.codex/skills/code
 
 ## Compatibility Notes
 
-CodexQB 0.3.0 keeps older planner artifacts readable outside strict execution gates. Legacy `Planing-Ledger.md` v1 and v2 files pass non-strict validation with compatibility warnings, but strict Step 4 execution requires Ledger v3 migration before implementation starts. New strict planner artifacts should use structured validation command contracts and explicit risk metadata.
+CodexQB 0.3.0 keeps older planner artifacts readable outside strict execution gates. Legacy `Planing-Ledger.md` v1 and v2 files pass non-strict validation with compatibility warnings, but strict Step 4 execution requires Ledger v3 migration before implementation starts. New strict planner artifacts should use structured validation command contracts, source-bound implementation contracts, explicit risk metadata, and the Apply `budget_contract` schema.
+
+Extracted packages without `.git/` metadata validate in filesystem hygiene mode. Use `CODEXQB_VALIDATE_SKIP_UNITTESTS=1 CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE=1 bash scripts/validate.sh` only for that package-copy fallback; normal repository validation should run the behavior smokes and release privacy scan.
 
 The old fixture checker command remains available as a compatibility wrapper:
 
