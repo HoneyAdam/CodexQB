@@ -2,42 +2,78 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://codexqb.local/schemas/apply-run-schema.json",
   "title": "CodexQB Apply Run Artifact Contract",
-  "description": "Reference JSON Schema for CodexQB Step 4 apply-run artifacts. Runtime validation is implemented by scripts/apply_run.py; this file is the public packaged contract.",
+  "description": "Public JSON Schema bundle for CodexQB Apply Run v3 artifacts. The root anyOf is a non-discriminating compatibility union; security and CI validation must map each artifact filename to its intended $defs entry. Artifact schema remains v3 and handoff contract remains v2.",
+  "x-codexqb-artifact-definitions": {
+    ".codexqb-apply-run.json": "ApplyRunMarker",
+    "Apply-Run.json": "ApplyRun",
+    "Progress.json": "Progress",
+    "Events.jsonl[]": "Event",
+    "Writer-Lock.json": "WriterLock",
+    "Dispatch-Packet.json": "DispatchPacket",
+    "Agent-Run-*.json": "AgentRun",
+    "Change-Set-*.json": "ChangeSet",
+    "Validation-Receipt-*.json": "ValidationReceipt",
+    "Review-Receipt-*.json": "ReviewReceipt",
+    "Review-Report-*.json": "ReviewReport",
+    "Implementer-Report.json": "ImplementerReport",
+    "Task-Review.json": "TaskReview",
+    "Fix-Report.json": "FixReport",
+    "Final-Review.json": "FinalReview",
+    "Result.json": "Result"
+  },
   "type": "object",
   "anyOf": [
     { "$ref": "#/$defs/ApplyRun" },
     { "$ref": "#/$defs/Progress" },
     { "$ref": "#/$defs/DispatchPacket" },
     { "$ref": "#/$defs/AgentRun" },
-    { "$ref": "#/$defs/FinalReview" },
-    { "$ref": "#/$defs/Result" },
+    { "$ref": "#/$defs/ChangeSet" },
+    { "$ref": "#/$defs/ValidationReceipt" },
+    { "$ref": "#/$defs/ReviewReceipt" },
+    { "$ref": "#/$defs/ReviewReport" },
     { "$ref": "#/$defs/ImplementerReport" },
     { "$ref": "#/$defs/TaskReview" },
-    { "$ref": "#/$defs/FixReport" }
+    { "$ref": "#/$defs/FixReport" },
+    { "$ref": "#/$defs/FinalReview" },
+    { "$ref": "#/$defs/Result" },
+    { "$ref": "#/$defs/WriterLock" },
+    { "$ref": "#/$defs/Event" },
+    { "$ref": "#/$defs/ApplyRunMarker" }
   ],
   "$defs": {
-    "NonEmptyString": {
-      "type": "string",
-      "minLength": 1
-    },
-    "Sha256": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
-    },
+    "NonEmptyString": { "type": "string", "minLength": 1 },
+    "Sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "TrustKeyId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
     "IsoTimestamp": {
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "ApplyRunId": {
+      "type": "string",
+      "pattern": "^apply-(direct|external_superpowers|no_action|subagent_serial)-[a-f0-9]{12}-[A-Za-z0-9_.-]+$"
     },
     "TaskId": {
       "type": "string",
       "pattern": "^AR-apply-[A-Za-z0-9_.-]+-T[0-9]{3}$"
     },
+    "ValidationId": {
+      "type": "string",
+      "pattern": "^VAL-[A-Z0-9_.-]{1,60}$"
+    },
     "AgentId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.:-]{3,160}$"
     },
+    "RepositoryRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^\\u0000\\r\\n]+$"
+    },
     "ApplyMode": {
       "enum": ["direct", "external_superpowers", "no_action", "subagent_serial"]
+    },
+    "WorkspaceMode": {
+      "enum": ["non_git_unsafe", "unverified_current_worktree", "verified_isolated_worktree"]
     },
     "TaskState": {
       "enum": [
@@ -55,41 +91,36 @@
       ]
     },
     "DispatchRole": {
-      "enum": ["fixer", "implementer", "security_reviewer", "task_reviewer"]
+      "enum": ["fixer", "implementer", "security_reviewer", "task_reviewer", "final_reviewer"]
     },
-    "AgentStatus": {
-      "enum": ["completed", "failed", "spawned"]
-    },
+    "ReviewPhase": { "enum": ["spec", "quality", "security", "final"] },
+    "ReviewVerdict": { "enum": ["cannot_verify", "fail", "needs_fixes", "pass"] },
+    "AgentStatus": { "enum": ["completed", "failed", "spawned"] },
     "PlannedValidationCommand": {
       "type": "object",
-      "required": ["argv"],
+      "required": [
+        "id",
+        "argv",
+        "cwd",
+        "expected_exit_code",
+        "timeout_seconds",
+        "network",
+        "probe_tier"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/NonEmptyString" },
+        "id": { "$ref": "#/$defs/ValidationId" },
         "argv": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 2,
           "items": { "$ref": "#/$defs/NonEmptyString" }
         },
         "cwd": { "type": "string" },
-        "exit_code": { "type": "integer" },
-        "expected_exit_code": { "type": "integer" },
-        "timeout_seconds": { "type": "integer", "minimum": 1 },
-        "network": { "enum": ["allow", "deny", "live", "local"] },
-        "probe_tier": { "type": "integer", "minimum": 0 }
+        "expected_exit_code": { "const": 0 },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "network": { "const": "deny" },
+        "probe_tier": { "const": 1 }
       },
-      "additionalProperties": true
-    },
-    "ValidationEvidence": {
-      "allOf": [
-        { "$ref": "#/$defs/PlannedValidationCommand" },
-        {
-          "type": "object",
-          "required": ["exit_code"],
-          "properties": {
-            "exit_code": { "type": "integer" }
-          }
-        }
-      ]
+      "additionalProperties": false
     },
     "AgentProfile": {
       "type": "object",
@@ -145,7 +176,36 @@
         },
         "source": { "type": "string" }
       },
-      "additionalProperties": true
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "not_observed" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "input_tokens": { "const": "not_observed" },
+              "output_tokens": { "const": "not_observed" },
+              "total_tokens": { "const": "not_observed" },
+              "source": { "const": "runtime_not_available" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "observed" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "input_tokens": { "type": "integer", "minimum": 0 },
+              "output_tokens": { "type": "integer", "minimum": 0 },
+              "total_tokens": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
     },
     "SourceSnapshotItem": {
       "type": "object",
@@ -181,10 +241,7 @@
         "untracked_inventory_sha256": { "$ref": "#/$defs/Sha256" },
         "untracked_count": { "type": "integer", "minimum": 0 },
         "workspace_file_inventory_sha256": {
-          "anyOf": [
-            { "$ref": "#/$defs/Sha256" },
-            { "const": "" }
-          ]
+          "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "const": "" }]
         },
         "workspace_file_count": { "type": "integer", "minimum": 0 }
       },
@@ -199,10 +256,7 @@
           "type": "string",
           "pattern": "^Planner-docs/Faz-[0-9]+-Plans/Faz[0-9]+\\.[0-9]+-[a-z0-9-]+\\.md$"
         },
-        "finding_ids": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
+        "finding_ids": { "type": "array", "items": { "type": "string" } },
         "dependency_state": { "type": "string" }
       },
       "additionalProperties": false
@@ -217,9 +271,11 @@
         "apply_requested_mode",
         "apply_spec_id",
         "apply_spec_digest",
+        "apply_policy_digest",
         "apply_spec_inputs",
         "apply_run_id",
         "apply_run_invocation_id",
+        "apply_run_registration_id",
         "mode",
         "workspace_requested",
         "workspace_detected",
@@ -243,10 +299,13 @@
         "source_snapshot_digest",
         "step4_readiness",
         "external_superpowers",
-        "safety"
+        "safety",
+        "verification_policy",
+        "repository_baselines",
+        "workspace_file_manifest"
       ],
       "properties": {
-        "apply_run_schema_version": { "const": 1 },
+        "apply_run_schema_version": { "const": 3 },
         "artifact_schema_version": { "const": 3 },
         "handoff_contract_version": { "const": 2 },
         "plugin_version": { "const": "0.3.0" },
@@ -256,34 +315,30 @@
           "pattern": "^apply-spec-(direct|external_superpowers|no_action|subagent_serial)-[a-f0-9]{16}$"
         },
         "apply_spec_digest": { "$ref": "#/$defs/Sha256" },
+        "apply_policy_digest": { "$ref": "#/$defs/Sha256" },
         "apply_spec_inputs": {
           "type": "object",
           "required": ["ready_queue", "workspace_baseline"],
           "properties": {
-            "ready_queue": {
-              "type": "array",
-              "items": { "$ref": "#/$defs/ReadyQueueItem" }
-            },
+            "ready_queue": { "type": "array", "items": { "$ref": "#/$defs/ReadyQueueItem" } },
             "workspace_baseline": { "$ref": "#/$defs/WorkspaceBaseline" }
           },
           "additionalProperties": true
         },
-        "apply_run_id": {
-          "type": "string",
-          "pattern": "^apply-(direct|external_superpowers|no_action|subagent_serial)-[a-f0-9]{12}-[A-Za-z0-9_.-]+$"
-        },
+        "apply_run_id": { "$ref": "#/$defs/ApplyRunId" },
         "apply_run_invocation_id": { "$ref": "#/$defs/NonEmptyString" },
+        "apply_run_registration_id": { "$ref": "#/$defs/Sha256" },
         "mode": { "$ref": "#/$defs/ApplyMode" },
         "workspace_requested": { "type": "string" },
         "workspace_detected": { "type": "string" },
         "workspace_verified": { "type": "boolean" },
-        "workspace_mode": { "enum": ["non_git_unsafe", "unverified_current_worktree", "verified_isolated_worktree"] },
+        "workspace_mode": { "$ref": "#/$defs/WorkspaceMode" },
+        "workspace_baseline": { "$ref": "#/$defs/WorkspaceBaseline" },
         "worktree_path": { "type": "string" },
         "base_branch": { "type": "string" },
         "working_branch": { "type": "string" },
         "dirty_state": { "enum": ["clean", "dirty", "non_git", "unknown"] },
         "user_approval": { "type": "boolean" },
-        "workspace_baseline": { "$ref": "#/$defs/WorkspaceBaseline" },
         "commit_policy": { "const": "none" },
         "push_allowed": { "const": false },
         "pr_allowed": { "const": false },
@@ -313,10 +368,7 @@
           },
           "additionalProperties": false
         },
-        "source_snapshot": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/SourceSnapshotItem" }
-        },
+        "source_snapshot": { "type": "array", "items": { "$ref": "#/$defs/SourceSnapshotItem" } },
         "source_snapshot_digest": { "$ref": "#/$defs/Sha256" },
         "step4_readiness": {
           "type": "object",
@@ -358,6 +410,7 @@
             "fallback_mode": { "const": "subagent_serial" },
             "adapter_policy": { "type": "string" },
             "reconciled_to": { "const": "subagent_serial" },
+            "reconciled_at": { "$ref": "#/$defs/IsoTimestamp" },
             "version": { "type": "string" },
             "source_path": { "type": "string" },
             "license_acknowledged": { "type": "boolean" }
@@ -379,9 +432,237 @@
             "subagents_read_only_by_default": { "const": true }
           },
           "additionalProperties": true
+        },
+        "verification_policy": { "$ref": "#/$defs/VerificationPolicy" },
+        "repository_baselines": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RepositoryBaseline" }
+        },
+        "workspace_file_manifest": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/WorkspaceFileManifestEntry" }
         }
       },
       "additionalProperties": true
+    },
+    "VerificationPolicy": {
+      "type": "object",
+      "required": [
+        "verification_policy_version",
+        "repository_evidence_schema_version",
+        "validation_receipt_version",
+        "review_completion_receipt_version",
+        "all_planned_validation_receipts_required",
+        "live_repository_rehash_required",
+        "receipt_context_binding_required",
+        "review_order",
+        "trusted_verified_mode",
+        "direct_mode_independent_review_capability",
+        "host_agent_attestation_required",
+        "controller_asserted_agent_runs",
+        "host_sandbox_proof",
+        "approval_proof",
+        "network_enforcement_proof"
+      ],
+      "properties": {
+        "verification_policy_version": { "const": 1 },
+        "repository_evidence_schema_version": { "const": 1 },
+        "validation_receipt_version": { "const": 1 },
+        "review_completion_receipt_version": { "const": 1 },
+        "all_planned_validation_receipts_required": { "const": true },
+        "live_repository_rehash_required": { "const": true },
+        "receipt_context_binding_required": { "const": true },
+        "review_order": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "spec" },
+            { "const": "quality" },
+            { "const": "security_if_required" },
+            { "const": "final" }
+          ],
+          "items": false
+        },
+        "trusted_verified_mode": { "const": "host_attested_subagent" },
+        "direct_mode_independent_review_capability": { "const": false },
+        "host_agent_attestation_required": { "const": true },
+        "controller_asserted_agent_runs": { "const": "evidence_only_unattested" },
+        "host_sandbox_proof": { "const": "not_observed" },
+        "approval_proof": { "const": "not_observed" },
+        "network_enforcement_proof": { "const": "not_observed" }
+      },
+      "additionalProperties": false
+    },
+    "RepositorySnapshotEntry": {
+      "type": "object",
+      "required": ["path", "state", "sha256", "size"],
+      "properties": {
+        "path": { "$ref": "#/$defs/RepositoryRelativePath" },
+        "state": { "enum": ["missing", "present"] },
+        "sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "size": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "missing" } }, "required": ["state"] },
+          "then": {
+            "properties": { "sha256": { "type": "null" }, "size": { "type": "null" } }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "const": "present" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "sha256": { "$ref": "#/$defs/Sha256" },
+              "size": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "RepositoryBaselineContent": {
+      "type": "object",
+      "required": ["path", "sha256", "size", "content_base64"],
+      "properties": {
+        "path": { "$ref": "#/$defs/RepositoryRelativePath" },
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "size": { "type": "integer", "minimum": 0 },
+        "content_base64": { "type": "string", "contentEncoding": "base64" }
+      },
+      "additionalProperties": false
+    },
+    "RepositoryBaseline": {
+      "type": "object",
+      "required": [
+        "task_id",
+        "implementation_contract_digest",
+        "allowed_paths",
+        "snapshot",
+        "baseline_digest",
+        "contents"
+      ],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/TaskId" },
+        "implementation_contract_digest": { "$ref": "#/$defs/Sha256" },
+        "allowed_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/RepositoryRelativePath" }
+        },
+        "snapshot": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RepositorySnapshotEntry" }
+        },
+        "baseline_digest": { "$ref": "#/$defs/Sha256" },
+        "contents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RepositoryBaselineContent" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkspaceFileManifestEntry": {
+      "type": "string",
+      "pattern": "^[^\\t\\r\\n]+\\t(?:[a-f0-9]{64}|symlink|missing)$"
+    },
+    "ChangeSetReference": {
+      "type": "object",
+      "required": [
+        "change_set_id",
+        "path",
+        "sha256",
+        "repository_state_digest",
+        "review_package_sha256",
+        "event_sequence"
+      ],
+      "properties": {
+        "change_set_id": { "$ref": "#/$defs/Sha256" },
+        "path": { "type": "string", "pattern": "^Change-Set-[0-9]{2}\\.json$" },
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "repository_state_digest": { "$ref": "#/$defs/Sha256" },
+        "review_package_sha256": { "$ref": "#/$defs/Sha256" },
+        "event_sequence": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "TaskValidationReceiptReference": {
+      "type": "object",
+      "required": ["validation_id", "receipt_id", "path", "sha256", "published_event_sequence"],
+      "properties": {
+        "validation_id": { "$ref": "#/$defs/ValidationId" },
+        "receipt_id": { "$ref": "#/$defs/Sha256" },
+        "path": {
+          "type": "string",
+          "pattern": "^Validation-Receipt-VAL-[A-Z0-9_.-]{1,60}-[a-f0-9]{12}\\.json$"
+        },
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "published_event_sequence": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "ReviewReceiptReference": {
+      "type": "object",
+      "required": ["receipt_id", "path", "sha256", "verdict", "published_event_sequence"],
+      "properties": {
+        "receipt_id": { "$ref": "#/$defs/Sha256" },
+        "path": {
+          "type": "string",
+          "pattern": "^Review-Receipt-(spec|quality|security|final)-[a-f0-9]{12}\\.json$"
+        },
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "verdict": { "$ref": "#/$defs/ReviewVerdict" },
+        "published_event_sequence": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "ReviewReceiptMap": {
+      "type": "object",
+      "properties": {
+        "spec": { "$ref": "#/$defs/ReviewReceiptReference" },
+        "quality": { "$ref": "#/$defs/ReviewReceiptReference" },
+        "security": { "$ref": "#/$defs/ReviewReceiptReference" },
+        "final": { "$ref": "#/$defs/ReviewReceiptReference" }
+      },
+      "additionalProperties": false
+    },
+    "WriterReportBinding": {
+      "type": "object",
+      "required": [
+        "agent_id",
+        "attempt",
+        "path",
+        "sha256",
+        "payload_sha256",
+        "normalized_event_sequence"
+      ],
+      "properties": {
+        "agent_id": { "$ref": "#/$defs/AgentId" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "path": { "enum": ["Implementer-Report.json", "Fix-Report.json"] },
+        "sha256": { "$ref": "#/$defs/Sha256" },
+        "payload_sha256": { "$ref": "#/$defs/Sha256" },
+        "normalized_event_sequence": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "WriterReportBindings": {
+      "type": "object",
+      "properties": {
+        "implementer": {
+          "allOf": [
+            { "$ref": "#/$defs/WriterReportBinding" },
+            { "properties": { "path": { "const": "Implementer-Report.json" } } }
+          ]
+        },
+        "fixer": {
+          "allOf": [
+            { "$ref": "#/$defs/WriterReportBinding" },
+            { "properties": { "path": { "const": "Fix-Report.json" } } }
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "Task": {
       "type": "object",
@@ -396,50 +677,61 @@
         "implementation_contract_digest",
         "task_contract_digest",
         "dispatch",
-        "agent_runs"
+        "agent_runs",
+        "writer_report_bindings",
+        "implementation_generation",
+        "change_set",
+        "validation_receipts",
+        "review_receipts",
+        "evidence_chain_status",
+        "verification_assurance",
+        "redispatch_count",
+        "fix_cycle_count",
+        "brief_sha256"
       ],
       "properties": {
         "task_id": { "$ref": "#/$defs/TaskId" },
         "state": { "$ref": "#/$defs/TaskState" },
         "readiness_status": { "enum": ["READY", "READY_WITH_WARNINGS"] },
         "source_subplan_path": { "type": ["string", "null"] },
-        "source_subplan_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "source_subplan_sha256": {
+          "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }]
+        },
         "fresh_context_contract": { "type": "object" },
         "implementation_contract": { "type": "object" },
-        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "implementation_contract_digest": {
+          "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }]
+        },
         "task_contract_digest": { "$ref": "#/$defs/Sha256" },
-        "parent_acceptance_signal_ids": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
+        "parent_acceptance_signal_ids": { "type": "array", "items": { "type": "string" } },
         "risk_class": { "type": "string" },
-        "risk_domains": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "finding_ids": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
+        "risk_domains": { "type": "array", "items": { "type": "string" } },
+        "finding_ids": { "type": "array", "items": { "type": "string" } },
+        "dependency_state": { "type": "string" },
         "security_review_required": { "type": "boolean" },
-        "writer_lock": {
-          "anyOf": [{ "$ref": "#/$defs/WriterLock" }, { "type": "null" }]
-        },
+        "writer_lock": { "anyOf": [{ "$ref": "#/$defs/WriterLock" }, { "type": "null" }] },
         "validation_commands": {
           "type": "array",
           "items": { "$ref": "#/$defs/PlannedValidationCommand" }
         },
         "validation_command_ids": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^VAL-[A-Za-z0-9_.:-]+$" }
+          "items": { "$ref": "#/$defs/ValidationId" }
         },
-        "dispatch": {
-          "anyOf": [{ "$ref": "#/$defs/DispatchState" }, { "type": "null" }]
-        },
-        "agent_runs": {
+        "dispatch": { "anyOf": [{ "$ref": "#/$defs/DispatchState" }, { "type": "null" }] },
+        "agent_runs": { "type": "array", "items": { "$ref": "#/$defs/AgentRun" } },
+        "writer_report_bindings": { "$ref": "#/$defs/WriterReportBindings" },
+        "implementation_generation": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "change_set": { "anyOf": [{ "$ref": "#/$defs/ChangeSetReference" }, { "type": "null" }] },
+        "validation_receipts": {
           "type": "array",
-          "items": { "$ref": "#/$defs/AgentRun" }
+          "items": { "$ref": "#/$defs/TaskValidationReceiptReference" }
         },
+        "review_receipts": { "$ref": "#/$defs/ReviewReceiptMap" },
+        "evidence_chain_status": {
+          "enum": ["not_started", "in_progress", "complete_unattested"]
+        },
+        "verification_assurance": { "const": "controller_asserted" },
         "redispatch_count": { "type": "integer", "minimum": 0 },
         "fix_cycle_count": { "type": "integer", "minimum": 0 },
         "brief_sha256": { "$ref": "#/$defs/Sha256" }
@@ -458,12 +750,93 @@
       },
       "additionalProperties": true
     },
+    "Event": {
+      "type": "object",
+      "required": [
+        "event_chain_version",
+        "sequence",
+        "timestamp",
+        "event_type",
+        "previous_event_sha256",
+        "event_sha256"
+      ],
+      "properties": {
+        "event_chain_version": { "const": 1 },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "timestamp": { "$ref": "#/$defs/IsoTimestamp" },
+        "event_type": { "$ref": "#/$defs/NonEmptyString" },
+        "previous_event_sha256": { "$ref": "#/$defs/Sha256" },
+        "event_sha256": { "$ref": "#/$defs/Sha256" },
+        "apply_run_id": { "$ref": "#/$defs/ApplyRunId" },
+        "task_id": { "$ref": "#/$defs/TaskId" },
+        "actor": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "ApplyRunMarker": {
+      "type": "object",
+      "required": [
+        "marker_kind",
+        "marker_version",
+        "run_dir",
+        "apply_run_schema_version",
+        "artifact_schema_version",
+        "handoff_contract_version",
+        "plugin_version",
+        "apply_requested_mode",
+        "apply_run_id",
+        "apply_run_invocation_id",
+        "apply_run_registration_id",
+        "apply_spec_id",
+        "apply_spec_digest",
+        "manifest_claim_sha256",
+        "manifest_sha256",
+        "refresh_stable_sha256"
+      ],
+      "properties": {
+        "marker_kind": { "const": "codexqb_apply_run" },
+        "marker_version": { "const": 1 },
+        "run_dir": {
+          "type": "string",
+          "pattern": "^\\.codexqb/apply-runs/apply-(direct|external_superpowers|no_action|subagent_serial)-[a-f0-9]{12}-[A-Za-z0-9_.-]+$"
+        },
+        "apply_run_schema_version": { "const": 3 },
+        "artifact_schema_version": { "const": 3 },
+        "handoff_contract_version": { "const": 2 },
+        "plugin_version": { "const": "0.3.0" },
+        "apply_requested_mode": { "$ref": "#/$defs/ApplyMode" },
+        "apply_run_id": { "$ref": "#/$defs/ApplyRunId" },
+        "apply_run_invocation_id": { "$ref": "#/$defs/NonEmptyString" },
+        "apply_run_registration_id": { "$ref": "#/$defs/Sha256" },
+        "apply_spec_id": {
+          "type": "string",
+          "pattern": "^apply-spec-(direct|external_superpowers|no_action|subagent_serial)-[a-f0-9]{16}$"
+        },
+        "apply_spec_digest": { "$ref": "#/$defs/Sha256" },
+        "manifest_claim_sha256": { "$ref": "#/$defs/Sha256" },
+        "manifest_sha256": { "$ref": "#/$defs/Sha256" },
+        "refresh_stable_sha256": { "$ref": "#/$defs/Sha256" }
+      },
+      "additionalProperties": false
+    },
     "DispatchState": {
       "type": "object",
-      "required": ["status", "role", "spawn_tool", "prompt_sha256", "packet_sha256", "attempt", "event_sequence"],
+      "required": [
+        "status",
+        "role",
+        "review_phase",
+        "spawn_tool",
+        "prompt_sha256",
+        "packet_sha256",
+        "attempt",
+        "event_sequence"
+      ],
       "properties": {
         "status": { "enum": ["completed", "failed", "packet_ready", "spawned"] },
         "role": { "$ref": "#/$defs/DispatchRole" },
+        "review_phase": {
+          "anyOf": [{ "$ref": "#/$defs/ReviewPhase" }, { "type": "null" }]
+        },
         "spawn_tool": { "const": "multi_agent_v1.spawn_agent" },
         "prompt_sha256": { "$ref": "#/$defs/Sha256" },
         "packet_sha256": { "$ref": "#/$defs/Sha256" },
@@ -490,19 +863,10 @@
         "events"
       ],
       "properties": {
-        "apply_run_id": {
-          "type": "string",
-          "pattern": "^apply-(direct|external_superpowers|no_action|subagent_serial)-[a-f0-9]{12}-[A-Za-z0-9_.-]+$"
-        },
+        "apply_run_id": { "$ref": "#/$defs/ApplyRunId" },
         "mode": { "$ref": "#/$defs/ApplyMode" },
-        "tasks": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Task" }
-        },
-        "verified_task_ids": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/TaskId" }
-        },
+        "tasks": { "type": "array", "items": { "$ref": "#/$defs/Task" } },
+        "verified_task_ids": { "type": "array", "items": { "$ref": "#/$defs/TaskId" } },
         "active_writer_locks": {
           "type": "array",
           "maxItems": 1,
@@ -525,12 +889,29 @@
             { "type": "null" }
           ]
         },
-        "events": {
-          "type": "array",
-          "items": { "type": "object" }
-        }
+        "events": { "type": "array", "items": { "type": "object" } }
       },
       "additionalProperties": true
+    },
+    "ExpectedReportPaths": {
+      "type": "object",
+      "required": [
+        "implementer",
+        "task_reviewer_spec",
+        "task_reviewer_quality",
+        "security_reviewer",
+        "fixer",
+        "final_reviewer"
+      ],
+      "properties": {
+        "implementer": { "const": "Implementer-Report.json" },
+        "task_reviewer_spec": { "const": "Review-Report-spec.json" },
+        "task_reviewer_quality": { "const": "Review-Report-quality.json" },
+        "security_reviewer": { "const": "Review-Report-security.json" },
+        "fixer": { "const": "Fix-Report.json" },
+        "final_reviewer": { "const": "Review-Report-final.json" }
+      },
+      "additionalProperties": false
     },
     "DispatchPacket": {
       "type": "object",
@@ -538,6 +919,7 @@
         "dispatch_packet_schema_version",
         "task_id",
         "role",
+        "review_phase",
         "attempt",
         "dispatch_status",
         "spawn_tool",
@@ -560,6 +942,9 @@
         "dispatch_packet_schema_version": { "const": 1 },
         "task_id": { "$ref": "#/$defs/TaskId" },
         "role": { "$ref": "#/$defs/DispatchRole" },
+        "review_phase": {
+          "anyOf": [{ "$ref": "#/$defs/ReviewPhase" }, { "type": "null" }]
+        },
         "attempt": { "type": "integer", "minimum": 1 },
         "dispatch_status": { "const": "packet_ready" },
         "spawn_tool": { "const": "multi_agent_v1.spawn_agent" },
@@ -577,134 +962,1037 @@
         "model_override": { "type": "null" },
         "sandbox": { "enum": ["read-only", "workspace-write"] },
         "source_subplan_path": { "type": ["string", "null"] },
-        "source_subplan_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
-        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "source_subplan_sha256": {
+          "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }]
+        },
+        "implementation_contract_digest": {
+          "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }]
+        },
         "task_contract_digest": { "$ref": "#/$defs/Sha256" },
         "brief_sha256": { "$ref": "#/$defs/Sha256" },
         "prompt_sha256": { "$ref": "#/$defs/Sha256" },
         "run_relative_task_dir": { "$ref": "#/$defs/TaskId" },
-        "expected_report_paths": {
-          "type": "object",
-          "required": ["implementer", "task_reviewer", "security_reviewer", "fixer"],
-          "properties": {
-            "implementer": { "const": "Implementer-Report.json" },
-            "task_reviewer": { "const": "Task-Review.json" },
-            "security_reviewer": { "const": "Task-Review.json" },
-            "fixer": { "const": "Fix-Report.json" }
-          },
-          "additionalProperties": false
-        },
+        "expected_report_paths": { "$ref": "#/$defs/ExpectedReportPaths" },
         "prepared_by": { "$ref": "#/$defs/NonEmptyString" },
         "prepared_at": { "$ref": "#/$defs/IsoTimestamp" }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "role": { "enum": ["implementer", "fixer"] } },
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "review_phase": { "type": "null" },
+              "spawn_request": { "properties": { "agent_type": { "const": "worker" } } },
+              "model_profile": { "const": "balanced" },
+              "sandbox": { "const": "workspace-write" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "role": { "const": "task_reviewer" } }, "required": ["role"] },
+          "then": {
+            "properties": {
+              "review_phase": { "enum": ["spec", "quality"] },
+              "spawn_request": { "properties": { "agent_type": { "const": "default" } } },
+              "model_profile": { "const": "strong" },
+              "sandbox": { "const": "read-only" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "role": { "const": "security_reviewer" } }, "required": ["role"] },
+          "then": {
+            "properties": {
+              "review_phase": { "const": "security" },
+              "spawn_request": { "properties": { "agent_type": { "const": "default" } } },
+              "model_profile": { "const": "security_strong" },
+              "sandbox": { "const": "read-only" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "role": { "const": "final_reviewer" } }, "required": ["role"] },
+          "then": {
+            "properties": {
+              "review_phase": { "const": "final" },
+              "spawn_request": { "properties": { "agent_type": { "const": "default" } } },
+              "model_profile": { "const": "strong" },
+              "sandbox": { "const": "read-only" }
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "AgentRun": {
       "type": "object",
-      "required": ["task_id", "role", "attempt", "agent_id", "status", "packet_sha256", "prompt_sha256", "spawn_tool", "summary"],
+      "required": [
+        "task_id",
+        "role",
+        "review_phase",
+        "attempt",
+        "agent_id",
+        "identity_assurance",
+        "status",
+        "packet_sha256",
+        "prompt_sha256",
+        "spawn_tool",
+        "summary",
+        "event_sequence",
+        "spawn_event_sequence",
+        "spawned_at"
+      ],
       "properties": {
         "task_id": { "$ref": "#/$defs/TaskId" },
         "role": { "$ref": "#/$defs/DispatchRole" },
+        "review_phase": {
+          "anyOf": [{ "$ref": "#/$defs/ReviewPhase" }, { "type": "null" }]
+        },
         "attempt": { "type": "integer", "minimum": 1 },
         "agent_id": { "$ref": "#/$defs/AgentId" },
+        "identity_assurance": { "const": "controller_asserted" },
         "status": { "$ref": "#/$defs/AgentStatus" },
         "packet_sha256": { "$ref": "#/$defs/Sha256" },
         "prompt_sha256": { "$ref": "#/$defs/Sha256" },
         "spawn_tool": { "const": "multi_agent_v1.spawn_agent" },
         "summary": { "type": "string" },
+        "event_sequence": { "type": "integer", "minimum": 1 },
+        "spawn_event_sequence": { "type": "integer", "minimum": 1 },
         "spawned_at": { "$ref": "#/$defs/IsoTimestamp" },
         "completed_at": { "$ref": "#/$defs/IsoTimestamp" },
-        "failed_at": { "$ref": "#/$defs/IsoTimestamp" }
+        "completed_event_sequence": { "type": "integer", "minimum": 1 },
+        "failed_at": { "$ref": "#/$defs/IsoTimestamp" },
+        "failed_event_sequence": { "type": "integer", "minimum": 1 },
+        "report_path": {
+          "type": "string",
+          "pattern": "^Review-Report-(spec|quality|security|final)\\.json$"
+        },
+        "report_sha256": { "$ref": "#/$defs/Sha256" },
+        "report_normalized_event_sequence": { "type": "integer", "minimum": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "role": { "enum": ["implementer", "fixer"] } },
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "review_phase": { "type": "null" },
+              "report_path": false,
+              "report_sha256": false
+            }
+          }
+        },
+        {
+          "if": { "properties": { "role": { "const": "task_reviewer" } }, "required": ["role"] },
+          "then": { "properties": { "review_phase": { "enum": ["spec", "quality"] } } }
+        },
+        {
+          "if": { "properties": { "role": { "const": "security_reviewer" } }, "required": ["role"] },
+          "then": { "properties": { "review_phase": { "const": "security" } } }
+        },
+        {
+          "if": { "properties": { "role": { "const": "final_reviewer" } }, "required": ["role"] },
+          "then": { "properties": { "review_phase": { "const": "final" } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+          "then": { "required": ["completed_at", "completed_event_sequence"] }
+        },
+        {
+          "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+          "then": { "required": ["failed_at", "failed_event_sequence"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "completed" },
+              "role": { "enum": ["task_reviewer", "security_reviewer", "final_reviewer"] }
+            },
+            "required": ["status", "role"]
+          },
+          "then": {
+            "required": ["report_path", "report_sha256", "report_normalized_event_sequence"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "review_phase": { "const": "spec" } },
+            "required": ["review_phase"]
+          },
+          "then": { "properties": { "report_path": { "const": "Review-Report-spec.json" } } }
+        },
+        {
+          "if": {
+            "properties": { "review_phase": { "const": "quality" } },
+            "required": ["review_phase"]
+          },
+          "then": { "properties": { "report_path": { "const": "Review-Report-quality.json" } } }
+        },
+        {
+          "if": {
+            "properties": { "review_phase": { "const": "security" } },
+            "required": ["review_phase"]
+          },
+          "then": { "properties": { "report_path": { "const": "Review-Report-security.json" } } }
+        },
+        {
+          "if": {
+            "properties": { "review_phase": { "const": "final" } },
+            "required": ["review_phase"]
+          },
+          "then": { "properties": { "report_path": { "const": "Review-Report-final.json" } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "RepositoryManifestEntry": {
+      "type": "object",
+      "required": ["path", "state", "before_sha256", "after_sha256", "size"],
+      "properties": {
+        "path": { "$ref": "#/$defs/RepositoryRelativePath" },
+        "state": { "enum": ["add", "modify", "delete", "unchanged"] },
+        "before_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "after_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "size": { "type": "integer", "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "add" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "before_sha256": { "type": "null" },
+              "after_sha256": { "$ref": "#/$defs/Sha256" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "const": "modify" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "before_sha256": { "$ref": "#/$defs/Sha256" },
+              "after_sha256": { "$ref": "#/$defs/Sha256" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "const": "delete" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "before_sha256": { "$ref": "#/$defs/Sha256" },
+              "after_sha256": { "type": "null" },
+              "size": { "const": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "const": "unchanged" } }, "required": ["state"] },
+          "then": {
+            "oneOf": [
+              {
+                "properties": {
+                  "before_sha256": { "type": "null" },
+                  "after_sha256": { "type": "null" },
+                  "size": { "const": 0 }
+                }
+              },
+              {
+                "properties": {
+                  "before_sha256": { "$ref": "#/$defs/Sha256" },
+                  "after_sha256": { "$ref": "#/$defs/Sha256" }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "ChangedFileReceipt": {
+      "type": "object",
+      "required": ["path", "change", "before_sha256", "after_sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/RepositoryRelativePath" },
+        "change": { "enum": ["added", "modified", "deleted"] },
+        "before_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "after_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "change": { "const": "added" } }, "required": ["change"] },
+          "then": {
+            "properties": {
+              "before_sha256": { "type": "null" },
+              "after_sha256": { "$ref": "#/$defs/Sha256" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "change": { "const": "modified" } }, "required": ["change"] },
+          "then": {
+            "properties": {
+              "before_sha256": { "$ref": "#/$defs/Sha256" },
+              "after_sha256": { "$ref": "#/$defs/Sha256" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "change": { "const": "deleted" } }, "required": ["change"] },
+          "then": {
+            "properties": {
+              "before_sha256": { "$ref": "#/$defs/Sha256" },
+              "after_sha256": { "type": "null" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "ChangeSet": {
+      "type": "object",
+      "required": [
+        "change_set_kind",
+        "change_set_version",
+        "change_set_id",
+        "trust_key_id",
+        "captured_at",
+        "apply_run_id",
+        "apply_run_registration_id",
+        "task_id",
+        "implementation_contract_digest",
+        "task_contract_digest",
+        "implementation_generation",
+        "review_package_sha256",
+        "baseline_digest",
+        "current_snapshot_digest",
+        "changed_files",
+        "changed_files_digest",
+        "repository_state_digest",
+        "manifest",
+        "change_set_mac"
+      ],
+      "properties": {
+        "change_set_kind": { "const": "codexqb_controller_change_set" },
+        "change_set_version": { "const": 1 },
+        "change_set_id": { "$ref": "#/$defs/Sha256" },
+        "trust_key_id": { "$ref": "#/$defs/TrustKeyId" },
+        "captured_at": { "$ref": "#/$defs/IsoTimestamp" },
+        "apply_run_id": { "$ref": "#/$defs/ApplyRunId" },
+        "apply_run_registration_id": { "$ref": "#/$defs/Sha256" },
+        "task_id": { "$ref": "#/$defs/TaskId" },
+        "implementation_contract_digest": { "$ref": "#/$defs/Sha256" },
+        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
+        "implementation_generation": { "type": "integer", "minimum": 1, "maximum": 99 },
+        "review_package_sha256": { "$ref": "#/$defs/Sha256" },
+        "baseline_digest": { "$ref": "#/$defs/Sha256" },
+        "current_snapshot_digest": { "$ref": "#/$defs/Sha256" },
+        "changed_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ChangedFileReceipt" }
+        },
+        "changed_files_digest": { "$ref": "#/$defs/Sha256" },
+        "repository_state_digest": { "$ref": "#/$defs/Sha256" },
+        "manifest": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/RepositoryManifestEntry" }
+        },
+        "change_set_mac": { "$ref": "#/$defs/Sha256" }
       },
       "additionalProperties": false
     },
+    "RunBinding": {
+      "type": "object",
+      "required": [
+        "root_binding_sha256",
+        "root_device",
+        "root_inode",
+        "apply_run_registration_id",
+        "apply_run_id",
+        "apply_spec_digest",
+        "workspace_mode"
+      ],
+      "properties": {
+        "root_binding_sha256": { "$ref": "#/$defs/Sha256" },
+        "root_device": { "type": "integer", "minimum": 0 },
+        "root_inode": { "type": "integer", "minimum": 1 },
+        "apply_run_registration_id": { "$ref": "#/$defs/Sha256" },
+        "apply_run_id": { "$ref": "#/$defs/ApplyRunId" },
+        "apply_spec_digest": { "$ref": "#/$defs/Sha256" },
+        "workspace_mode": { "$ref": "#/$defs/WorkspaceMode" }
+      },
+      "additionalProperties": false
+    },
+    "TaskBinding": {
+      "type": "object",
+      "required": [
+        "task_id",
+        "brief_sha256",
+        "implementation_contract_digest",
+        "task_contract_digest",
+        "implementation_generation",
+        "fix_cycle_count"
+      ],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/TaskId" },
+        "brief_sha256": { "$ref": "#/$defs/Sha256" },
+        "implementation_contract_digest": { "$ref": "#/$defs/Sha256" },
+        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
+        "implementation_generation": { "type": "integer", "minimum": 0 },
+        "fix_cycle_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ProducerBinding": {
+      "type": "object",
+      "required": [
+        "producer_kind",
+        "identity_assurance",
+        "role",
+        "agent_id",
+        "attempt",
+        "completed_event_sequence",
+        "agent_run_sha256",
+        "observed_after_event_sequence"
+      ],
+      "properties": {
+        "producer_kind": { "enum": ["agent", "controller_direct"] },
+        "identity_assurance": { "const": "controller_asserted" },
+        "role": { "enum": ["implementer", "fixer", "controller"] },
+        "agent_id": { "anyOf": [{ "$ref": "#/$defs/AgentId" }, { "type": "null" }] },
+        "attempt": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "completed_event_sequence": {
+          "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+        },
+        "agent_run_sha256": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "observed_after_event_sequence": { "type": "integer", "minimum": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "producer_kind": { "const": "agent" } },
+            "required": ["producer_kind"]
+          },
+          "then": {
+            "properties": {
+              "role": { "enum": ["implementer", "fixer"] },
+              "agent_id": { "$ref": "#/$defs/AgentId" },
+              "attempt": { "type": "integer", "minimum": 1 },
+              "completed_event_sequence": { "type": "integer", "minimum": 1 },
+              "agent_run_sha256": { "$ref": "#/$defs/Sha256" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "producer_kind": { "const": "controller_direct" } },
+            "required": ["producer_kind"]
+          },
+          "then": {
+            "properties": {
+              "role": { "const": "controller" },
+              "agent_id": { "type": "null" },
+              "attempt": { "type": "null" },
+              "completed_event_sequence": { "type": "null" },
+              "agent_run_sha256": { "type": "null" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "ValidationReceiptCommand": {
+      "type": "object",
+      "required": [
+        "validation_id",
+        "planned_command_digest",
+        "argv",
+        "cwd",
+        "expected_exit_code",
+        "timeout_seconds",
+        "planned_network",
+        "probe_tier",
+        "execution_nonce",
+        "started_at",
+        "finished_at"
+      ],
+      "properties": {
+        "validation_id": { "$ref": "#/$defs/ValidationId" },
+        "planned_command_digest": { "$ref": "#/$defs/Sha256" },
+        "argv": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        },
+        "cwd": {
+          "anyOf": [{ "const": "." }, { "$ref": "#/$defs/RepositoryRelativePath" }]
+        },
+        "expected_exit_code": { "const": 0 },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "planned_network": { "const": "deny" },
+        "probe_tier": { "const": 1 },
+        "execution_nonce": { "$ref": "#/$defs/Sha256" },
+        "started_at": { "$ref": "#/$defs/IsoTimestamp" },
+        "finished_at": { "$ref": "#/$defs/IsoTimestamp" }
+      },
+      "additionalProperties": false
+    },
+    "ValidationResultArtifact": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/RepositoryRelativePath" },
+        "sha256": { "$ref": "#/$defs/Sha256" }
+      },
+      "additionalProperties": false
+    },
+    "ValidationReceiptResult": {
+      "type": "object",
+      "required": [
+        "exit_code",
+        "timed_out",
+        "termination_reason",
+        "stdout_sha256",
+        "stderr_sha256",
+        "combined_output_sha256",
+        "stdout_bytes",
+        "stderr_bytes",
+        "combined_output_bytes",
+        "artifacts"
+      ],
+      "properties": {
+        "exit_code": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+        "timed_out": { "type": "boolean" },
+        "termination_reason": { "enum": ["exited", "signal", "timeout"] },
+        "stdout_sha256": { "$ref": "#/$defs/Sha256" },
+        "stderr_sha256": { "$ref": "#/$defs/Sha256" },
+        "combined_output_sha256": { "$ref": "#/$defs/Sha256" },
+        "stdout_bytes": { "type": "integer", "minimum": 0 },
+        "stderr_bytes": { "type": "integer", "minimum": 0 },
+        "combined_output_bytes": { "type": "integer", "minimum": 0 },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ValidationResultArtifact" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "timed_out": { "const": true } }, "required": ["timed_out"] },
+          "then": { "properties": { "termination_reason": { "const": "timeout" } } }
+        },
+        {
+          "if": { "properties": { "timed_out": { "const": false } }, "required": ["timed_out"] },
+          "then": { "properties": { "termination_reason": { "enum": ["exited", "signal"] } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "CodeSnapshot": {
+      "type": "object",
+      "required": [
+        "captured_at",
+        "vcs",
+        "head_commit",
+        "base_commit",
+        "git_status_porcelain_sha256",
+        "staged_diff_sha256",
+        "unstaged_diff_sha256",
+        "untracked_inventory_sha256",
+        "review_package_sha256",
+        "changed_files",
+        "changed_files_sha256"
+      ],
+      "properties": {
+        "captured_at": { "$ref": "#/$defs/IsoTimestamp" },
+        "vcs": { "enum": ["git", "non_git"] },
+        "head_commit": { "type": "string" },
+        "base_commit": { "type": "string" },
+        "git_status_porcelain_sha256": { "$ref": "#/$defs/Sha256" },
+        "staged_diff_sha256": { "$ref": "#/$defs/Sha256" },
+        "unstaged_diff_sha256": { "$ref": "#/$defs/Sha256" },
+        "untracked_inventory_sha256": { "$ref": "#/$defs/Sha256" },
+        "review_package_sha256": { "$ref": "#/$defs/Sha256" },
+        "changed_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ChangedFileReceipt" }
+        },
+        "changed_files_sha256": { "$ref": "#/$defs/Sha256" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "vcs": { "const": "git" } }, "required": ["vcs"] },
+          "then": {
+            "properties": {
+              "head_commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+              "base_commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "vcs": { "const": "non_git" } }, "required": ["vcs"] },
+          "then": {
+            "properties": {
+              "head_commit": { "const": "not_applicable" },
+              "base_commit": { "const": "not_applicable" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "ValidationReceipt": {
+      "type": "object",
+      "required": [
+        "receipt_kind",
+        "receipt_version",
+        "receipt_id",
+        "trust_key_id",
+        "issued_at",
+        "observer",
+        "observation_scope",
+        "host_sandbox_proof",
+        "approval_proof",
+        "network_enforcement_proof",
+        "run_binding",
+        "task_binding",
+        "producer_binding",
+        "command",
+        "result",
+        "code_snapshot_before",
+        "code_snapshot_after",
+        "receipt_mac"
+      ],
+      "properties": {
+        "receipt_kind": { "const": "codexqb_validation_execution_receipt" },
+        "receipt_version": { "const": 1 },
+        "receipt_id": { "$ref": "#/$defs/Sha256" },
+        "trust_key_id": { "$ref": "#/$defs/TrustKeyId" },
+        "issued_at": { "$ref": "#/$defs/IsoTimestamp" },
+        "observer": { "const": "codexqb_controller" },
+        "observation_scope": { "const": "controller_observed_process_result_and_local_hashes" },
+        "host_sandbox_proof": { "const": "not_observed" },
+        "approval_proof": { "const": "not_observed" },
+        "network_enforcement_proof": { "const": "not_observed" },
+        "run_binding": { "$ref": "#/$defs/RunBinding" },
+        "task_binding": { "$ref": "#/$defs/TaskBinding" },
+        "producer_binding": { "$ref": "#/$defs/ProducerBinding" },
+        "command": { "$ref": "#/$defs/ValidationReceiptCommand" },
+        "result": { "$ref": "#/$defs/ValidationReceiptResult" },
+        "code_snapshot_before": { "$ref": "#/$defs/CodeSnapshot" },
+        "code_snapshot_after": { "$ref": "#/$defs/CodeSnapshot" },
+        "receipt_mac": { "$ref": "#/$defs/Sha256" }
+      },
+      "additionalProperties": false
+    },
+    "ValidationReceiptReference": {
+      "type": "object",
+      "required": ["receipt_id", "receipt_sha256"],
+      "properties": {
+        "receipt_id": { "$ref": "#/$defs/Sha256" },
+        "receipt_sha256": { "$ref": "#/$defs/Sha256" }
+      },
+      "additionalProperties": false
+    },
+    "ReviewerBinding": {
+      "type": "object",
+      "required": [
+        "reviewer_kind",
+        "identity_assurance",
+        "role",
+        "agent_id",
+        "attempt",
+        "dispatch_packet_sha256",
+        "agent_run_sha256",
+        "completed_at"
+      ],
+      "properties": {
+        "reviewer_kind": { "const": "agent" },
+        "identity_assurance": { "const": "controller_asserted" },
+        "role": { "enum": ["task_reviewer", "security_reviewer", "final_reviewer"] },
+        "agent_id": { "$ref": "#/$defs/AgentId" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "dispatch_packet_sha256": { "$ref": "#/$defs/Sha256" },
+        "agent_run_sha256": { "$ref": "#/$defs/Sha256" },
+        "completed_at": { "$ref": "#/$defs/IsoTimestamp" }
+      },
+      "additionalProperties": false
+    },
+    "ReviewBinding": {
+      "type": "object",
+      "required": [
+        "task_review_sha256",
+        "review_package_sha256",
+        "code_snapshot_sha256",
+        "validation_receipts",
+        "validation_receipt_set_sha256",
+        "verdict"
+      ],
+      "properties": {
+        "task_review_sha256": { "$ref": "#/$defs/Sha256" },
+        "review_package_sha256": { "$ref": "#/$defs/Sha256" },
+        "code_snapshot_sha256": { "$ref": "#/$defs/Sha256" },
+        "validation_receipts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ValidationReceiptReference" }
+        },
+        "validation_receipt_set_sha256": { "$ref": "#/$defs/Sha256" },
+        "verdict": { "$ref": "#/$defs/ReviewVerdict" }
+      },
+      "additionalProperties": false
+    },
+    "ReceiptOrdering": {
+      "type": "object",
+      "required": [
+        "producer_completed_event_sequence",
+        "validation_receipts_published_event_sequence",
+        "reviewer_dispatch_event_sequence",
+        "reviewer_spawned_event_sequence",
+        "reviewer_completed_event_sequence",
+        "receipt_issued_after_event_sequence"
+      ],
+      "properties": {
+        "producer_completed_event_sequence": { "type": "integer", "minimum": 1 },
+        "validation_receipts_published_event_sequence": { "type": "integer", "minimum": 1 },
+        "reviewer_dispatch_event_sequence": { "type": "integer", "minimum": 1 },
+        "reviewer_spawned_event_sequence": { "type": "integer", "minimum": 1 },
+        "reviewer_completed_event_sequence": { "type": "integer", "minimum": 1 },
+        "receipt_issued_after_event_sequence": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "ReviewReceipt": {
+      "type": "object",
+      "required": [
+        "receipt_kind",
+        "receipt_version",
+        "receipt_id",
+        "trust_key_id",
+        "issued_at",
+        "observer",
+        "observation_scope",
+        "host_sandbox_proof",
+        "approval_proof",
+        "network_enforcement_proof",
+        "run_binding",
+        "task_binding",
+        "reviewer_binding",
+        "review_binding",
+        "ordering",
+        "receipt_mac"
+      ],
+      "properties": {
+        "receipt_kind": { "const": "codexqb_review_completion_receipt" },
+        "receipt_version": { "const": 1 },
+        "receipt_id": { "$ref": "#/$defs/Sha256" },
+        "trust_key_id": { "$ref": "#/$defs/TrustKeyId" },
+        "issued_at": { "$ref": "#/$defs/IsoTimestamp" },
+        "observer": { "const": "codexqb_controller" },
+        "observation_scope": {
+          "const": "controller_observed_reviewer_completion_and_artifact_hashes"
+        },
+        "host_sandbox_proof": { "const": "not_observed" },
+        "approval_proof": { "const": "not_observed" },
+        "network_enforcement_proof": { "const": "not_observed" },
+        "run_binding": { "$ref": "#/$defs/RunBinding" },
+        "task_binding": { "$ref": "#/$defs/TaskBinding" },
+        "reviewer_binding": { "$ref": "#/$defs/ReviewerBinding" },
+        "review_binding": { "$ref": "#/$defs/ReviewBinding" },
+        "ordering": { "$ref": "#/$defs/ReceiptOrdering" },
+        "receipt_mac": { "$ref": "#/$defs/Sha256" }
+      },
+      "additionalProperties": false
+    },
+    "ReviewReport": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status"],
+          "properties": { "status": { "const": "PENDING" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["status", "phase", "verdict", "task_id", "reviewer_agent_id", "evidence"],
+          "properties": {
+            "status": { "const": "COMPLETE" },
+            "phase": { "$ref": "#/$defs/ReviewPhase" },
+            "verdict": { "$ref": "#/$defs/ReviewVerdict" },
+            "task_id": { "$ref": "#/$defs/TaskId" },
+            "reviewer_agent_id": { "$ref": "#/$defs/AgentId" },
+            "evidence": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "phase": { "const": "spec" } },
+                "required": ["phase"]
+              },
+              "then": {
+                "properties": { "verdict": { "enum": ["cannot_verify", "fail", "pass"] } }
+              }
+            },
+            {
+              "if": {
+                "properties": { "phase": { "enum": ["quality", "security", "final"] } },
+                "required": ["phase"]
+              },
+              "then": {
+                "properties": {
+                  "verdict": { "enum": ["cannot_verify", "fail", "needs_fixes", "pass"] }
+                }
+              }
+            }
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
     "ImplementerReport": {
       "type": "object",
-      "required": ["status"],
       "properties": {
         "status": { "enum": ["BLOCKED", "DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "PENDING"] },
         "task_id": { "$ref": "#/$defs/TaskId" },
         "brief_sha256": { "$ref": "#/$defs/Sha256" },
-        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
+        "implementation_contract_digest": {
+          "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }]
+        },
         "task_contract_digest": { "$ref": "#/$defs/Sha256" },
         "implementer_agent_id": { "$ref": "#/$defs/AgentId" },
         "files_changed": {
           "type": "array",
-          "items": { "type": "string" }
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/RepositoryRelativePath" }
         },
-        "validation_evidence": {
+        "concerns": {
           "type": "array",
-          "items": { "$ref": "#/$defs/ValidationEvidence" }
+          "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
         },
+        "validation_receipt_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Sha256" }
+        },
+        "change_set_id": { "$ref": "#/$defs/Sha256" },
         "diff_sha256": { "$ref": "#/$defs/Sha256" },
-        "controller_decision": { "type": "string" }
+        "controller_decision": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "blocker": { "type": "string" },
+        "evidence": { "type": "array", "items": { "type": "string" } }
       },
-      "additionalProperties": true
+      "oneOf": [
+        {
+          "required": ["status"],
+          "properties": { "status": { "const": "PENDING" } },
+          "maxProperties": 1
+        },
+        {
+          "required": [
+            "status",
+            "task_id",
+            "implementer_agent_id",
+            "files_changed",
+            "concerns"
+          ],
+          "properties": {
+            "status": { "enum": ["BLOCKED", "DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT"] }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["brief_sha256"] },
+              { "required": ["implementation_contract_digest"] },
+              { "required": ["task_contract_digest"] },
+              { "required": ["validation_receipt_ids"] },
+              { "required": ["change_set_id"] },
+              { "required": ["diff_sha256"] }
+            ]
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "status": { "const": "DONE_WITH_CONCERNS" } },
+                "required": ["status"]
+              },
+              "then": { "required": ["controller_decision"] }
+            }
+          ]
+        },
+        {
+          "required": [
+            "status",
+            "task_id",
+            "brief_sha256",
+            "implementation_contract_digest",
+            "task_contract_digest",
+            "implementer_agent_id",
+            "files_changed",
+            "concerns",
+            "validation_receipt_ids",
+            "change_set_id",
+            "diff_sha256"
+          ],
+          "properties": {
+            "status": { "const": "DONE" },
+            "files_changed": { "minItems": 1 },
+            "validation_receipt_ids": { "minItems": 1 }
+          }
+        }
+      ],
+      "additionalProperties": false
     },
     "TaskReview": {
-      "type": "object",
-      "properties": {
-        "status": { "enum": ["PENDING"] },
-        "task_id": { "$ref": "#/$defs/TaskId" },
-        "brief_sha256": { "$ref": "#/$defs/Sha256" },
-        "implementation_contract_digest": { "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }] },
-        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
-        "reviewer_agent_id": { "$ref": "#/$defs/AgentId" },
-        "security_reviewer_agent_id": { "$ref": "#/$defs/AgentId" },
-        "spec_compliance": { "enum": ["cannot_verify", "fail", "pass", "PENDING"] },
-        "task_quality": { "enum": ["approved", "needs_fixes", "PENDING"] },
-        "security_review": { "enum": ["fail", "not_required", "pass", "PENDING"] },
-        "blocking_findings": {
-          "type": "array",
-          "items": { "type": "string" }
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status"],
+          "properties": { "status": { "const": "PENDING" } },
+          "additionalProperties": false
         },
-        "fixes_required": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "evidence": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "re_review_required": { "type": "boolean" }
-      },
-      "additionalProperties": true
+        {
+          "type": "object",
+          "required": [
+            "status",
+            "task_id",
+            "brief_sha256",
+            "implementation_contract_digest",
+            "task_contract_digest",
+            "review_receipts"
+          ],
+          "properties": {
+            "status": { "enum": ["IN_PROGRESS", "COMPLETE"] },
+            "task_id": { "$ref": "#/$defs/TaskId" },
+            "brief_sha256": { "$ref": "#/$defs/Sha256" },
+            "implementation_contract_digest": {
+              "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }]
+            },
+            "task_contract_digest": { "$ref": "#/$defs/Sha256" },
+            "review_receipts": {
+              "allOf": [
+                { "$ref": "#/$defs/ReviewReceiptMap" },
+                { "minProperties": 1 }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "status": { "const": "COMPLETE" } },
+                "required": ["status"]
+              },
+              "then": {
+                "properties": { "review_receipts": { "required": ["final"] } }
+              }
+            }
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "FixReport": {
       "type": "object",
       "properties": {
-        "status": { "enum": ["PENDING"] },
+        "status": { "enum": ["BLOCKED", "DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "PENDING"] },
+        "task_id": { "$ref": "#/$defs/TaskId" },
+        "brief_sha256": { "$ref": "#/$defs/Sha256" },
+        "implementation_contract_digest": {
+          "anyOf": [{ "$ref": "#/$defs/Sha256" }, { "type": "null" }]
+        },
+        "task_contract_digest": { "$ref": "#/$defs/Sha256" },
+        "fixer_agent_id": { "$ref": "#/$defs/AgentId" },
         "fixes": {
           "type": "array",
-          "items": {
-            "anyOf": [
-              { "type": "string" },
-              { "type": "object", "additionalProperties": true }
-            ]
-          }
-        }
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "concerns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        },
+        "validation_receipt_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Sha256" }
+        },
+        "change_set_id": { "$ref": "#/$defs/Sha256" },
+        "diff_sha256": { "$ref": "#/$defs/Sha256" },
+        "controller_decision": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "blocker": { "type": "string" },
+        "evidence": { "type": "array", "items": { "type": "string" } }
       },
-      "additionalProperties": true
+      "oneOf": [
+        {
+          "required": ["status"],
+          "properties": { "status": { "const": "PENDING" } },
+          "maxProperties": 1
+        },
+        {
+          "required": ["status", "task_id", "fixer_agent_id", "fixes"],
+          "properties": {
+            "status": { "enum": ["BLOCKED", "DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT"] }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "status": { "const": "DONE_WITH_CONCERNS" } },
+                "required": ["status"]
+              },
+              "then": { "required": ["controller_decision"] }
+            }
+          ]
+        }
+      ],
+      "additionalProperties": false
     },
     "FinalReview": {
-      "type": "object",
-      "required": ["status"],
-      "properties": {
-        "status": { "enum": ["not_required", "not_started", "pass"] },
-        "reviewed_task_ids": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/TaskId" }
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status"],
+          "properties": { "status": { "enum": ["not_required", "not_started"] } },
+          "additionalProperties": false
         },
-        "global_validations": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/ValidationEvidence" }
-        },
-        "evidence": {
-          "type": "array",
-          "items": { "type": "string" }
+        {
+          "type": "object",
+          "required": [
+            "status",
+            "reviewed_task_ids",
+            "final_reviewer_receipts",
+            "validation_receipts",
+            "evidence"
+          ],
+          "properties": {
+            "status": { "enum": ["in_progress", "pass"] },
+            "reviewed_task_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/TaskId" }
+            },
+            "final_reviewer_receipts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/ReviewReceiptReference" }
+            },
+            "validation_receipts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/TaskValidationReceiptReference" }
+            },
+            "evidence": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
         }
-      },
-      "additionalProperties": true
+      ]
     },
     "Result": {
       "type": "object",
@@ -718,19 +2006,10 @@
         "next_action"
       ],
       "properties": {
-        "apply_run_id": {
-          "type": "string",
-          "pattern": "^apply-(direct|external_superpowers|no_action|subagent_serial)-[a-f0-9]{12}-[A-Za-z0-9_.-]+$"
-        },
+        "apply_run_id": { "$ref": "#/$defs/ApplyRunId" },
         "status": { "enum": ["complete", "initialized", "no_action"] },
-        "completed_tasks": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/TaskId" }
-        },
-        "blocked_tasks": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/TaskId" }
-        },
+        "completed_tasks": { "type": "array", "items": { "$ref": "#/$defs/TaskId" } },
+        "blocked_tasks": { "type": "array", "items": { "$ref": "#/$defs/TaskId" } },
         "budget_contract": { "$ref": "#/$defs/BudgetContract" },
         "token_usage": { "$ref": "#/$defs/TokenUsage" },
         "finalized_at": { "$ref": "#/$defs/IsoTimestamp" },

@@ -11,8 +11,8 @@ body:
     id: version
     attributes:
       label: CodexQB version
-      description: Example: 0.2.1, or the commit SHA if testing from main.
-      placeholder: "0.2.1"
+      description: Enter the vX.Y.Z release tag, or the commit SHA if testing from main.
+      placeholder: "vX.Y.Z or commit SHA"
     validations:
       required: true
   - type: dropdown

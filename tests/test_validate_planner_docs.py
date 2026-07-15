@@ -237,7 +237,7 @@ def write_subplan(path: Path, phase: int, subphase: int) -> None:
         if heading == "## 8. Acceptance Criteria":
             text += f"\n- MP-PH{phase}-AS-01 accepts a valid fixture and exits zero.\n- MP-PH{phase}-AS-02 rejects an invalid fixture without printing secrets."
         if heading == "## 9. Validation and Test Approach":
-            text += f"\nRun: `python3 -m pytest tests/test_feature_{phase}_{subphase}.py -q`.\nExpected: PASS with the focused fixture checks."
+            text += f"\nRun: `python3 -B -m pytest -p no:cacheprovider tests/test_feature_{phase}_{subphase}.py -q`.\nExpected: PASS with the focused fixture checks."
         if heading == "## 10. Dependencies and Sequencing":
             text += "\ndepends_on: []\nblocks: []\ncan_run_in_parallel_with: []\nactivation_conditions: local fixture files exist."
         if heading == "## 11. Risks and Mitigations":
@@ -258,7 +258,7 @@ def write_subplan(path: Path, phase: int, subphase: int) -> None:
         '  "validation_commands": [',
         "    {",
         '      "id": "VAL-01",',
-        f'      "argv": ["python3", "-m", "pytest", "tests/test_feature_{phase}_{subphase}.py", "-q"],',
+        f'      "argv": ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_{phase}_{subphase}.py", "-q"],',
         '      "cwd": ".",',
         '      "expected_exit_code": 0,',
         '      "timeout_seconds": 120,',
@@ -323,8 +323,8 @@ def write_index(docs: Path, relative_refs: bool = False) -> None:
             lines += [
                 "| Parent Signal | Covered By | Validation Command | Status |",
                 "|---|---|---|---|",
-                "| MP-PH1-AS-01 | Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md | python3 -m pytest tests/test_feature_1_1.py -q | planned |",
-                "| MP-PH2-AS-01 | Planner-docs/Faz-2-Plans/Faz2.1-live-gateway.md | python3 -m pytest tests/test_feature_2_1.py -q | planned |",
+                "| MP-PH1-AS-01 | Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md | python3 -B -m pytest -p no:cacheprovider tests/test_feature_1_1.py -q | planned |",
+                "| MP-PH2-AS-01 | Planner-docs/Faz-2-Plans/Faz2.1-live-gateway.md | python3 -B -m pytest -p no:cacheprovider tests/test_feature_2_1.py -q | planned |",
                 "",
             ]
         if heading == "## 7. Decision Register":
@@ -629,7 +629,7 @@ def write_index_for_refs(
                 "| Parent Signal | Covered By | Validation Command | Status |",
                 "|---|---|---|---|",
                 *[
-                    f"| MP-PH{phase}-AS-01 | Planner-docs/Faz-{phase}-Plans/Faz{phase}.1-wave-plan.md | python3 -m pytest tests/test_feature_{phase}_1.py -q | planned |"
+                    f"| MP-PH{phase}-AS-01 | Planner-docs/Faz-{phase}-Plans/Faz{phase}.1-wave-plan.md | python3 -B -m pytest -p no:cacheprovider tests/test_feature_{phase}_1.py -q | planned |"
                     for phase in active
                 ],
                 "",
@@ -774,7 +774,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
                     "## 3. Description": f"The {concept} capability turns the wave slice into a unique delivery checkpoint with domain-specific state and review evidence. The work proves {concept} behavior before later roadmap cards activate. Artifact: reports/{concept}-wave.md records the phase-specific result.",
                     "## 6. Current Repository Evidence": f"{concept.title()} evidence comes from docs/{concept}-notes.md and examples/{concept}-fixture.yaml. The validator fixture treats those anchors as proposed evidence for MP-PH{phase}-AS-01.",
                     "## 8. Acceptance Criteria": f"- MP-PH{phase}-AS-01 accepts {concept} fixture data and exits zero.\n- MP-PH{phase}-AS-02 rejects malformed {concept} input without printing secrets.\n- MP-PH{phase}-AS-03 produces reports/{concept}-wave.md.",
-                    "## 11. Risks and Mitigations": f"Risk: {concept} behavior can drift from its parent acceptance signal if deferred phases are expanded too early. Mitigation: keep {concept} validation tied to python3 -m pytest tests/test_feature_{phase}_1.py -q before Step 3.",
+                    "## 11. Risks and Mitigations": f"Risk: {concept} behavior can drift from its parent acceptance signal if deferred phases are expanded too early. Mitigation: keep {concept} validation tied to python3 -B -m pytest -p no:cacheprovider tests/test_feature_{phase}_1.py -q before Step 3.",
                 }
                 for heading, replacement in replacements.items():
                     unique_text = re.sub(
@@ -942,7 +942,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             text = subplan_path.read_text(encoding="utf-8")
             text = text.replace('"path": "src/feature_1_1.py"', '"path": "Planner-docs/notes.md"')
             text = text.replace(
-                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"argv": ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]',
                 '"command": "make"',
             )
             text = text.replace('"parent_signals": ["MP-PH1-AS-01"]', '"parent_signals": ["Parent Signal"]')
@@ -961,7 +961,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
             text = subplan_path.read_text(encoding="utf-8")
             text = text.replace(
-                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"argv": ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]',
                 '"command": "python3 -m pytest tests/test_feature_1_1.py -q && rm -rf /tmp/codexqb-owned"',
             )
             subplan_path.write_text(text, encoding="utf-8")
@@ -977,7 +977,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
             text = subplan_path.read_text(encoding="utf-8")
             text = text.replace(
-                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"argv": ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]',
                 '"command": "python3 -m pytest tests/test_feature_1_1.py -q $(touch /tmp/codexqb-owned)"',
             )
             subplan_path.write_text(text, encoding="utf-8")
@@ -1001,7 +1001,9 @@ class ValidatePlannerDocsTests(unittest.TestCase):
                 docs = write_valid_step2_fixture(Path(temp_dir))
                 subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
                 text = subplan.read_text(encoding="utf-8")
-                safe = json.dumps(["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"])
+                safe = json.dumps(
+                    ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]
+                )
                 text = text.replace(safe, json.dumps(argv))
                 subplan.write_text(text, encoding="utf-8")
 
@@ -1010,13 +1012,122 @@ class ValidatePlannerDocsTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md", result.stdout)
 
+    def test_strict_step2_rejects_sec002_command_and_envelope_matrix(self) -> None:
+        canonical = json.dumps(
+            ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]
+        )
+        cases = [
+            ("ruff_fix", (canonical, json.dumps(["ruff", "check", "--fix", "."]))),
+            ("pytest_basetemp", (canonical, json.dumps(["pytest", "--basetemp=.git"]))),
+            ("pytest_basetemp_split", (canonical, json.dumps(["pytest", "--basetemp", ".git"]))),
+            ("pytest_junit", (canonical, json.dumps(["pytest", "--junitxml=.env"]))),
+            ("pytest_unknown", (canonical, json.dumps(["pytest", "--unknown-output=.env"]))),
+            (
+                "canonical_pytest_unknown",
+                (
+                    canonical,
+                    json.dumps(
+                        ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "--unknown-option"]
+                    ),
+                ),
+            ),
+            (
+                "canonical_unittest_unknown",
+                (canonical, json.dumps(["python3", "-B", "-m", "unittest", "--unknown-option"])),
+            ),
+            (
+                "canonical_ruff_unknown",
+                (canonical, json.dumps(["ruff", "check", "--no-fix", "--no-cache", "--unknown-option", "."])),
+            ),
+            (
+                "unknown_python_executable",
+                (canonical, json.dumps(["python3.999", "-B", "-m", "unittest", "tests.test_example"])),
+            ),
+            (
+                "planned_evidence_fields",
+                (
+                    '"probe_tier": 1',
+                    '"probe_tier": 1,\n      "exit_code": 0,\n      "output_sha256": "' + "a" * 64 + '"',
+                ),
+            ),
+            ('cwd_git', ['"cwd": "."', '"cwd": ".git"']),
+            ('cwd_escape', ['"cwd": "."', '"cwd": "../outside"']),
+            ('network_local', ['"network": "deny"', '"network": "local"']),
+            ('network_allow', ['"network": "deny"', '"network": "allow"']),
+            ('probe_tier_2', ['"probe_tier": 1', '"probe_tier": 2']),
+            ('probe_tier_bool', ['"probe_tier": 1', '"probe_tier": true']),
+            ('expected_exit_bool', ['"expected_exit_code": 0', '"expected_exit_code": true']),
+            ('timeout_bool', ['"timeout_seconds": 120', '"timeout_seconds": true']),
+            (
+                "unknown_shell_field",
+                ['"probe_tier": 1', '"probe_tier": 1,\n      "shell": true'],
+            ),
+            (
+                "argv_and_command",
+                ['"probe_tier": 1', '"probe_tier": 1,\n      "command": "rm -rf ."'],
+            ),
+            ('missing_network', ['      "network": "deny",\n', ""]),
+        ]
+        for name, replacements in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                docs = write_valid_step2_fixture(root)
+                subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+                text = subplan.read_text(encoding="utf-8")
+                old, new = replacements
+                self.assertIn(old, text)
+                subplan.write_text(text.replace(old, new), encoding="utf-8")
+
+                result = run_validator(root, "step2", strict=True)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(
+                    "strict_warning=subplan_missing_exact_validation_command=Planner-docs/Faz-1-Plans/Faz1.1-local-contract.md",
+                    result.stdout,
+                )
+
+    def test_strict_step2_rejects_validation_cwd_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(temp_dir)
+            (root / "outside-link").symlink_to(Path(outside_dir), target_is_directory=True)
+            docs = write_valid_step2_fixture(root)
+            subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+            text = subplan.read_text(encoding="utf-8").replace('"cwd": "."', '"cwd": "outside-link"')
+            subplan.write_text(text, encoding="utf-8")
+
+            result = run_validator(root, "step2", strict=True)
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("strict_warning=subplan_validation_command_invalid_cwd=", result.stdout)
+
+    def test_strict_step2_accepts_canonical_read_only_validation_profiles(self) -> None:
+        canonical = json.dumps(
+            ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]
+        )
+        positive = [
+            ["python3", "-B", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+            ["ruff", "check", "--no-fix", "--no-cache", "."],
+        ]
+        for argv in positive:
+            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                docs = write_valid_step2_fixture(root)
+                subplan = docs / "Faz-1-Plans" / "Faz1.1-local-contract.md"
+                text = subplan.read_text(encoding="utf-8")
+                self.assertIn(canonical, text)
+                subplan.write_text(text.replace(canonical, json.dumps(argv)), encoding="utf-8")
+
+                result = run_validator(root, "step2", strict=True)
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_strict_step2_rejects_mutating_validation_command_intent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             docs = write_valid_step2_fixture(Path(temp_dir))
             subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
             text = subplan_path.read_text(encoding="utf-8")
             text = text.replace(
-                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
+                '"argv": ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]',
                 '"argv": ["npm", "run", "deploy"]',
             )
             subplan_path.write_text(text, encoding="utf-8")
@@ -1032,8 +1143,8 @@ class ValidatePlannerDocsTests(unittest.TestCase):
             subplan_path = docs / "Faz-1-Plans/Faz1.1-local-contract.md"
             text = subplan_path.read_text(encoding="utf-8")
             text = text.replace(
-                '"argv": ["python3", "-m", "pytest", "tests/test_feature_1_1.py", "-q"]',
-                '"command": "python3 -m pytest tests/test_feature_1_1.py -q"',
+                '"argv": ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_feature_1_1.py", "-q"]',
+                '"command": "python3 -B -m pytest -p no:cacheprovider tests/test_feature_1_1.py -q"',
             )
             text = re.sub(r',\n      "cwd": "\\.",\n      "expected_exit_code": 0,\n      "timeout_seconds": 120,\n      "network": "deny",\n      "probe_tier": 1', ',\n      "expected_result": "exit_code_0"', text)
             subplan_path.write_text(text, encoding="utf-8")
@@ -1176,7 +1287,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
                     [
                         "| Capability | External Framework Owns | Project Owns | Wrapper Boundary | Validation |",
                         "|---|---|---|---|---|",
-                        "| Training loop | TRL trainer semantics | Project policy glue. | src/training/adapter.py | python3 -m pytest tests/test_feature_1_1.py -q |",
+                        "| Training loop | TRL trainer semantics | Project policy glue. | src/training/adapter.py | python3 -B -m pytest -p no:cacheprovider tests/test_feature_1_1.py -q |",
                     ]
                 ),
             )
@@ -1186,7 +1297,7 @@ class ValidatePlannerDocsTests(unittest.TestCase):
                     [
                         "| Invariant ID | Scope | Required Condition | Violation Risk | Validation Probe |",
                         "|---|---|---|---|---|",
-                        "| INV-001 | GRPO rollout group | Policy and trainer-step fingerprints match. | stale reward reuse | python3 -m pytest tests/test_feature_1_1.py -q |",
+                        "| INV-001 | GRPO rollout group | Policy and trainer-step fingerprints match. | stale reward reuse | python3 -B -m pytest -p no:cacheprovider tests/test_feature_1_1.py -q |",
                     ]
                 ),
             )

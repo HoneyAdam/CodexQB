@@ -5,8 +5,15 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
+import sys
 from pathlib import Path
+
+
+SAFETY_DIR = Path(__file__).resolve().parents[1] / "plugins/codexqb/skills/codexqb/scripts"
+if str(SAFETY_DIR) not in sys.path:
+    sys.path.insert(0, str(SAFETY_DIR))
+
+from git_evidence import capture_git_workspace_evidence  # noqa: E402
 
 
 PUBLIC_FILES = {
@@ -15,6 +22,7 @@ PUBLIC_FILES = {
     "docs/USAGE.md",
     "docs/MAINTAINING.md",
     "docs/INSTALLATION.md",
+    "docs/FEEDBACK-CLOSURE-AUDIT.md",
 }
 PUBLIC_DIRS = {
     "docs/release-audits",
@@ -37,19 +45,12 @@ PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 def git_tracked(root: Path) -> set[str] | None:
     try:
-        completed = subprocess.run(
-            ["git", "ls-files"],
-            cwd=root,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=10,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        evidence = capture_git_workspace_evidence(root)
+    except (OSError, ValueError):
         return None
-    if completed.returncode != 0:
+    if evidence.get("is_git") is not True:
         return None
-    return {line.strip() for line in completed.stdout.splitlines() if line.strip()}
+    return {str(path) for path in evidence.get("tracked_paths", []) if isinstance(path, str)}
 
 
 def candidate_files(root: Path) -> list[Path]:

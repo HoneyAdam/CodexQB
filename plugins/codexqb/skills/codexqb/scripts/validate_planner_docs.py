@@ -21,8 +21,11 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from safety_contracts import (  # noqa: E402
     exact_validation_command as shared_exact_validation_command,
+    safe_log_text,
+    safe_validation_cwd as shared_safe_validation_cwd,
     safe_validation_argv as shared_safe_validation_argv,
     safe_validation_command_item as shared_safe_validation_command_item,
+    secret_match_locations,
 )
 
 
@@ -188,25 +191,6 @@ AUDIT_FIX_RE = re.compile(
     r"^\s*(?:[-*]\s*)?\|?\s*(AUDIT-FIX-\d+)\s*(?:\||:|\u2014|\u2013|-)\s*(P0|P1|P2|P3)\b",
     re.MULTILINE,
 )
-
-SECRET_PATTERNS = [
-    (
-        "openrouter_api_key",
-        re.compile(
-            r"\bsk-or-v1-[A-Za-z0-9_-]{20,}\b"
-            r"|OPENROUTER_API_KEY\s*=\s*"
-            r"(?!(?:['\"]?(?:\$OPENROUTER_API_KEY|<redacted>|your_openrouter_api_key)['\"]?)(?:\s|$))"
-            r"[^\s#]+",
-            re.IGNORECASE,
-        ),
-    ),
-    ("openai_api_key", re.compile(r"\bsk-(?!or-v1-)[A-Za-z0-9_-]{20,}\b")),
-    ("github_pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
-    ("github_legacy_pat", re.compile(r"\bghp_[A-Za-z0-9]{20,}\b")),
-    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("private_key", re.compile(r"BEGIN (?:RSA|OPENSSH|DSA|EC|PRIVATE) KEY")),
-    ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
-]
 
 PLACEHOLDER_PATTERNS = [
     ("todo", re.compile(r"\bTODO\b", re.IGNORECASE)),
@@ -381,7 +365,7 @@ ALLOWED_RISK_DOMAINS = {
     "none",
 }
 SECURITY_REVIEW_DOMAINS = ALLOWED_RISK_DOMAINS - {"none"}
-ALLOWED_VALIDATION_NETWORK = {"deny", "local", "live", "allow"}
+ALLOWED_VALIDATION_NETWORK = {"deny"}
 SECURITY_REVIEW_SIGNAL_RE = re.compile(
     r"\b(?:security|secret|credential|token|auth|authorization|permission|policy|live|external|provider|network|"
     r"stateful|distributed|online|\brl\b|grpo|rollout|trainer-step|vllm|trl|peft|deploy|production|migration|"
@@ -643,12 +627,8 @@ def safe_repo_path(value: str) -> str | None:
     return target.as_posix()
 
 
-def safe_repo_cwd(value: str) -> bool:
-    target_text = value.strip().strip("`")
-    if target_text in {".", "./"}:
-        return True
-    target = Path(target_text)
-    return bool(target_text) and not target.is_absolute() and ".." not in target.parts
+def safe_repo_cwd(value: str, root: Path | None = None) -> bool:
+    return shared_safe_validation_cwd(value, root=root)
 
 
 def implementation_surface_path(value: str) -> str | None:
@@ -682,8 +662,13 @@ def safe_validation_argv(argv: object) -> bool:
     return shared_safe_validation_argv(argv)
 
 
-def safe_validation_command_item(item: dict[str, object]) -> bool:
-    return shared_safe_validation_command_item(item)
+def safe_validation_command_item(
+    item: dict[str, object],
+    *,
+    root: Path | None = None,
+    allow_legacy: bool = False,
+) -> bool:
+    return shared_safe_validation_command_item(item, root=root, allow_legacy=allow_legacy)
 
 
 def validation_probe_is_safe(value: str) -> bool:
@@ -974,7 +959,7 @@ def validate_implementation_contract(
             expected = item.get("expected_result", item.get("expected_exit_code", ""))
             if not re.fullmatch(r"VAL-\d{2}", command_id):
                 state.warning(f"subplan_invalid_validation_command_id={state.rel(path)}::{command_id or 'missing'}")
-            if safe_validation_command_item(item):
+            if safe_validation_command_item(item, root=state.root, allow_legacy=not state.strict):
                 exact_commands += 1
             else:
                 state.warning(f"subplan_missing_exact_validation_command={state.rel(path)}")
@@ -986,18 +971,16 @@ def validate_implementation_contract(
                 network = item.get("network")
                 probe_tier = item.get("probe_tier")
                 expected_exit = item.get("expected_exit_code")
-                if not safe_repo_cwd(cwd):
+                if not safe_repo_cwd(cwd, state.root):
                     state.warning(f"subplan_validation_command_invalid_cwd={state.rel(path)}::{command_id or 'unknown'}")
-                if not isinstance(expected_exit, int):
+                if not isinstance(expected_exit, int) or isinstance(expected_exit, bool) or expected_exit != 0:
                     state.warning(f"subplan_validation_command_invalid_expected_exit_code={state.rel(path)}::{command_id or 'unknown'}")
-                if not isinstance(timeout, int) or timeout < 1 or timeout > 3600:
+                if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1 or timeout > 3600:
                     state.warning(f"subplan_validation_command_invalid_timeout={state.rel(path)}::{command_id or 'unknown'}")
                 if network not in ALLOWED_VALIDATION_NETWORK:
                     state.warning(f"subplan_validation_command_invalid_network={state.rel(path)}::{command_id or 'unknown'}")
-                if not isinstance(probe_tier, int) or probe_tier < 1 or probe_tier > 3:
+                if not isinstance(probe_tier, int) or isinstance(probe_tier, bool) or probe_tier != 1:
                     state.warning(f"subplan_validation_command_invalid_probe_tier={state.rel(path)}::{command_id or 'unknown'}")
-                if network in {"live", "allow"} and probe_tier != 3:
-                    state.warning(f"subplan_validation_command_network_requires_live_probe={state.rel(path)}::{command_id or 'unknown'}")
             if not cell_has_evidence(expected):
                 state.warning(f"subplan_validation_command_missing_expected_result={state.rel(path)}::{command_id or 'unknown'}")
         if exact_commands == 0:
@@ -2209,11 +2192,10 @@ def scan_secrets(state: ValidationState) -> None:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        for name, pattern in SECRET_PATTERNS:
-            for match in pattern.finditer(text):
-                secret_findings += 1
-                line = text.count("\n", 0, match.start()) + 1
-                state.error(f"secret_pattern={name}::{state.rel(path)}:{line}")
+        for name, offset in secret_match_locations(text):
+            secret_findings += 1
+            line = text.count("\n", 0, offset) + 1
+            state.error(f"secret_pattern={name}::{state.rel(path)}:{line}")
     state.metrics["secret_findings"] = secret_findings
 
 
@@ -2234,13 +2216,13 @@ def finalize(state: ValidationState) -> int:
     print(f"validation_status={status}")
     print(f"mode={state.mode}")
     print(f"validation_mode={state.mode}")
-    print(f"root={state.root}")
+    print(f"root={safe_log_text(state.root)}")
     for key in sorted(state.metrics):
         print(f"{key}={state.metrics[key]}")
     for warning in sorted(state.warnings):
-        print(f"warning={warning}")
+        print(f"warning={safe_log_text(warning)}")
     for error in sorted(state.errors):
-        print(f"error={error}")
+        print(f"error={safe_log_text(error)}")
     if any(error.startswith(("unknown_mode=", "read_error=", "non_utf8_file=")) for error in state.errors):
         return 2
     return 1 if state.errors else 0

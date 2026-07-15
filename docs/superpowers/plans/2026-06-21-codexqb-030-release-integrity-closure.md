@@ -84,8 +84,10 @@
 
 ## Validation Log
 
-- `python3 -m unittest discover -s tests -v`: passed, 146 tests, about 17.7s.
-- `make check`: passed, 146 tests plus behavior, downstream dry run, metric checks, fixture corpus; `fixture_count=20`, about 23.5s.
+This log is a historical checkpoint snapshot from the 2026-06-21 closure plan. Its test, scan, and package file counts document that run and are not current repository totals.
+
+- Interim `python3 -m unittest discover -s tests -v`: passed, 146 tests, about 17.7s; superseded by the later 186-test run in this snapshot.
+- Interim `make check`: passed, 146 tests plus behavior, downstream dry run, metric checks, fixture corpus; `fixture_count=20`, about 23.5s; superseded by the later 186-test gate in this snapshot.
 - `git diff --check`: passed.
 - `make check-release`: passed before edits from clean tree, exported `file_count=133`, extracted package validation passed.
 - Privacy scan before edits found private path and run-ID leaks in release docs.
@@ -97,11 +99,11 @@
 - Checkpoint 5 first focused validation found one direct-mode injected `agent_runs` attempt-budget gap; fixed by validating agent attempt budgets in the mode-independent task loop.
 - Checkpoint 5 focused validation: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_goal_run tests.test_apply_run tests.test_skill_content -v` passed, 110 tests, about 23.5s.
 - Final full suite first run found stale content expectation for the old release label; fixed `tests/test_skill_content.py`.
-- Final full suite: `python3 -m unittest discover -s tests -v` passed, 180 tests, about 23.8s.
-- Final repo gate: `make check` passed; included 180 tests, `apply_behavior_smoke=passed`, `downstream_goal_apply_dry_run=passed`, `goal_apply_metric_checks=passed`, `fixture_corpus_checks=passed`, `fixture_count=20`.
+- Final full suite: `python3 -m unittest discover -s tests -v` passed, 186 tests, about 27.0s.
+- Final repo gate: `make check` passed; included 186 tests, `apply_behavior_smoke=passed`, `downstream_goal_apply_dry_run=passed`, `goal_apply_metric_checks=passed`, `fixture_corpus_checks=passed`, `fixture_count=20`.
 - Standalone fixture gate: `python3 evals/run_fixture_corpus_checks.py` passed, `fixture_count=20`.
 - Final whitespace gate: `git diff --check` passed.
-- Final privacy/schema gates: `python3 scripts/check_public_privacy.py --root .` passed, `public_privacy_files_scanned=10`; `python3 -m json.tool plugins/codexqb/skills/codexqb/references/apply-run-schema.json >/dev/null` passed.
+- Final privacy/schema gates: `python3 scripts/check_public_privacy.py --root .` passed, `public_privacy_files_scanned=13`; `python3 -m json.tool plugins/codexqb/skills/codexqb/references/apply-run-schema.json >/dev/null` passed.
 - Final release gate: `make check-release` ran `check` and `check-public-privacy` successfully, then stopped at strict `make export-sanitized` with `ValueError: working_tree_dirty`, as expected because this Goal leaves changes uncommitted.
 - Dirty-worktree package smoke: `make export-sanitized-worktree` passed, `file_count=137`.
 - Extracted no-Git package fallback: `CODEXQB_VALIDATE_SKIP_UNITTESTS=1 CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE=1 bash scripts/validate.sh` passed from the extracted worktree package with filesystem hygiene mode, metrics, and fixture corpus.

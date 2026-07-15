@@ -582,7 +582,7 @@ After creating/updating Planner-docs/Sub-Planing-Audit.md:
 4. Do not run grep/ripgrep scans that print matched secret-bearing lines. The validator in step 3 already performs redacted secret detection. If a fallback scan is unavoidable, use file-name-only output such as `rg -l` and never copy matched values into the audit.
 
 5. Run:
-   python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+   python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4 --strict
 
 6. Run:
    git diff -- Planner-docs/Sub-Planing-Audit.md

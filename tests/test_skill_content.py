@@ -1,29 +1,37 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
-import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = REPO_ROOT / "plugins/codexqb/skills/codexqb"
+OPENAI_YAML_VALIDATOR_PATH = REPO_ROOT / "scripts/validate_openai_yaml.py"
 
 
-def read_simple_yaml_scalar(text: str, key: str) -> str | None:
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith(f"{key}:"):
-            continue
-        value = stripped.split(":", 1)[1].strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        return value
-    return None
+def load_openai_yaml_validator():
+    spec = importlib.util.spec_from_file_location(
+        "codexqb_validate_openai_yaml",
+        OPENAI_YAML_VALIDATOR_PATH,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load validator from {OPENAI_YAML_VALIDATOR_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+OPENAI_YAML_VALIDATOR = load_openai_yaml_validator()
 
 
 class SkillContentTests(unittest.TestCase):
@@ -32,26 +40,103 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("references/repo-aware-intake.md", skill)
         self.assertIn("repo-aware", skill.lower())
 
-    def test_openai_yaml_semantics_are_concise_and_quote_tolerant(self) -> None:
+    def test_openai_yaml_semantics_are_canonical_and_explicit_only(self) -> None:
         yaml_text = (SKILL_ROOT / "agents/openai.yaml").read_text(encoding="utf-8")
-        display_name = read_simple_yaml_scalar(yaml_text, "display_name")
-        short_description = read_simple_yaml_scalar(yaml_text, "short_description")
-        default_prompt = read_simple_yaml_scalar(yaml_text, "default_prompt")
+        values, errors = OPENAI_YAML_VALIDATOR.validate_openai_yaml_text(yaml_text)
 
-        self.assertEqual(display_name, "CodexQB")
-        self.assertIsNotNone(short_description)
-        self.assertLessEqual(len(short_description or ""), 80)
-        self.assertIn("vibecoding", (short_description or "").lower())
-        self.assertIsNotNone(default_prompt)
-        self.assertIn("$codexqb", default_prompt or "")
-        self.assertLessEqual(len(default_prompt or ""), 220)
+        self.assertEqual(errors, [])
+        self.assertEqual(values["display_name"], "CodexQB")
+        self.assertLessEqual(len(values["short_description"]), 80)
+        self.assertIn("vibecoding", values["short_description"].lower())
+        self.assertIn("$codexqb", values["default_prompt"])
+        self.assertLessEqual(len(values["default_prompt"]), 220)
 
-        for sample in [
-            "display_name: CodexQB",
-            'display_name: "CodexQB"',
-            "display_name: 'CodexQB'",
-        ]:
-            self.assertEqual(read_simple_yaml_scalar(sample, "display_name"), "CodexQB")
+        commented = "# activation metadata\r\n\r\n" + yaml_text.replace("\n", "\r\n").rstrip("\r\n")
+        _commented_values, commented_errors = OPENAI_YAML_VALIDATOR.validate_openai_yaml_text(
+            commented
+        )
+        self.assertEqual(commented_errors, [])
+
+    def test_openai_yaml_rejects_duplicate_wrong_type_and_noncanonical_policy(self) -> None:
+        interface = (
+            "interface:\n"
+            '  display_name: "CodexQB"\n'
+            '  short_description: "Vibecoding evidence"\n'
+            '  default_prompt: "Use $codexqb explicitly."\n'
+        )
+        invalid_samples = {
+            "missing": interface,
+            "true": interface + "policy:\n  allow_implicit_invocation: true\n",
+            "quoted_double": interface + 'policy:\n  allow_implicit_invocation: "false"\n',
+            "quoted_single": interface + "policy:\n  allow_implicit_invocation: 'false'\n",
+            "case_varied": interface + "policy:\n  allow_implicit_invocation: False\n",
+            "numeric": interface + "policy:\n  allow_implicit_invocation: 0\n",
+            "null": interface + "policy:\n  allow_implicit_invocation: null\n",
+            "inline_comment": interface + "policy:\n  allow_implicit_invocation: false # unsafe ambiguity\n",
+            "duplicate_section_false_true": (
+                interface
+                + "policy:\n  allow_implicit_invocation: false\n"
+                + "policy:\n  allow_implicit_invocation: true\n"
+            ),
+            "duplicate_section_true_false": (
+                interface
+                + "policy:\n  allow_implicit_invocation: true\n"
+                + "policy:\n  allow_implicit_invocation: false\n"
+            ),
+            "duplicate_key": (
+                interface
+                + "policy:\n  allow_implicit_invocation: false\n"
+                + "  allow_implicit_invocation: true\n"
+            ),
+            "extra_policy_key": (
+                interface
+                + "policy:\n  allow_implicit_invocation: false\n  extra: value\n"
+            ),
+            "merge_key": (
+                interface
+                + "policy:\n  <<: *defaults\n  allow_implicit_invocation: false\n"
+            ),
+            "flow_mapping": interface + "policy: {allow_implicit_invocation: false}\n",
+            "wrong_nesting": interface + "  policy:\n    allow_implicit_invocation: false\n",
+            "tab_indent": interface + "policy:\n\tallow_implicit_invocation: false\n",
+            "second_document": (
+                interface
+                + "policy:\n  allow_implicit_invocation: false\n"
+                + "---\npolicy:\n  allow_implicit_invocation: true\n"
+            ),
+            "bare_interface_colon": interface.replace(
+                '  default_prompt: "Use $codexqb explicitly."\n',
+                "  default_prompt: Use $codexqb: true\n",
+            )
+            + "policy:\n  allow_implicit_invocation: false\n",
+            "single_quoted_interface": interface.replace(
+                '  display_name: "CodexQB"\n',
+                "  display_name: 'CodexQB'\n",
+            )
+            + "policy:\n  allow_implicit_invocation: false\n",
+            "raw_control_interface": interface.replace(
+                '  default_prompt: "Use $codexqb explicitly."\n',
+                '  default_prompt: "Use $codexqb ' + chr(1) + '"\n',
+            )
+            + "policy:\n  allow_implicit_invocation: false\n",
+        }
+        slash = chr(92)
+        for name, escape in {
+            "surrogate_high": "ud800",
+            "surrogate_low": "udfff",
+            "surrogate_pair": "ud83d" + slash + "ude00",
+        }.items():
+            invalid_samples[name] = interface.replace(
+                '  default_prompt: "Use $codexqb explicitly."\n',
+                f'  default_prompt: "Use $codexqb {slash}{escape}"\n',
+            ) + "policy:\n  allow_implicit_invocation: false\n"
+        for name, sample in invalid_samples.items():
+            with self.subTest(name=name):
+                _values, errors = OPENAI_YAML_VALIDATOR.validate_openai_yaml_text(sample)
+                self.assertTrue(errors)
+
+        validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
+        self.assertIn("python3 scripts/validate_openai_yaml.py", validate_script)
 
     def test_language_contract_is_documented(self) -> None:
         required_phrases = [
@@ -169,7 +254,8 @@ class SkillContentTests(unittest.TestCase):
             "Inspect relevant files before editing",
             "focused failing test",
             "smallest change",
-            "Run targeted validation",
+            "run `capture-evidence`",
+            "run every planned command through `run-validation`",
             "If targeted validation fails and the source is unclear, stop",
             "Run the repo-level gate",
             "Do not batch unrelated sub-plans in one diff",
@@ -197,8 +283,8 @@ class SkillContentTests(unittest.TestCase):
             "`DONE_WITH_CONCERNS`",
             "`NEEDS_CONTEXT`",
             "`BLOCKED`",
-            "`spec_verdict: pass|fail`",
-            "`quality_verdict: pass|fail|with_fixes`",
+            "`verdict: pass|fail|cannot_verify`",
+            "`verdict: pass|fail|needs_fixes|cannot_verify`",
             "fix only the active slice and re-run spec review",
             "fix only the active slice and re-run the relevant review",
             "final review",
@@ -230,11 +316,54 @@ class SkillContentTests(unittest.TestCase):
             "FixReport",
             "FinalReview",
             "Result",
+            "ChangeSet",
+            "ValidationReceipt",
+            "ReviewReceipt",
+            "ReviewReport",
         ]:
             self.assertIn(name, schema_defs)
-        self.assertEqual(schema_defs["ApplyRun"]["properties"]["apply_run_schema_version"]["const"], 1)
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["apply_run_schema_version"]["const"], 3)
+        self.assertIn("apply_run_registration_id", schema_defs["ApplyRun"]["required"])
+        planned_validation = schema_defs["PlannedValidationCommand"]
+        self.assertEqual(
+            set(planned_validation["required"]),
+            {"id", "argv", "cwd", "expected_exit_code", "timeout_seconds", "network", "probe_tier"},
+        )
+        self.assertEqual(planned_validation["properties"]["network"]["const"], "deny")
+        self.assertEqual(planned_validation["properties"]["probe_tier"]["const"], 1)
+        self.assertEqual(planned_validation["properties"]["expected_exit_code"]["const"], 0)
+        self.assertEqual(planned_validation["properties"]["timeout_seconds"]["maximum"], 3600)
+        self.assertFalse(planned_validation["additionalProperties"])
+        self.assertNotIn("exit_code", planned_validation["properties"])
+        validation_receipt = schema_defs["ValidationReceipt"]
+        for field in [
+            "run_binding",
+            "task_binding",
+            "producer_binding",
+            "command",
+            "result",
+            "code_snapshot_before",
+            "code_snapshot_after",
+            "receipt_mac",
+        ]:
+            self.assertIn(field, validation_receipt["required"])
+        producer_binding = schema_defs["ProducerBinding"]
+        self.assertIn("identity_assurance", producer_binding["required"])
+        self.assertEqual(
+            producer_binding["properties"]["identity_assurance"]["const"],
+            "controller_asserted",
+        )
+        self.assertFalse(validation_receipt["additionalProperties"])
+        receipt_command = schema_defs["ValidationReceiptCommand"]
+        for field in ["argv", "cwd", "started_at", "finished_at", "planned_network"]:
+            self.assertIn(field, receipt_command["required"])
+        receipt_result = schema_defs["ValidationReceiptResult"]
+        for field in ["exit_code", "stdout_sha256", "stderr_sha256", "combined_output_sha256", "artifacts"]:
+            self.assertIn(field, receipt_result["required"])
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["artifact_schema_version"]["const"], 3)
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["handoff_contract_version"]["const"], 2)
+        self.assertIn("apply_policy_digest", schema_defs["ApplyRun"]["required"])
+        self.assertEqual(schema_defs["ApplyRun"]["properties"]["apply_policy_digest"]["$ref"], "#/$defs/Sha256")
         self.assertIn("budget_contract", schema_defs["ApplyRun"]["required"])
         self.assertIn("token_usage", schema_defs["ApplyRun"]["required"])
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["budget_contract"]["$ref"], "#/$defs/BudgetContract")
@@ -255,7 +384,7 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("user_approval", schema_defs["ApplyRun"]["required"])
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["workspace_baseline"]["$ref"], "#/$defs/WorkspaceBaseline")
         self.assertEqual(
-            schema_defs["ApplyRun"]["properties"]["workspace_mode"]["enum"],
+            schema_defs["WorkspaceMode"]["enum"],
             ["non_git_unsafe", "unverified_current_worktree", "verified_isolated_worktree"],
         )
         self.assertEqual(schema_defs["ApplyRun"]["properties"]["dirty_state"]["enum"], ["clean", "dirty", "non_git", "unknown"])
@@ -268,25 +397,81 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("implementation_contract_digest", schema_defs["Task"]["required"])
         self.assertIn("task_contract_digest", schema_defs["Task"]["required"])
         self.assertIn("validation_command_ids", schema_defs["Task"]["required"])
+        for field in [
+            "implementation_generation",
+            "change_set",
+            "validation_receipts",
+            "review_receipts",
+            "evidence_chain_status",
+            "verification_assurance",
+        ]:
+            self.assertIn(field, schema_defs["Task"]["required"])
         self.assertEqual(schema_defs["Task"]["properties"]["implementation_contract"]["type"], "object")
         self.assertEqual(schema_defs["Task"]["properties"]["task_contract_digest"]["$ref"], "#/$defs/Sha256")
         self.assertEqual(schema_defs["Task"]["properties"]["fix_cycle_count"]["minimum"], 0)
         self.assertEqual(schema_defs["Task"]["properties"]["validation_commands"]["items"]["$ref"], "#/$defs/PlannedValidationCommand")
-        self.assertEqual(schema_defs["Task"]["properties"]["validation_command_ids"]["items"]["pattern"], "^VAL-[A-Za-z0-9_.:-]+$")
         self.assertEqual(
-            schema_defs["ImplementerReport"]["properties"]["validation_evidence"]["items"]["$ref"],
-            "#/$defs/ValidationEvidence",
+            schema_defs["Task"]["properties"]["validation_command_ids"]["items"]["$ref"],
+            "#/$defs/ValidationId",
+        )
+        self.assertEqual(schema_defs["ValidationId"]["pattern"], "^VAL-[A-Z0-9_.-]{1,60}$")
+        self.assertEqual(
+            schema_defs["ImplementerReport"]["properties"]["validation_receipt_ids"]["items"]["$ref"],
+            "#/$defs/Sha256",
         )
         self.assertEqual(
-            schema_defs["FinalReview"]["properties"]["global_validations"]["items"]["$ref"],
-            "#/$defs/ValidationEvidence",
+            schema_defs["ImplementerReport"]["properties"]["change_set_id"]["$ref"],
+            "#/$defs/Sha256",
+        )
+        complete_final_review = schema_defs["FinalReview"]["oneOf"][1]
+        self.assertEqual(
+            complete_final_review["properties"]["validation_receipts"]["items"]["$ref"],
+            "#/$defs/TaskValidationReceiptReference",
+        )
+        self.assertEqual(
+            complete_final_review["properties"]["final_reviewer_receipts"]["items"]["$ref"],
+            "#/$defs/ReviewReceiptReference",
         )
         self.assertEqual(schema_defs["DispatchPacket"]["properties"]["spawn_tool"]["const"], "multi_agent_v1.spawn_agent")
         self.assertIn("task_contract_digest", schema_defs["DispatchPacket"]["required"])
+        self.assertIn("review_phase", schema_defs["DispatchPacket"]["required"])
+        self.assertEqual(
+            set(schema_defs["ExpectedReportPaths"]["required"]),
+            {
+                "implementer",
+                "task_reviewer_spec",
+                "task_reviewer_quality",
+                "security_reviewer",
+                "fixer",
+                "final_reviewer",
+            },
+        )
+        self.assertIn("identity_assurance", schema_defs["AgentRun"]["required"])
+        self.assertEqual(
+            schema_defs["AgentRun"]["properties"]["identity_assurance"]["const"],
+            "controller_asserted",
+        )
+        self.assertIn("report_normalized_event_sequence", schema_defs["AgentRun"]["properties"])
+        complete_review_report = schema_defs["ReviewReport"]["oneOf"][1]
+        self.assertIn("evidence", complete_review_report["required"])
+        self.assertEqual(complete_review_report["properties"]["evidence"]["minItems"], 1)
+        self.assertEqual(
+            complete_review_report["allOf"][0]["then"]["properties"]["verdict"]["enum"],
+            ["cannot_verify", "fail", "pass"],
+        )
+        verification_policy = schema_defs["VerificationPolicy"]
+        self.assertEqual(
+            verification_policy["properties"]["trusted_verified_mode"]["const"],
+            "host_attested_subagent",
+        )
+        self.assertTrue(verification_policy["properties"]["host_agent_attestation_required"]["const"])
         self.assertEqual(schema_defs["Result"]["properties"]["budget_contract"]["$ref"], "#/$defs/BudgetContract")
         self.assertEqual(schema_defs["Result"]["properties"]["token_usage"]["$ref"], "#/$defs/TokenUsage")
         self.assertIn("references/apply-run-schema.json", skill)
         self.assertIn("plugins/codexqb/skills/codexqb/references/apply-run-schema.json", validate_script)
+        self.assertIn("requirements-ci.txt", validate_script)
+        self.assertIn("scripts/validate_apply_schema.py", validate_script)
+        self.assertIn("tests/test_apply_schema.py", validate_script)
         self.assertIn("references/apply-run-schema.json", maintaining)
         role_files = [
             "controller.md",
@@ -310,13 +495,18 @@ class SkillContentTests(unittest.TestCase):
             "apply_run.py prepare",
             "apply_run.py dispatch",
             "apply_run.py record-agent",
+            "normalize-writer",
+            "normalize-review",
+            "capture-evidence",
+            "run-validation",
+            "publish-review",
             "apply_run.py transition",
             "apply_run.py recover-lock",
-            "apply_run.py finalize",
+            "`finalize` remains fail-closed",
             "strict Step 4 validation",
             "validator output hash",
             "Dispatch-Packet.json",
-            "Agent-Run-<role>-<nn>.json",
+            "Agent-Run-<role>[-<review-phase>]-<nn>.json",
             "multi_agent_v1.spawn_agent",
             "record-agent --status spawned",
             "append-only transition truth",
@@ -327,30 +517,54 @@ class SkillContentTests(unittest.TestCase):
             "allow-unverified-git-worktree",
             "dirty_state",
             "working_branch",
-            "security_reviewer_agent_id",
-            "that identity must differ from `implementer_agent_id`",
+            "controller_asserted",
+            "trusted_verified_requires_host_agent_attestation",
         ]:
             self.assertIn(phrase, apply_ref)
-        self.assertIn("security_reviewer_agent_id", schema_defs["TaskReview"]["properties"])
         for phrase in [
             "prepare --root",
             "dispatch --run-dir",
             "record-agent --run-dir",
+            "normalize-writer",
+            "normalize-review",
+            "capture-evidence",
+            "run-validation",
+            "publish-review",
             "transition --run-dir",
             "recover-lock --run-dir",
             "finalize --run-dir",
             "Events.jsonl",
             "strict Step 4 validation",
-            "missing dispatch packets",
-            "missing spawned/completed agent lifecycle records",
-            "agent profile drift",
             "apply-run-schema.json",
-            "security_reviewer_agent_id",
-            "implementer_agent_id",
+            "controller_asserted",
+            "trusted_verified_requires_host_agent_attestation",
             "validation_command_ids",
         ]:
             self.assertIn(phrase, readme)
             self.assertIn(phrase, usage)
+        for phrase in [
+            "missing dispatch packets",
+            "missing spawned/completed agent lifecycle records",
+            "agent profile drift",
+            "host agent attestation",
+        ]:
+            self.assertIn(phrase, usage)
+
+    def test_event_integrity_and_recovery_boundaries_are_documented(self) -> None:
+        documents = {
+            "README.md": (REPO_ROOT / "README.md").read_text(encoding="utf-8"),
+            "docs/USAGE.md": (REPO_ROOT / "docs/USAGE.md").read_text(encoding="utf-8"),
+            "docs/MAINTAINING.md": (REPO_ROOT / "docs/MAINTAINING.md").read_text(encoding="utf-8"),
+            "apply-orchestrator.md": (
+                SKILL_ROOT / "references/apply-orchestrator.md"
+            ).read_text(encoding="utf-8"),
+        }
+        for name, text in documents.items():
+            self.assertIn("event_log_commit_state_unknown", text, name)
+            self.assertIn("trusted external head anchor", text, name)
+            self.assertIn("pre-chain v3", text, name)
+            self.assertIn("blind", text, name)
+            self.assertIn("fresh run", text, name)
 
     def test_validate_script_covers_archive_and_secret_hygiene(self) -> None:
         validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
@@ -360,7 +574,8 @@ class SkillContentTests(unittest.TestCase):
             "package_secret_hygiene_mode=filesystem",
             "openrouter_api_key",
             "OPENROUTER_API_KEY",
-            "git\", \"archive\"",
+            "CODEXQB_TRUSTED_GIT",
+            "[GIT, \"archive\"",
             "archive_hygiene_failed",
             "package_hygiene_failed",
             "package_hygiene_mode=filesystem",
@@ -492,6 +707,55 @@ class SkillContentTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertIn("safety_contracts", text, path.as_posix())
 
+    def test_secure_artifact_io_is_packaged_wired_and_documented(self) -> None:
+        artifact_io = SKILL_ROOT / "scripts/artifact_io.py"
+        self.assertTrue(artifact_io.is_file())
+        validator = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
+        self.assertIn("plugins/codexqb/skills/codexqb/scripts/artifact_io.py", validator)
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("scripts/artifact_io.py", skill)
+        for path in [SKILL_ROOT / "scripts/goal_run.py", SKILL_ROOT / "scripts/apply_run.py"]:
+            self.assertIn("artifact_io", path.read_text(encoding="utf-8"), path.as_posix())
+
+        goal_contract = (SKILL_ROOT / "references/goal-compiler.md").read_text(encoding="utf-8")
+        apply_contract = (SKILL_ROOT / "references/apply-orchestrator.md").read_text(encoding="utf-8")
+        public_contract = "\n".join(
+            [
+                (REPO_ROOT / "README.md").read_text(encoding="utf-8"),
+                (REPO_ROOT / "docs/USAGE.md").read_text(encoding="utf-8"),
+                (REPO_ROOT / "docs/MAINTAINING.md").read_text(encoding="utf-8"),
+                skill,
+                goal_contract,
+                apply_contract,
+            ]
+        )
+        self.assertIn("direct, non-symlink child of `Planner-docs/Goal-Runs/`", public_contract)
+        self.assertIn("registered and HMAC-verified direct", public_contract)
+        for phrase in [
+            "`O_EXCL | O_NOFOLLOW`",
+            "full write loop",
+            "run-directory `flock`",
+            "full-file atomic replace",
+            "unique, contiguous",
+            "not a multi-file transaction",
+            "fail closed",
+        ]:
+            self.assertIn(phrase, public_contract)
+
+    def test_no_exec_git_evidence_is_packaged_wired_and_documented(self) -> None:
+        git_evidence = SKILL_ROOT / "scripts/git_evidence.py"
+        self.assertTrue(git_evidence.is_file())
+        validator = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            "plugins/codexqb/skills/codexqb/scripts/git_evidence.py",
+            validator,
+        )
+        self.assertIn("tests/test_git_evidence.py", validator)
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("scripts/git_evidence.py", skill)
+        for path in [SKILL_ROOT / "scripts/goal_run.py", SKILL_ROOT / "scripts/apply_run.py"]:
+            self.assertIn("git_evidence", path.read_text(encoding="utf-8"), path.as_posix())
+
     def test_plugin_metadata_reflects_030_goal_apply_release(self) -> None:
         plugin_text = (REPO_ROOT / "plugins/codexqb/.codex-plugin/plugin.json").read_text(encoding="utf-8")
         self.assertIn('"version": "0.3.0"', plugin_text)
@@ -511,8 +775,10 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn(phrase, plugin_text.lower())
 
         yaml_text = (SKILL_ROOT / "agents/openai.yaml").read_text(encoding="utf-8")
-        default_prompt = read_simple_yaml_scalar(yaml_text, "default_prompt") or ""
-        short_description = read_simple_yaml_scalar(yaml_text, "short_description") or ""
+        values, errors = OPENAI_YAML_VALIDATOR.validate_openai_yaml_text(yaml_text)
+        self.assertEqual(errors, [])
+        default_prompt = values["default_prompt"]
+        short_description = values["short_description"]
         self.assertIn("$codexqb", default_prompt)
         self.assertIn("comprehension", default_prompt.lower())
         self.assertIn("evidence", default_prompt.lower())
@@ -640,6 +906,12 @@ class SkillContentTests(unittest.TestCase):
     def test_ci_and_export_sanitized_are_hardened(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/validate.yml").read_text(encoding="utf-8")
         makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
+        privacy_checker = (REPO_ROOT / "scripts/check_public_privacy.py").read_text(encoding="utf-8")
+        bug_template = (REPO_ROOT / ".github/ISSUE_TEMPLATE/bug_report.yml").read_text(encoding="utf-8")
+        requirements_ci = (REPO_ROOT / "requirements-ci.txt").read_text(encoding="utf-8")
+        schema_validator = REPO_ROOT / "scripts/validate_apply_schema.py"
+        package_manifest_validator = REPO_ROOT / "scripts/verify_package_manifest.py"
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("push:", workflow)
         self.assertIn("pull_request:", workflow)
@@ -647,12 +919,42 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("matrix:", workflow)
         self.assertIn('python-version: ["3.12", "3.13"]', workflow)
         self.assertIn("python-version: ${{ matrix.python-version }}", workflow)
+        self.assertIn("pip install --requirement requirements-ci.txt", workflow)
+        self.assertIn("make check-schema", workflow)
+        self.assertIn("make check-public-privacy", workflow)
+        self.assertIn("Validate an extracted Gitless source package", workflow)
+        self.assertIn("CODEXQB_VALIDATE_SKIP_UNITTESTS=1", workflow)
+        self.assertIn("CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE=1", workflow)
+        self.assertLess(
+            workflow.index("run: make check\n"),
+            workflow.index("pip install --requirement requirements-ci.txt"),
+        )
+        self.assertEqual(requirements_ci.strip(), "jsonschema==4.26.0")
+        self.assertTrue(schema_validator.is_file())
+        self.assertTrue(package_manifest_validator.is_file())
+        self.assertIn("check-schema:", makefile)
+        self.assertIn("scripts/validate_apply_schema.py", makefile)
+        self.assertIn("tests.test_apply_schema", makefile)
         self.assertIn("scripts/export_sanitized.py", makefile)
         self.assertIn("check-fast", makefile)
         self.assertIn("check-behavior", makefile)
         self.assertIn("check-public-privacy", makefile)
         self.assertIn("check-release", makefile)
         self.assertIn("export-sanitized-worktree", makefile)
+        self.assertIn("export-sanitized-source-package", makefile)
+        self.assertIn('--output "$$tmpdir/CodexQB-sanitized.zip"', makefile)
+        self.assertIn("--source-package", validate_script)
+        self.assertIn(
+            'scripts/verify_package_manifest.py --root .',
+            validate_script,
+        )
+        self.assertIn(
+            'scripts/verify_package_manifest.py --zip "$TMPDIR_VALIDATE/CodexQB-sanitized.zip"',
+            validate_script,
+        )
+        self.assertIn('"docs/FEEDBACK-CLOSURE-AUDIT.md"', privacy_checker)
+        self.assertNotIn("0.2.1", bug_template)
+        self.assertIn("vX.Y.Z or commit SHA", bug_template)
         export_script = (REPO_ROOT / "scripts/export_sanitized.py").read_text(encoding="utf-8")
         self.assertIn("CodexQB-sanitized.zip", export_script)
         self.assertIn("IGNORED_PARTS", export_script)
@@ -660,6 +962,11 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("PACKAGE-MANIFEST.json", export_script)
         self.assertIn("working_tree_dirty", export_script)
         self.assertIn("head_mismatch_origin_main", export_script)
+        self.assertIn("git_metadata_required_for_strict_export", export_script)
+        self.assertIn("changelog_version_unreleased", export_script)
+        self.assertIn("release_tag_missing", export_script)
+        self.assertIn("release_tag_head_mismatch", export_script)
+        self.assertIn("SOURCE_PACKAGE_MODE", export_script)
 
     def test_fixture_corpus_infrastructure_is_present(self) -> None:
         runner = REPO_ROOT / "evals/run_fixture_corpus_checks.py"
@@ -751,27 +1058,49 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn("--exclude '*.pyc'", text)
             self.assertIn("diff -ru -x __pycache__", text)
 
+    def test_installation_documents_unattested_subagent_boundary(self) -> None:
+        install = (REPO_ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
+        self.assertIn("complete but unattested", install)
+        self.assertIn("trusted `VERIFIED` and `finalize` remain blocked", install)
+        self.assertIn("host-issued agent attestation", install)
+        self.assertIn(
+            "Summarize this project's README without using any plugin or skill.",
+            install,
+        )
+        self.assertIn("separate fresh task", install)
+        self.assertNotIn(
+            "use `subagent_serial` when the run must reach trusted `VERIFIED` and finalize",
+            install,
+        )
+
     def test_validate_script_runs_without_git_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
+            archive_path = Path(temp_dir) / "CodexQB-source-package.zip"
+            export_result = subprocess.run(
+                [
+                    "python3",
+                    "scripts/export_sanitized.py",
+                    "--root",
+                    ".",
+                    "--output",
+                    str(archive_path),
+                    "--source-package",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(export_result.returncode, 0, export_result.stdout + export_result.stderr)
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(temp_dir)
+                for info in archive.infolist():
+                    if info.is_dir():
+                        continue
+                    extracted = Path(temp_dir) / info.filename
+                    extracted.chmod(stat.S_IMODE(info.external_attr >> 16))
             package_root = Path(temp_dir) / "CodexQB"
-
-            def ignore(_dir: str, names: list[str]) -> set[str]:
-                ignored = {
-                    ".git",
-                    "__pycache__",
-                    ".pytest_cache",
-                    ".mypy_cache",
-                    ".ruff_cache",
-                    "artifacts",
-                    "build",
-                    "dist",
-                    "logs",
-                    "tmp",
-                    "CodexQB-sanitized.zip",
-                }
-                return ignored.intersection(names)
-
-            shutil.copytree(REPO_ROOT, package_root, ignore=ignore)
             env = os.environ.copy()
             env["CODEXQB_VALIDATE_SKIP_UNITTESTS"] = "1"
             env["CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE"] = "1"
@@ -791,6 +1120,22 @@ class SkillContentTests(unittest.TestCase):
             self.assertIn("unit_tests_skipped=1", result.stdout)
             self.assertIn("behavior_smokes_skipped=1", result.stdout)
             self.assertNotIn("apply_behavior_smoke=passed", result.stdout)
+
+            (package_root / "PACKAGE-MANIFEST.json").unlink()
+            missing_manifest = subprocess.run(
+                ["bash", "scripts/validate.sh"],
+                cwd=package_root,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertNotEqual(missing_manifest.returncode, 0)
+            self.assertIn(
+                "package_manifest_missing_for_gitless_tree",
+                missing_manifest.stdout,
+            )
 
     def test_archive_hygiene_pattern_matches_forbidden_paths(self) -> None:
         pattern = re.compile(

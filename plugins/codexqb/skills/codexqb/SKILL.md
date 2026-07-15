@@ -9,6 +9,8 @@ description: Use when planning repo work with evidence-backed comprehension, aut
 
 Run the bundled planning workflow for a project repository. Keep Step 1 conversational and repo-aware, run Step 1.5 Autopsy for existing projects, and hand off Step 2 and Step 3 as text-only Goal mode prompts unless the user explicitly asks for a different flow. After Step 3, provide a gated Step 4 implementation handoff prompt only when the audit says implementation can begin.
 
+Activation is explicit-only. Do not start this workflow from an ordinary planning or coding request unless the user invokes `$codexqb` or selects the CodexQB skill in the interface. Keep the packaged `allow_implicit_invocation: false` policy intact. The planner artifact schema remains v3, the handoff contract remains v2, and new Apply runtime artifacts use schema v3; Apply v1/v2 runs are archive-only.
+
 The bundled prompts are:
 
 - `references/First-Planner.md` for Step 1 main planning.
@@ -29,13 +31,15 @@ Planning behavior references:
 - `references/assessment-and-budget.md` for autonomy, Goal mode, token/context, and budget assessment.
 - `references/engineering-principles.md` for domain-appropriate CS, architecture, validation, and secure engineering methods.
 - `references/goal-compiler.md` for deterministic Goal preview artifacts.
-- `references/apply-orchestrator.md` for Step 4 apply-run artifact contracts, modes, state, review loop, and resume/no-action behavior.
-- `references/apply-run-schema.json` for the public JSON Schema reference covering apply-run runtime artifacts.
+- `references/apply-orchestrator.md` for the Step 4 Apply v3 artifact contract, signed evidence receipts, modes, state, ordered review loop, and resume/no-action behavior.
+- `references/apply-run-schema.json` for the public JSON Schema reference covering Apply v3 runtime artifacts.
 - `references/apply/controller.md`, `references/apply/implementer.md`, `references/apply/task-reviewer.md`, `references/apply/security-reviewer.md`, `references/apply/fixer.md`, and `references/apply/final-reviewer.md` for Step 4 fresh-context role brief/report contracts.
 
 Bundled support files:
 
 - `scripts/validate_planner_docs.py` for read-only structural validation of `Planner-docs/`.
+- `scripts/artifact_io.py` for shared descriptor-relative, no-follow, atomic artifact writes and run-directory locking.
+- `scripts/repository_evidence.py` and `scripts/git_evidence.py` for descriptor-bound raw file snapshots and no-exec Git plumbing evidence that never invokes repository diff/filter/fsmonitor programs.
 - `scripts/goal_run.py` for dependency-free Goal preview artifact generation.
 - `scripts/apply_run.py` for dependency-free Step 4 apply-run artifact creation and validation.
 - `references/repo-aware-intake.md` for evidence-backed Step 1 intake questions.
@@ -148,7 +152,7 @@ When Step 3 completes:
 
 1. Read `references/Fourth-Planner.md`.
 2. Run the bundled validator when available. When manually validating from a CodexQB repository checkout, use:
-   `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4`
+   `python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4 --strict`
    If no script path is accessible, perform equivalent all-file validation and report that fallback clearly.
 3. If validation passes, print the Step 4 Goal mode copy block and remind the user to watch token use.
 4. If validation fails because the audit is `BLOCKED` or contains P0/P1 findings, do not print the Step 4 prompt; print the minimal repair or unblock prompt instead.
@@ -160,13 +164,16 @@ When Step 3 completes:
 - Prefer `scripts/validate_planner_docs.py` over ad hoc validation scripts.
 - Use `--mode step1`, `--mode autopsy`, `--mode step2`, `--mode step3-preflight`, `--mode step3`, or `--mode step4` for the active workflow step.
 - Use `--strict` in Goal mode so generic or repeated section warnings become failures.
-- Prefer structured validation command contracts with `argv`, `cwd`, `expected_exit_code`, `timeout_seconds`, `network`, and `probe_tier`; strict validation rejects shell chaining, command substitution, and mutation/deploy intent.
+- Require closed structured validation command contracts with `id`, `argv`, repo-bound `cwd`, `expected_exit_code: 0`, bounded `timeout_seconds`, `network: deny`, and `probe_tier: 1`. Strict/Apply authorization accepts only the canonical no-write pytest/unittest or Ruff profiles documented by the validator; reject unknown fields/options, output or mutation flags, shell syntax, executable-path spoofing, sensitive paths, symlink cwd escapes, and opaque wrappers.
+- For Apply v3, require `capture-evidence` after implementation, `run-validation` once for every planned validation ID, and phase-aware reviewer `dispatch`/`record-agent` followed by `publish-review` in `spec`, `quality`, optional `security`, and `final` order. `run-validation` uses a minimal child environment, disables Python user-site and automatic pytest-plugin loading, bounds combined output to 8 MiB, and prevents descendant-process escape before `exec`: macOS uses the fixed system `sandbox-exec` with `process-fork` denied, while supported Linux architectures use `no_new_privs` plus an architecture-bound seccomp filter that permits same-process threads but denies process-forming fork/clone calls. It also tears down its POSIX process group on every exit; missing enforcement or an unknown syscall architecture fails closed. This is descendant lifecycle containment only, not proof of file or network sandboxing, so host sandbox/network proof remains `not_observed` without independent host evidence. All receipts must remain bound to the current live repository digest. Direct mode cannot independently produce the reviewer-agent chain and must not reach trusted `VERIFIED` or finalize.
 - Do not report section counts from memory; report counts only after reading the active prompt or running validation.
 - For untracked `Planner-docs/`, use `find Planner-docs -maxdepth 4 -type f | sort`, `git status --short -- Planner-docs`, and `git diff -- Planner-docs` together.
 - Keep long Goal mode stdout concise. Put detailed evidence in the generated Markdown artifacts.
 - Track planning and implementation continuity through `Planner-docs/Planing-Ledger.md` when available; Step 4 should append concise implementation summaries there.
 - Track project-understanding continuity through optional `Planner-docs/Project-Comprehension.md`; Step 4 should verify tentative assumptions before code changes and update the ledger when a hypothesis is confirmed or contradicted.
-- Optional 0.3.0 helpers write only repo-local `Planner-docs/Goal-Runs/` or `.codexqb/apply-runs/` artifacts and do not execute implementation, commit, push, PR, deploy, install dependencies, or edit global Codex config.
+- Optional 0.3.0 Goal writes are limited to a direct, non-symlink child of `Planner-docs/Goal-Runs/`; Apply mutations require a registered and HMAC-verified direct, non-symlink child of `.codexqb/apply-runs/`. Symlinked managed parents and final targets fail closed.
+- Shared artifact writes use a random same-directory `O_EXCL | O_NOFOLLOW` temporary, a full write loop, file and directory `fsync`, descriptor-relative atomic replace, and pre-commit cleanup. Apply holds a run-directory `flock` across cooperating mutations and publishes a validated `Events.jsonl` by full-file atomic replace with a unique, contiguous next sequence and an unkeyed previous-hash/hash link. These are per-file guarantees, not a multi-file transaction, trusted head anchor, or host attestation; a complete valid-tail deletion or fully recomputed replacement is outside the chain's detection boundary, and missing platform primitives fail closed.
+- These helpers do not execute implementation, commit, push, PR, deploy, install dependencies, or edit global Codex config. The explicit Apply `run-validation` command may execute only an exact safe command already authorized by the immutable task plan.
 
 ## Safety Rules
 

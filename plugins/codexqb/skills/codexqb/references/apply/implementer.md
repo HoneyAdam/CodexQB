@@ -10,18 +10,18 @@ Use this role for a fresh-context worker that implements exactly one active task
 - validation commands
 - stop conditions
 
-## Required Report
+## Required Return
 
-Write `Implementer-Report.json` with:
+Return these facts to the controller without inventing validation evidence:
 
 - `task_id`
 - `brief_sha256`
 - `implementer_agent_id`
 - `status`: `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, or `BLOCKED`
 - `files_changed`
-- `validation_evidence` with command argv and exit code
-- `diff_sha256`
 - `concerns`
+
+The implementer writes no Apply artifact. Before recording completion or moving to `IMPLEMENTED`, the controller persists this return through `normalize-writer --role implementer` and binds its hash and normalization event to the current attempt. The controller then captures the live change set, executes the exact planned commands, and normalizes the enriched report again so the durable `Implementer-Report.json` binds controller-issued `validation_receipt_ids`, `change_set_id`, and `diff_sha256`; the implementer must not supply fabricated command hashes or receipt IDs.
 
 ## Model Profile
 

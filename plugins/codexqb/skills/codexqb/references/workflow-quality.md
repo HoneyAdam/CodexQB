@@ -63,7 +63,7 @@ validating from a CodexQB repository checkout, use:
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step2 --strict
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step3 --strict
-python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
+python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4 --strict
 ```
 
 If an installed plugin exposes a different active skill script path, use that
@@ -123,7 +123,7 @@ When comparing an untracked generated file to another file, use
 - Step 1.5 may create `Planner-docs/Autopsy.md` and optional `Planner-docs/Project-Ontology.md` before Step 2 for existing projects.
 - Step 2 must read optional `Project-Ontology.md` and `Planing-Ledger.md` when present, then finish by handing off Step 3 as text for Goal mode.
 - Step 3 must write only `Planner-docs/Sub-Planing-Audit.md`.
-- Step 3 may hand off Step 4 only after `--mode step4` validation passes.
+- Step 3 may hand off Step 4 only after `--mode step4 --strict` validation passes.
 - Step 4 is implementation work in a new Goal run, not a planning-file generation step.
 
 ## Step 4 Token Discipline

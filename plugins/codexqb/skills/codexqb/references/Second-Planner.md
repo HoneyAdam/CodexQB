@@ -405,12 +405,12 @@ Examples:
 
 Describe how this sub-phase should be validated later.
 
-Include likely commands only if they already exist or are obvious from the repo, such as:
-- make check
-- make smoke
-- make ci-local
-- python3 scripts/scan-secrets.py
-- git diff --check
+Include an executable validation command only when it fits the closed read-only command contract. Canonical examples are:
+- `python3 -B -m pytest -p no:cacheprovider tests/test_example.py -q`
+- `python3 -B -m unittest discover -s tests -p 'test_*.py'`
+- `ruff check --no-fix --no-cache .`
+
+Do not classify make targets, package-manager scripts, arbitrary Python scripts, Git commands, wrappers, or build/smoke commands as safe merely from their names.
 
 For future commands, mark them as proposed.
 
@@ -488,7 +488,7 @@ The JSON must be dependency-free parseable by Python `json` and must use this sh
   "validation_commands": [
     {
       "id": "VAL-01",
-      "argv": ["python3", "-m", "pytest", "tests/test_example.py", "-q"],
+      "argv": ["python3", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests/test_example.py", "-q"],
       "cwd": ".",
       "expected_exit_code": 0,
       "timeout_seconds": 120,
@@ -594,7 +594,7 @@ Map parent acceptance signals from Main-Planing.md to sub-plans:
 ```markdown
 | Parent Signal | Covered By | Validation Command | Status |
 |---|---|---|---|
-| MP-PH1-AS-01 | Planner-docs/Faz-1-Plans/Faz1.1-config-contract.md | uv run pytest tests/config/test_schema_version.py -q | planned |
+| MP-PH1-AS-01 | Planner-docs/Faz-1-Plans/Faz1.1-config-contract.md | python3 -B -m pytest -p no:cacheprovider tests/config/test_schema_version.py -q | planned |
 ```
 
 ## 7. Decision Register
@@ -614,7 +614,7 @@ When the main plan uses external frameworks such as TRL, vLLM, PEFT, LangChain, 
 ```markdown
 | Capability | External Framework Owns | Project Owns | Wrapper Boundary | Validation |
 |---|---|---|---|---|
-| Training loop | TRL trainer semantics | project config validation and policy glue | src/ralph/training/adapter.py | uv run pytest tests/training/test_adapter_contract.py -q |
+| Training loop | TRL trainer semantics | project config validation and policy glue | src/ralph/training/adapter.py | python3 -B -m pytest -p no:cacheprovider tests/training/test_adapter_contract.py -q |
 ```
 
 When the main plan includes online/RL/stateful/cached/resumed/distributed workflows, add:
@@ -624,7 +624,7 @@ When the main plan includes online/RL/stateful/cached/resumed/distributed workfl
 ```markdown
 | Invariant ID | Scope | Required Condition | Violation Risk | Validation Probe |
 |---|---|---|---|---|
-| INV-001 | GRPO rollout group | cached judge results may be reused only for identical completions with matching policy/trainer-step fingerprints | stale reward reuse corrupts training signal | uv run pytest tests/rl/test_rollout_fingerprint.py -q |
+| INV-001 | GRPO rollout group | cached judge results may be reused only for identical completions with matching policy/trainer-step fingerprints | stale reward reuse corrupts training signal | python3 -B -m pytest -p no:cacheprovider tests/rl/test_rollout_fingerprint.py -q |
 ```
 
 ## 8. Priority Detailing Order

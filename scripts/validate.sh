@@ -3,8 +3,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+TRUSTED_GIT="$(PATH=/bin:/usr/bin command -v git || true)"
+if [[ -z "$TRUSTED_GIT" ]]; then
+  echo "trusted_git_executable_unavailable"
+  exit 1
+fi
+export CODEXQB_TRUSTED_GIT="$TRUSTED_GIT"
+GIT_TOP_LEVEL="$("$TRUSTED_GIT" rev-parse --show-toplevel 2>/dev/null || true)"
+IS_EXACT_GIT_ROOT=0
+if [[ -n "$GIT_TOP_LEVEL" && "$(cd "$GIT_TOP_LEVEL" && pwd -P)" == "$(pwd -P)" ]]; then
+  IS_EXACT_GIT_ROOT=1
+fi
 TMPDIR_VALIDATE="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_VALIDATE"' EXIT
+export CODEXQB_TRUST_ROOT="$TMPDIR_VALIDATE/codexqb-trust"
+mkdir -m 700 "$CODEXQB_TRUST_ROOT"
 
 python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
 python3 -m json.tool plugins/codexqb/.codex-plugin/plugin.json >/dev/null
@@ -15,6 +28,10 @@ required_files=(
   "plugins/codexqb/skills/codexqb/SKILL.md"
   "plugins/codexqb/skills/codexqb/agents/openai.yaml"
   "plugins/codexqb/skills/codexqb/scripts/safety_contracts.py"
+  "plugins/codexqb/skills/codexqb/scripts/artifact_io.py"
+  "plugins/codexqb/skills/codexqb/scripts/evidence_contracts.py"
+  "plugins/codexqb/skills/codexqb/scripts/repository_evidence.py"
+  "plugins/codexqb/skills/codexqb/scripts/git_evidence.py"
   "plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py"
   "plugins/codexqb/skills/codexqb/scripts/goal_run.py"
   "plugins/codexqb/skills/codexqb/scripts/apply_run.py"
@@ -54,7 +71,17 @@ required_files=(
   "evals/run_goal_apply_metric_checks.py"
   "evals/run_fixture_corpus_checks.py"
   "evals/run_fixture_checks.py"
+  "requirements-ci.txt"
   "scripts/export_sanitized.py"
+  "scripts/validate_openai_yaml.py"
+  "scripts/verify_package_manifest.py"
+  "scripts/validate_apply_schema.py"
+  "tests/test_package_manifest.py"
+  "tests/test_apply_schema.py"
+  "tests/test_apply_inventory.py"
+  "tests/test_evidence_contracts.py"
+  "tests/test_repository_evidence.py"
+  "tests/test_git_evidence.py"
   "README.md"
   "CHANGELOG.md"
   "docs/INSTALLATION.md"
@@ -72,49 +99,14 @@ for path in "${required_files[@]}"; do
   fi
 done
 
-python3 - <<'PY'
-from pathlib import Path
-import sys
+if [[ -f "PACKAGE-MANIFEST.json" ]]; then
+  python3 scripts/verify_package_manifest.py --root .
+elif [[ "$IS_EXACT_GIT_ROOT" != "1" ]]; then
+  echo "package_manifest_missing_for_gitless_tree"
+  exit 1
+fi
 
-path = Path("plugins/codexqb/skills/codexqb/agents/openai.yaml")
-text = path.read_text(encoding="utf-8")
-
-def scalar(key: str) -> str | None:
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith(f"{key}:"):
-            continue
-        value = stripped.split(":", 1)[1].strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        return value
-    return None
-
-display_name = scalar("display_name")
-short_description = scalar("short_description")
-default_prompt = scalar("default_prompt")
-
-errors: list[str] = []
-if display_name != "CodexQB":
-    errors.append(f"display_name={display_name!r}")
-if short_description is None:
-    errors.append("missing short_description")
-elif len(short_description) > 80:
-    errors.append(f"short_description_too_long={len(short_description)}")
-if default_prompt is None:
-    errors.append("missing default_prompt")
-else:
-    if "$codexqb" not in default_prompt:
-        errors.append("default_prompt_missing_$codexqb")
-    if len(default_prompt) > 220:
-        errors.append(f"default_prompt_too_long={len(default_prompt)}")
-
-if errors:
-    print("openai_yaml_semantic_check_failed")
-    for error in errors:
-        print(error)
-    sys.exit(1)
-PY
+python3 scripts/validate_openai_yaml.py
 
 python3 - <<'PY'
 from pathlib import Path
@@ -164,13 +156,19 @@ PY
 
 python3 - <<'PY'
 from pathlib import Path
-import re
+import os
 import subprocess
 import sys
 
+safety_dir = Path("plugins/codexqb/skills/codexqb/scripts").resolve()
+sys.path.insert(0, safety_dir.as_posix())
+from safety_contracts import literal_secret_match_locations, secret_match_locations  # noqa: E402
+
+GIT = os.environ["CODEXQB_TRUSTED_GIT"]
+
 def in_git_checkout() -> bool:
     return subprocess.run(
-        ["git", "rev-parse", "--is-inside-work-tree"],
+        [GIT, "rev-parse", "--is-inside-work-tree"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -204,7 +202,7 @@ def package_paths() -> list[Path]:
 
 
 if in_git_checkout():
-    tracked = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True).stdout
+    tracked = subprocess.run([GIT, "ls-files", "-z"], check=True, capture_output=True).stdout
     paths = [Path(item.decode("utf-8")) for item in tracked.split(b"\0") if item]
     failure_label = "tracked_secret_hygiene_failed"
 else:
@@ -212,22 +210,8 @@ else:
     failure_label = "package_secret_hygiene_failed"
     print("package_secret_hygiene_mode=filesystem")
 
-secret_patterns = [
-    ("openrouter_api_key", re.compile(r"\bsk-or-v1-[A-Za-z0-9_-]{20,}\b")),
-    ("openai_api_key", re.compile(r"\bsk-(?!or-v1-)[A-Za-z0-9_-]{20,}\b")),
-    ("github_pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
-    ("github_legacy_pat", re.compile(r"\bghp_[A-Za-z0-9]{20,}\b")),
-    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("private_key", re.compile(r"BEGIN (?:RSA|OPENSSH|DSA|EC|PRIVATE) KEY")),
-    ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
-]
-openrouter_env = re.compile(r"\bOPENROUTER_API_KEY\s*=\s*([^\s#]+)", re.IGNORECASE)
-allowed_openrouter_values = {
-    "$OPENROUTER_API_KEY",
-    "<redacted>",
-    "redacted",
-    "your_openrouter_api_key",
-}
+# Shared provider labels include openrouter_api_key. Canonical placeholders such
+# as OPENROUTER_API_KEY=${OPENROUTER_API_KEY} are handled by the shared policy.
 
 findings: list[str] = []
 for path in paths:
@@ -236,16 +220,10 @@ for path in paths:
     except (UnicodeDecodeError, OSError):
         continue
 
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        for name, pattern in secret_patterns:
-            if pattern.search(line):
-                findings.append(f"{path}:{line_number}: {name}")
-
-        match = openrouter_env.search(line)
-        if match:
-            value = match.group(1).strip().strip("'\"")
-            if value and value not in allowed_openrouter_values:
-                findings.append(f"{path}:{line_number}: openrouter_env_value")
+    scanner = literal_secret_match_locations if path.suffix.lower() in {".py", ".sh", ".json"} else secret_match_locations
+    for name, offset in scanner(text):
+        line_number = text.count("\n", 0, offset) + 1
+        findings.append(f"{path}:{line_number}: {name}")
 
 if findings:
     print(failure_label)
@@ -256,11 +234,14 @@ PY
 
 python3 - <<'PY'
 import io
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
 import tarfile
+
+GIT = os.environ["CODEXQB_TRUSTED_GIT"]
 
 bad = re.compile(
     r"(^|/)(\.git|__pycache__|\.env|artifacts|logs|tmp|__MACOSX)(/|$)"
@@ -269,7 +250,7 @@ bad = re.compile(
 
 def in_git_checkout() -> bool:
     return subprocess.run(
-        ["git", "rev-parse", "--is-inside-work-tree"],
+        [GIT, "rev-parse", "--is-inside-work-tree"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -299,7 +280,7 @@ def package_offenders() -> list[str]:
 
 
 if in_git_checkout():
-    archive = subprocess.run(["git", "archive", "--format=tar", "HEAD"], check=True, capture_output=True).stdout
+    archive = subprocess.run([GIT, "archive", "--format=tar", "HEAD"], check=True, capture_output=True).stdout
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
         offenders = [member.name for member in tar.getmembers() if bad.search(member.name)]
     failure_label = "archive_hygiene_failed"
@@ -315,7 +296,12 @@ if offenders:
     sys.exit(1)
 PY
 
-python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" --include-untracked --allow-dirty --allow-head-mismatch >/dev/null
+if [[ "$IS_EXACT_GIT_ROOT" == "1" ]]; then
+  python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" --include-untracked --allow-dirty --allow-head-mismatch >/dev/null
+else
+  python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" --source-package >/dev/null
+fi
+python3 scripts/verify_package_manifest.py --zip "$TMPDIR_VALIDATE/CodexQB-sanitized.zip"
 CODEXQB_SANITIZED_ZIP="$TMPDIR_VALIDATE/CodexQB-sanitized.zip" python3 - <<'PY'
 import os
 import re
@@ -325,7 +311,7 @@ from pathlib import Path
 
 safety_dir = Path("plugins/codexqb/skills/codexqb/scripts").resolve()
 sys.path.insert(0, safety_dir.as_posix())
-from safety_contracts import has_secret_like  # noqa: E402
+from safety_contracts import literal_secret_match_locations, secret_match_locations  # noqa: E402
 
 bad = re.compile(
     r"(^|/)(\.git|\.codexqb|__pycache__|\.env|artifacts|logs|tmp|__MACOSX)(/|$)"
@@ -350,7 +336,12 @@ with zipfile.ZipFile(archive_path) as archive:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        if has_secret_like(text):
+        scanner = (
+            literal_secret_match_locations
+            if Path(name).suffix.lower() in {".py", ".sh", ".json"}
+            else secret_match_locations
+        )
+        if scanner(text):
             secret_offenders.append(name)
 
 if offenders or secret_offenders:

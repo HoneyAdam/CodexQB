@@ -9,6 +9,7 @@ the target repo.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import fnmatch
 import hashlib
@@ -18,12 +19,14 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from collections.abc import Iterator
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from safety_contracts import (  # noqa: E402
+    assert_safe_persistent_text,
     budget_limit,
     canonical_json_digest,
     default_budget_contract,
@@ -32,18 +35,40 @@ from safety_contracts import (  # noqa: E402
     implementation_contract_source_binding,
     implementation_contract_validation_command_ids,
     is_safe_repo_path,
+    parse_safe_persistent_json,
     path_is_inside,
+    redact_secret_like,
+    safe_log_text,
+    serialize_safe_persistent_json,
     token_usage_not_observed,
     validate_budget_contract,
     validate_token_usage,
 )
+from artifact_io import (  # noqa: E402
+    atomic_write_text_at,
+    directory_entry_matches,
+    locked_directory,
+    open_child_directory,
+    open_or_create_child_directory,
+    read_regular_json_at,
+    regular_target_metadata_at,
+    secure_directory_open_flags,
+    unlink_regular_at,
+)
+from git_evidence import (  # noqa: E402
+    canonical_git_evidence_digest,
+    capture_git_workspace_evidence,
+)
+from repository_evidence import snapshot_repository_inventory  # noqa: E402
 
 
 ARTIFACT_SCHEMA_VERSION = 3
 HANDOFF_CONTRACT_VERSION = 2
 GOAL_RUN_SCHEMA_VERSION = 1
 PLUGIN_VERSION = "0.3.0"
-GOAL_COMPILER_VERSION = 1
+GOAL_COMPILER_VERSION = 2
+GOAL_RUNS_RELATIVE_DIR = Path("Planner-docs") / "Goal-Runs"
+GOAL_RUN_DIRECTORY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}")
 
 SCRIPT_PATH = Path(__file__).resolve()
 SKILL_ROOT = SCRIPT_PATH.parents[1]
@@ -99,6 +124,7 @@ IMMUTABLE_PLANNER_DOCS_BY_STAGE = {
         "Planner-docs/Sub-Planing-Audit.md",
     ],
 }
+STEP2_MUTABLE_SUBPLAN_PATTERN = "Planner-docs/Faz-*-Plans/*.md"
 MUTABLE_OUTPUTS_BY_STAGE = {
     "step15": [
         "Planner-docs/Autopsy.md",
@@ -109,7 +135,7 @@ MUTABLE_OUTPUTS_BY_STAGE = {
     "step2": [
         "Planner-docs/Sub-Planing-Index.md",
         "Planner-docs/Planing-Ledger.md",
-        "Planner-docs/Faz-*-Plans/*.md",
+        STEP2_MUTABLE_SUBPLAN_PATTERN,
     ],
     "step3": [
         "Planner-docs/Sub-Planing-Audit.md",
@@ -129,6 +155,32 @@ WORKSPACE_BASELINE_EXCLUDED_PREFIXES = (
     ".ruff_cache/",
 )
 WORKSPACE_BASELINE_EXCLUDED_NAMES = {"CodexQB-sanitized.zip"}
+WORKSPACE_BASELINE_PRUNED_DIRS = {
+    ".cache",
+    ".venv",
+    "artifacts",
+    "build",
+    "dist",
+    "logs",
+    "model-cache",
+    "node_modules",
+    "vendor",
+}
+GOAL_FORBIDDEN_WRITES = ["~/.codex/**", ".git/**", ".env", "**/*.key", "**/*.pem"]
+GOAL_STOP_GATES = [
+    "snapshot mismatch",
+    "P0/P1 blocker",
+    "unsafe path",
+    "required user confirmation missing",
+    "dirty unrelated worktree",
+]
+GOAL_FINAL_REPORT_CONTRACT = ["files changed", "validations", "blockers", "next action"]
+GOAL_SAFETY = {
+    "executes_commands": False,
+    "allows_global_config_edits": False,
+    "allows_commit_push_pr_deploy": False,
+    "output_dir_must_be_inside_repo": True,
+}
 GOAL_AGENT_PROFILES = {
     "explorer": {"agent_type": "explorer", "model_profile": "fast", "sandbox": "read-only"},
     "implementer": {"agent_type": "worker", "model_profile": "balanced", "sandbox": "workspace-write"},
@@ -154,19 +206,107 @@ def is_inside(parent: Path, child: Path) -> bool:
     return path_is_inside(parent, child)
 
 
-def run_git(root: Path, args: list[str]) -> str:
+def lexical_absolute(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def resolve_managed_goal_run_dir(
+    root: Path,
+    requested: Path | None,
+    default_name: str | None = None,
+    *,
+    lexical_root: Path | None = None,
+) -> Path:
+    canonical_root = root.resolve(strict=True)
+    lexical_root = lexical_absolute(lexical_root or canonical_root)
+    managed_root = canonical_root / GOAL_RUNS_RELATIVE_DIR
+    if requested is None:
+        candidate = managed_root / str(default_name or "")
+    else:
+        if ".." in requested.parts:
+            raise ValueError("invalid_goal_output_dir=path_traversal_rejected")
+        if requested.is_absolute():
+            lexical_requested = lexical_absolute(requested)
+            try:
+                candidate = canonical_root / lexical_requested.relative_to(lexical_root)
+            except ValueError:
+                candidate = lexical_requested
+        else:
+            candidate = canonical_root / requested
+    lexical_candidate = lexical_absolute(candidate)
+    if lexical_candidate.parent != managed_root:
+        raise ValueError("invalid_goal_output_dir=must_be_direct_child_of_Planner-docs/Goal-Runs")
+    if GOAL_RUN_DIRECTORY_RE.fullmatch(lexical_candidate.name) is None:
+        raise ValueError("invalid_goal_output_dir=invalid_run_directory_name")
+    if has_secret_like(lexical_candidate.name):
+        raise ValueError("invalid_goal_output_dir=secret_like_run_directory_name")
+    return lexical_candidate
+
+
+@contextmanager
+def open_managed_goal_run_directory(
+    root: Path,
+    run_dir: Path,
+    *,
+    create: bool,
+    allow_existing: bool,
+) -> Iterator[tuple[int, object]]:
+    root = root.resolve(strict=True)
+    run_dir = resolve_managed_goal_run_dir(root, run_dir)
+    root_fd = os.open(root, secure_directory_open_flags())
+    planner_fd = -1
+    runs_fd = -1
+    run_fd = -1
+    created_run = False
     try:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=root,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=10,
+        planner_fd, planner_metadata, _ = open_or_create_child_directory(
+            root_fd,
+            "Planner-docs",
+            create=create,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return completed.stdout.strip() if completed.returncode == 0 else ""
+        runs_fd, runs_metadata, _ = open_or_create_child_directory(
+            planner_fd,
+            "Goal-Runs",
+            create=create,
+        )
+        try:
+            existing_metadata = os.stat(run_dir.name, dir_fd=runs_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            existing_metadata = None
+        if existing_metadata is not None and not allow_existing:
+            raise ValueError(f"goal_run_already_exists={run_dir.relative_to(root).as_posix()}")
+        if existing_metadata is None:
+            if not create:
+                raise ValueError(f"goal_run_missing={run_dir.relative_to(root).as_posix()}")
+            os.mkdir(run_dir.name, mode=0o700, dir_fd=runs_fd)
+            created_run = True
+        run_fd, run_metadata = open_child_directory(runs_fd, run_dir.name)
+
+        def revalidate() -> bool:
+            return (
+                directory_entry_matches(root_fd, "Planner-docs", planner_metadata)
+                and directory_entry_matches(planner_fd, "Goal-Runs", runs_metadata)
+                and directory_entry_matches(runs_fd, run_dir.name, run_metadata)
+            )
+
+        if not revalidate():
+            raise ValueError("invalid_goal_output_dir=directory_identity_changed")
+        yield run_fd, revalidate
+    except Exception:
+        if created_run and run_fd < 0:
+            try:
+                os.rmdir(run_dir.name, dir_fd=runs_fd)
+            except OSError:
+                pass
+        raise
+    finally:
+        if run_fd >= 0:
+            os.close(run_fd)
+        if runs_fd >= 0:
+            os.close(runs_fd)
+        if planner_fd >= 0:
+            os.close(planner_fd)
+        os.close(root_fd)
 
 
 def safe_rel_path(value: str) -> bool:
@@ -174,7 +314,39 @@ def safe_rel_path(value: str) -> bool:
     return bool(value) and not path.is_absolute() and ".." not in path.parts
 
 
-def collect_sources(root: Path, stage: str) -> list[dict[str, str]]:
+def selected_step4_subplan_paths(active_scope: dict[str, object] | None) -> set[str]:
+    if not isinstance(active_scope, dict):
+        return set()
+    selected: set[str] = set()
+    queue = active_scope.get("ready_queue")
+    if not isinstance(queue, list):
+        return selected
+    for item in queue:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("source_subplan_path") or item.get("subplan_path")
+        if isinstance(path, str) and path:
+            selected.add(path)
+    return selected
+
+
+def step4_unselected_subplan_paths(root: Path, active_scope: dict[str, object] | None) -> set[str]:
+    selected = selected_step4_subplan_paths(active_scope)
+    if not selected:
+        return set()
+    planner = root / "Planner-docs"
+    if not planner.is_dir():
+        return set()
+    all_subplans = {repo_relative(root, path) for path in planner.glob("Faz-*-Plans/*.md") if path.is_file()}
+    return all_subplans - selected
+
+
+def collect_sources(
+    root: Path,
+    stage: str,
+    active_scope: dict[str, object] | None = None,
+    git_evidence: dict[str, object] | None = None,
+) -> list[dict[str, str]]:
     sources: list[dict[str, str]] = []
     for rel in STAGE_REFERENCES[stage]:
         path = SKILL_ROOT / rel
@@ -188,13 +360,18 @@ def collect_sources(root: Path, stage: str) -> list[dict[str, str]]:
             sources.append({"scope": "repo", "path": rel, "sha256": sha256_bytes(data)})
 
     if stage in {"step3", "step4"}:
+        selected_step4_paths = selected_step4_subplan_paths(active_scope) if stage == "step4" else set()
         planner = root / "Planner-docs"
         for path in sorted(planner.glob("Faz-*-Plans/*.md")) if planner.is_dir() else []:
+            rel_path = repo_relative(root, path)
+            if stage == "step4" and selected_step4_paths and rel_path not in selected_step4_paths:
+                continue
             data = path.read_bytes()
-            sources.append({"scope": "repo", "path": repo_relative(root, path), "sha256": sha256_bytes(data)})
+            sources.append({"scope": "repo", "path": rel_path, "sha256": sha256_bytes(data)})
 
-    branch = run_git(root, ["branch", "--show-current"]) or "unknown"
-    commit = run_git(root, ["rev-parse", "HEAD"]) or "unknown"
+    evidence = git_evidence or capture_git_workspace_evidence(root)
+    branch = str(evidence.get("branch") or "unknown")
+    commit = str(evidence.get("head") or "unknown")
     sources.append({"scope": "git", "path": "branch", "sha256": sha256_bytes(branch.encode("utf-8")), "value": branch})
     sources.append({"scope": "git", "path": "commit", "sha256": sha256_bytes(commit.encode("utf-8")), "value": commit})
     return sources
@@ -252,7 +429,9 @@ def mutable_output_baseline(root: Path, patterns: list[str]) -> dict[str, object
     return {"declared": patterns, "duplicates": duplicates, "files": files}
 
 
-def workspace_path_excluded(rel_path: str, mutable_patterns: list[str]) -> bool:
+def workspace_path_excluded(rel_path: str, mutable_patterns: list[str], excluded_paths: set[str] | None = None) -> bool:
+    if excluded_paths and rel_path in excluded_paths:
+        return True
     if rel_path in WORKSPACE_BASELINE_EXCLUDED_NAMES:
         return True
     if any(rel_path == prefix.rstrip("/") or rel_path.startswith(prefix) for prefix in WORKSPACE_BASELINE_EXCLUDED_PREFIXES):
@@ -263,34 +442,120 @@ def workspace_path_excluded(rel_path: str, mutable_patterns: list[str]) -> bool:
 
 
 def workspace_inventory(root: Path, mutable_patterns: list[str]) -> list[str]:
+    return workspace_inventory_with_exclusions(root, mutable_patterns, set())
+
+
+def workspace_inventory_with_exclusions(
+    root: Path,
+    mutable_patterns: list[str],
+    excluded_paths: set[str],
+    git_evidence: dict[str, object] | None = None,
+) -> list[str]:
     entries: list[str] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        rel = repo_relative(root, path)
-        if workspace_path_excluded(rel, mutable_patterns):
-            continue
-        entries.append(f"{rel}\0{sha256_bytes(path.read_bytes())}")
-    return entries
+    evidence = git_evidence or capture_git_workspace_evidence(
+        root,
+        exclude_untracked=lambda path: workspace_path_excluded(
+            path,
+            mutable_patterns,
+            excluded_paths,
+        ),
+        exclude_tracked=lambda path: workspace_path_excluded(
+            path,
+            mutable_patterns,
+            excluded_paths,
+        ),
+    )
+    if evidence.get("is_git") is True:
+        raw_worktree = evidence.get("worktree_entries")
+        raw_untracked = evidence.get("untracked_entries")
+        if not isinstance(raw_worktree, list) or not isinstance(raw_untracked, list):
+            raise ValueError("git_evidence_workspace_entries_missing")
+        workspace_entries = [
+            item
+            for item in [*raw_worktree, *raw_untracked]
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        ]
+        if len(workspace_entries) != len(raw_worktree) + len(raw_untracked):
+            raise ValueError("git_evidence_workspace_entries_invalid")
+        for item in sorted(workspace_entries, key=lambda current: str(current["path"])):
+            rel = str(item["path"])
+            if workspace_path_excluded(rel, mutable_patterns, excluded_paths):
+                continue
+            if item.get("state") == "present":
+                entries.append(f"{rel}\0{canonical_json_digest(item)}")
+        return entries
+
+    def excluded_from_inventory(rel_path: str) -> bool:
+        return (
+            any(part in WORKSPACE_BASELINE_PRUNED_DIRS for part in Path(rel_path).parts)
+            or workspace_path_excluded(rel_path, mutable_patterns, excluded_paths)
+        )
+
+    inventory = snapshot_repository_inventory(root, exclude=excluded_from_inventory)
+    return [
+        f"{item['path']}\0{item['fingerprint_sha256']}"
+        for item in inventory
+        if item.get("kind") != "directory"
+    ]
 
 
-def git_hash(root: Path, args: list[str]) -> str:
-    output = run_git(root, args)
-    return sha256_bytes(output.encode("utf-8"))
-
-
-def workspace_baseline(root: Path, mutable_patterns: list[str]) -> dict[str, object]:
-    branch = run_git(root, ["branch", "--show-current"]) or "unknown"
-    commit = run_git(root, ["rev-parse", "HEAD"]) or "unknown"
-    inventory = workspace_inventory(root, mutable_patterns)
+def workspace_baseline(
+    root: Path,
+    mutable_patterns: list[str],
+    excluded_paths: set[str] | None = None,
+    git_evidence: dict[str, object] | None = None,
+) -> dict[str, object]:
+    excluded = excluded_paths or set()
+    evidence = git_evidence or capture_git_workspace_evidence(
+        root,
+        exclude_untracked=lambda path: workspace_path_excluded(
+            path,
+            mutable_patterns,
+            excluded,
+        ),
+        exclude_tracked=lambda path: workspace_path_excluded(
+            path,
+            mutable_patterns,
+            excluded,
+        ),
+    )
+    branch = str(evidence.get("branch") or "unknown")
+    commit = str(evidence.get("head") or "unknown")
+    inventory = workspace_inventory_with_exclusions(root, mutable_patterns, excluded, evidence)
+    staged_changes = [
+        item
+        for item in evidence.get("staged_changes", [])
+        if isinstance(item, dict)
+        and not workspace_path_excluded(str(item.get("path", "")), mutable_patterns, excluded)
+    ]
+    unstaged_changes = [
+        item
+        for item in evidence.get("unstaged_changes", [])
+        if isinstance(item, dict)
+        and not workspace_path_excluded(str(item.get("path", "")), mutable_patterns, excluded)
+    ]
+    raw_untracked_entries = evidence.get("untracked_entries")
+    if not isinstance(raw_untracked_entries, list):
+        raise ValueError("git_evidence_untracked_entries_missing")
+    if any(
+        not isinstance(item, dict) or not isinstance(item.get("path"), str)
+        for item in raw_untracked_entries
+    ):
+        raise ValueError("git_evidence_untracked_entries_invalid")
+    untracked_entries = [
+        item
+        for item in raw_untracked_entries
+        if not workspace_path_excluded(str(item["path"]), mutable_patterns, excluded)
+    ]
     return {
         "branch": branch,
         "base_commit": commit,
-        "staged_diff_hash": git_hash(root, ["diff", "--cached", "--binary"]),
-        "unstaged_diff_hash": git_hash(root, ["diff", "--binary"]),
-        "untracked_inventory_hash": git_hash(root, ["ls-files", "--others", "--exclude-standard"]),
+        "staged_diff_hash": canonical_git_evidence_digest(staged_changes),
+        "unstaged_diff_hash": canonical_git_evidence_digest(unstaged_changes),
+        "untracked_inventory_hash": canonical_git_evidence_digest(untracked_entries),
         "workspace_inventory_sha256": sha256_bytes("\n".join(inventory).encode("utf-8")),
         "workspace_inventory_count": len(inventory),
+        "excluded_paths": sorted(excluded),
     }
 
 
@@ -302,15 +567,23 @@ def stage_snapshot(
     *,
     template_bundle_digest: str,
     goal_spec_digest_value: str,
+    baseline_excluded_paths: set[str] | None = None,
+    git_evidence: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    evidence = git_evidence or capture_git_workspace_evidence(root)
     return {
         "stage": stage,
-        "branch": run_git(root, ["branch", "--show-current"]) or "unknown",
-        "base_commit": run_git(root, ["rev-parse", "HEAD"]) or "unknown",
+        "branch": str(evidence.get("branch") or "unknown"),
+        "base_commit": str(evidence.get("head") or "unknown"),
         "immutable_inputs": sources,
         "immutable_input_digest": snapshot_digest(stage, sources),
         "mutable_outputs": mutable_output_baseline(root, mutable_patterns),
-        "workspace_baseline": workspace_baseline(root, mutable_patterns),
+        "workspace_baseline": workspace_baseline(
+            root,
+            mutable_patterns,
+            baseline_excluded_paths,
+            evidence,
+        ),
         "template_bundle_digest": template_bundle_digest,
         "compiler_version": GOAL_COMPILER_VERSION,
         "goal_spec_digest": goal_spec_digest_value,
@@ -355,10 +628,41 @@ def goal_spec_digest(stage: str, sources: list[dict[str, str]], mode: str, objec
     return sha256_bytes(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
+def context_token_budget_for(stage: str) -> dict[str, object]:
+    return {"risk": "medium", "confirmation_required": stage in {"step2", "step4"}}
+
+
+def goal_policy_envelope(
+    stage: str,
+    sources: list[dict[str, str]],
+    mode: str,
+    active_scope: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "required_inputs": [item["path"] for item in sources if item.get("scope") in {"repo", "skill"}],
+        "allowed_writes": goal_mutable_output_patterns(stage, active_scope),
+        "forbidden_writes": list(GOAL_FORBIDDEN_WRITES),
+        "validation_checkpoints": validation_checkpoints_for(stage),
+        "stop_gates": list(GOAL_STOP_GATES),
+        "subagent_plan": build_subagent_plan(stage, mode, active_scope),
+        "context_token_budget": context_token_budget_for(stage),
+        "budget_contract": default_budget_contract(),
+        "final_report_contract": list(GOAL_FINAL_REPORT_CONTRACT),
+        "user_confirmation_required": stage in {"step2", "step4"},
+        "safety": dict(GOAL_SAFETY),
+    }
+
+
+def goal_policy_digest(stage: str, sources: list[dict[str, str]], mode: str, active_scope: dict[str, object]) -> str:
+    return canonical_json_digest(goal_policy_envelope(stage, sources, mode, active_scope))
+
+
 def invocation_suffix(value: str | None = None) -> str:
     raw = value or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{os.getpid()}"
+    if has_secret_like(raw):
+        raise ValueError("secret_like_run_id_suffix")
     suffix = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-._")
-    if not suffix:
+    if not suffix or has_secret_like(suffix):
         raise ValueError("invalid_run_id_suffix")
     return suffix[:64]
 
@@ -783,6 +1087,7 @@ def validation_checkpoints_for(stage: str) -> list[dict[str, object]]:
                 ".",
                 "--mode",
                 checkpoint_mode,
+                "--strict",
             ],
             "network": "deny",
             "probe_tier": 1,
@@ -804,11 +1109,13 @@ def checkpoint_is_safe(checkpoint: object) -> bool:
         ".",
         "--mode",
     ]
-    if len(argv) != len(expected_prefix) + 1:
+    if len(argv) != len(expected_prefix) + 2:
         return False
     if argv[: len(expected_prefix)] != expected_prefix:
         return False
-    if not isinstance(argv[-1], str) or argv[-1] not in {"autopsy", "step2", "step3-preflight", "step3", "step4"}:
+    if not isinstance(argv[-2], str) or argv[-2] not in {"autopsy", "step2", "step3-preflight", "step3", "step4"}:
+        return False
+    if argv[-1] != "--strict":
         return False
     if checkpoint.get("network") != "deny":
         return False
@@ -897,12 +1204,51 @@ def _scope_source_path(item: dict[str, object]) -> str:
     return str(value) if isinstance(value, str) else ""
 
 
-def _validate_goal_scope_source_items(root: Path, label: str, items: object, errors: list[str]) -> None:
+def _normalized_contract_strings(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _stored_goal_scope_binding(
+    source_path: str,
+    source_sha256: str,
+    item: dict[str, object],
+) -> dict[str, object]:
+    contract = item.get("implementation_contract")
+    contract = contract if isinstance(contract, dict) else {}
+    return {
+        "errors": [],
+        "source_subplan_path": source_path,
+        "source_subplan_sha256": source_sha256,
+        "implementation_contract": contract,
+        "implementation_contract_digest": canonical_json_digest(contract) if contract else None,
+        "validation_command_ids": implementation_contract_validation_command_ids(contract),
+        "parent_acceptance_signal_ids": _normalized_contract_strings(contract.get("parent_signals")),
+        "security_review_required": (
+            contract.get("security_review_required")
+            if isinstance(contract.get("security_review_required"), bool)
+            else False
+        ),
+        "risk_class": contract.get("risk_class") if isinstance(contract.get("risk_class"), str) else "",
+        "risk_domains": _normalized_contract_strings(contract.get("risk_domains")),
+    }
+
+
+def _validate_goal_scope_source_items(
+    root: Path,
+    label: str,
+    items: object,
+    errors: list[str],
+    *,
+    mutable_source_baseline: dict[str, str] | None = None,
+) -> None:
     if items is None:
         return
     if not isinstance(items, list):
         errors.append(f"invalid_{label}")
         return
+    mutable_source_baseline = mutable_source_baseline or {}
     seen: dict[str, str | None] = {}
     for item in items:
         if not isinstance(item, dict):
@@ -916,6 +1262,17 @@ def _validate_goal_scope_source_items(root: Path, label: str, items: object, err
         if isinstance(subplan_path, str) and subplan_path != source_path:
             errors.append(f"subplan_source_path_mismatch={source_path}")
         binding = implementation_contract_source_binding(root, source_path)
+        baseline_sha256 = mutable_source_baseline.get(source_path)
+        live_sha256 = binding.get("source_subplan_sha256")
+        mutable_source_changed = (
+            isinstance(baseline_sha256, str)
+            and isinstance(live_sha256, str)
+            and live_sha256 != baseline_sha256
+        )
+        if mutable_source_changed:
+            # Step 2 owns these files as outputs. Keep the stored compile-time
+            # contract internally bound while allowing the live output to evolve.
+            binding = _stored_goal_scope_binding(source_path, baseline_sha256, item)
         for error in binding.get("errors", []):
             errors.append(str(error))
         source_digest = binding.get("implementation_contract_digest")
@@ -952,7 +1309,29 @@ def validate_goal_scope_source_bindings(root: Path, run: dict[str, object], erro
     if not isinstance(active_scope, dict):
         errors.append("invalid_active_scope")
         return
-    _validate_goal_scope_source_items(root, "subplan_contracts", active_scope.get("subplan_contracts"), errors)
+    mutable_source_baseline: dict[str, str] = {}
+    if run.get("stage") == "step2":
+        snapshot = run.get("stage_snapshot")
+        mutable = snapshot.get("mutable_outputs") if isinstance(snapshot, dict) else None
+        files = mutable.get("files") if isinstance(mutable, dict) else None
+        for item in files if isinstance(files, list) else []:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            sha256 = item.get("sha256")
+            if (
+                isinstance(path, str)
+                and isinstance(sha256, str)
+                and mutable_output_matches(path, [STEP2_MUTABLE_SUBPLAN_PATTERN])
+            ):
+                mutable_source_baseline[path] = sha256
+    _validate_goal_scope_source_items(
+        root,
+        "subplan_contracts",
+        active_scope.get("subplan_contracts"),
+        errors,
+        mutable_source_baseline=mutable_source_baseline,
+    )
     _validate_goal_scope_source_items(root, "ready_queue", active_scope.get("ready_queue"), errors)
 
 
@@ -1002,8 +1381,19 @@ def validate_stage_snapshot(root: Path, run: dict[str, object], errors: list[str
     if not isinstance(baseline, dict):
         errors.append("stage_snapshot_workspace_baseline_missing")
         return
-    current = workspace_baseline(root, mutable_patterns)
-    for key in ("branch", "base_commit", "workspace_inventory_sha256"):
+    current = workspace_baseline(
+        root,
+        mutable_patterns,
+        step4_unselected_subplan_paths(root, active_scope) if stage == "step4" else set(),
+    )
+    for key in (
+        "branch",
+        "base_commit",
+        "staged_diff_hash",
+        "unstaged_diff_hash",
+        "untracked_inventory_hash",
+        "workspace_inventory_sha256",
+    ):
         if baseline.get(key) != current.get(key):
             errors.append(f"workspace_baseline_mismatch={key}")
 
@@ -1026,6 +1416,24 @@ def validate_goal_budget(run: dict[str, object], errors: list[str]) -> None:
             errors.append("budget_subagent_role_count_exceeded")
 
 
+def validate_goal_policy(run: dict[str, object], errors: list[str]) -> None:
+    stage = str(run.get("stage", ""))
+    mode = str(run.get("mode", ""))
+    sources = run.get("source_snapshot")
+    active_scope = run.get("active_scope")
+    if stage not in STAGE_REFERENCES or mode not in STAGE_MODES.get(stage, set()):
+        return
+    if not isinstance(sources, list) or not isinstance(active_scope, dict):
+        return
+    expected = goal_policy_envelope(stage, sources, mode, active_scope)
+    expected_digest = canonical_json_digest(expected)
+    if run.get("goal_policy_digest") != expected_digest:
+        errors.append("goal_policy_digest_mismatch")
+    for key, expected_value in expected.items():
+        if run.get(key) != expected_value:
+            errors.append(f"goal_policy_mismatch={key}")
+
+
 def default_goal_run(
     root: Path,
     stage: str,
@@ -1037,12 +1445,31 @@ def default_goal_run(
     selected_objective = objective or f"Run CodexQB {stage} using current repository planning evidence."
     active_scope = collect_stage_scope(root, stage, selected_mode)
     mutable_patterns = goal_mutable_output_patterns(stage, active_scope)
-    sources = collect_sources(root, stage)
+    baseline_excluded_paths = (
+        step4_unselected_subplan_paths(root, active_scope)
+        if stage == "step4"
+        else set()
+    )
+    git_evidence = capture_git_workspace_evidence(
+        root,
+        exclude_untracked=lambda path: workspace_path_excluded(
+            path,
+            mutable_patterns,
+            baseline_excluded_paths,
+        ),
+        exclude_tracked=lambda path: workspace_path_excluded(
+            path,
+            mutable_patterns,
+            baseline_excluded_paths,
+        ),
+    )
+    sources = collect_sources(root, stage, active_scope, git_evidence)
     digest = snapshot_digest(stage, sources)
     subagent_plan = build_subagent_plan(stage, selected_mode, active_scope)
     spec_digest = goal_spec_digest(stage, sources, selected_mode, selected_objective, active_scope)
+    policy = goal_policy_envelope(stage, sources, selected_mode, active_scope)
+    policy_digest = canonical_json_digest(policy)
     bundle = template_bundle(stage)
-    budget_contract = default_budget_contract()
     token_usage = token_usage_not_observed()
     snapshot = stage_snapshot(
         root,
@@ -1051,6 +1478,8 @@ def default_goal_run(
         mutable_patterns,
         template_bundle_digest=str(bundle["digest"]),
         goal_spec_digest_value=spec_digest,
+        baseline_excluded_paths=baseline_excluded_paths,
+        git_evidence=git_evidence,
     )
     suffix = invocation_suffix(run_id_suffix)
     run_id = goal_run_id_for(stage, spec_digest, suffix)
@@ -1061,6 +1490,7 @@ def default_goal_run(
         "handoff_contract_version": HANDOFF_CONTRACT_VERSION,
         "goal_spec_id": f"spec-{stage}-{spec_digest[:16]}",
         "goal_spec_digest": spec_digest,
+        "goal_policy_digest": policy_digest,
         "goal_run_id": run_id,
         "goal_run_invocation_id": suffix,
         "stage": stage,
@@ -1075,26 +1505,21 @@ def default_goal_run(
         "source_snapshot": sources,
         "source_snapshot_digest": digest,
         "stage_snapshot": snapshot,
-        "required_inputs": [item["path"] for item in sources if item["scope"] in {"repo", "skill"}],
+        "required_inputs": policy["required_inputs"],
         "allowed_writes": allowed_writes,
-        "forbidden_writes": ["~/.codex/**", ".git/**", ".env", "**/*.key", "**/*.pem"],
+        "forbidden_writes": policy["forbidden_writes"],
         "active_scope": active_scope,
         "work_steps": stage_work_steps(stage, active_scope),
-        "validation_checkpoints": validation_checkpoints_for(stage),
-        "stop_gates": ["snapshot mismatch", "P0/P1 blocker", "unsafe path", "required user confirmation missing", "dirty unrelated worktree"],
+        "validation_checkpoints": policy["validation_checkpoints"],
+        "stop_gates": policy["stop_gates"],
         "subagent_plan": subagent_plan,
-        "context_token_budget": {"risk": "medium", "confirmation_required": stage in {"step2", "step4"}},
-        "budget_contract": budget_contract,
+        "context_token_budget": policy["context_token_budget"],
+        "budget_contract": policy["budget_contract"],
         "token_usage": token_usage,
-        "final_report_contract": ["files changed", "validations", "blockers", "next action"],
-        "user_confirmation_required": stage in {"step2", "step4"},
+        "final_report_contract": policy["final_report_contract"],
+        "user_confirmation_required": policy["user_confirmation_required"],
         "generated_at": f"invocation:{suffix}",
-        "safety": {
-            "executes_commands": False,
-            "allows_global_config_edits": False,
-            "allows_commit_push_pr_deploy": False,
-            "output_dir_must_be_inside_repo": True,
-        },
+        "safety": policy["safety"],
     }
 
 
@@ -1137,6 +1562,7 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
     if not isinstance(token_budget, dict) or token_budget.get("risk") not in {"low", "medium", "high"}:
         errors.append("invalid_context_token_budget")
     validate_goal_budget(run, errors)
+    validate_goal_policy(run, errors)
     bundle = template_bundle(stage)
     if run.get("template_bundle") != bundle["templates"]:
         errors.append("template_bundle_mismatch")
@@ -1185,7 +1611,11 @@ def validate_goal_run(root: Path, run: dict[str, object]) -> list[str]:
     elif run.get("source_snapshot_digest") != snapshot_digest(stage, stored_sources):
         errors.append("stored_source_snapshot_digest_mismatch")
 
-    current_sources = collect_sources(root, stage)
+    current_sources = collect_sources(
+        root,
+        stage,
+        run.get("active_scope", {}) if isinstance(run.get("active_scope"), dict) else {},
+    )
     current_digest = snapshot_digest(stage, current_sources)
     if run.get("source_snapshot_digest") != current_digest:
         errors.append("source_snapshot_mismatch")
@@ -1257,7 +1687,8 @@ def compile_goal(
     resume: bool = False,
     run_id_suffix: str | None = None,
 ) -> dict[str, object]:
-    root = root.resolve()
+    lexical_root = lexical_absolute(root)
+    root = root.resolve(strict=True)
     if stage not in STAGE_REFERENCES:
         raise ValueError(f"unsupported stage: {stage}")
     if resume and output_dir is None:
@@ -1266,87 +1697,141 @@ def compile_goal(
     errors = validate_goal_run(root, run)
     if errors:
         raise ValueError(";".join(errors))
-    out_dir = (output_dir or root / "Planner-docs" / "Goal-Runs" / str(run["goal_run_id"])).resolve()
-    if not is_inside(root, out_dir):
-        raise ValueError("output_dir must be inside the target repository")
-    if resume:
-        run_path = out_dir / "Goal-Run.json"
-        if not run_path.is_file():
-            raise ValueError(f"goal_run_resume_missing={out_dir.relative_to(root).as_posix()}")
-        existing = load_goal_run(run_path)
-        existing_errors = validate_goal_run(root, existing)
-        if existing_errors:
-            raise ValueError(";".join(existing_errors))
-        result_path = out_dir / "Goal-Result.json"
-        result = load_goal_run(result_path) if result_path.is_file() else {
-            "goal_run_id": existing.get("goal_run_id"),
-            "stage": existing.get("stage"),
-            "status": "resumed",
-        }
-        return {"run": existing, "result": result, "output_dir": out_dir.as_posix()}
-    if out_dir.exists() and not replace and not resume:
-        raise ValueError(f"goal_run_already_exists={out_dir.relative_to(root).as_posix()}")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = resolve_managed_goal_run_dir(
+        root,
+        output_dir,
+        str(run["goal_run_id"]),
+        lexical_root=lexical_root,
+    )
+    with open_managed_goal_run_directory(
+        root,
+        out_dir,
+        create=not resume,
+        allow_existing=replace or resume,
+    ) as (run_fd, revalidate):
+        with locked_directory(run_fd):
+            if resume:
+                try:
+                    existing = read_regular_json_at(run_fd, "Goal-Run.json")
+                except FileNotFoundError as exc:
+                    raise ValueError(f"goal_run_resume_missing={out_dir.relative_to(root).as_posix()}") from exc
+                existing_errors = validate_goal_run(root, existing)
+                if existing_errors:
+                    raise ValueError(";".join(existing_errors))
+                try:
+                    result = read_regular_json_at(run_fd, "Goal-Result.json")
+                except FileNotFoundError:
+                    result = {
+                        "goal_run_id": existing.get("goal_run_id"),
+                        "stage": existing.get("stage"),
+                        "status": "resumed",
+                    }
+                return {"run": existing, "result": result, "output_dir": out_dir.as_posix()}
 
-    blockers = stage_prerequisite_blockers(root, stage)
-    run_json = json.dumps(run, indent=2, sort_keys=True) + "\n"
-    if blockers:
-        result = {
-            "goal_run_id": run["goal_run_id"],
-            "stage": stage,
-            "status": "blocked",
-            "blockers": blockers,
-            "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
-            "budget_contract": run["budget_contract"],
-            "token_usage": run["token_usage"],
-            "source_count": len(run["source_snapshot"]),
-            "next_action": "Repair missing prerequisites, then prepare this Goal run again.",
-        }
-        (out_dir / "Goal-Run.json").write_text(run_json, encoding="utf-8")
-        prompt_path = out_dir / "Goal-Prompt.md"
-        if prompt_path.exists():
-            prompt_path.unlink()
-        (out_dir / "Goal-Result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        return {"run": run, "result": result, "output_dir": out_dir.as_posix()}
+            blockers = stage_prerequisite_blockers(root, stage)
+            run_json = serialize_safe_persistent_json(run)
+            for name in ("Goal-Run.json", "Goal-Prompt.md", "Goal-Result.json"):
+                regular_target_metadata_at(run_fd, name)
+            if blockers:
+                result = {
+                    "goal_run_id": run["goal_run_id"],
+                    "stage": stage,
+                    "status": "blocked",
+                    "blockers": blockers,
+                    "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
+                    "budget_contract": run["budget_contract"],
+                    "token_usage": run["token_usage"],
+                    "source_count": len(run["source_snapshot"]),
+                    "next_action": "Repair missing prerequisites, then prepare this Goal run again.",
+                }
+                result_json = serialize_safe_persistent_json(result)
+                atomic_write_text_at(run_fd, "Goal-Run.json", run_json, revalidate=revalidate)
+                unlink_regular_at(run_fd, "Goal-Prompt.md", missing_ok=True, revalidate=revalidate)
+                atomic_write_text_at(
+                    run_fd,
+                    "Goal-Result.json",
+                    result_json,
+                    revalidate=revalidate,
+                )
+                return {"run": run, "result": result, "output_dir": out_dir.as_posix()}
 
-    prompt = render_prompt_from_run(run)
-    result = {
-        "goal_run_id": run["goal_run_id"],
-        "stage": stage,
-        "status": "ready",
-        "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
-        "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
-        "budget_contract": run["budget_contract"],
-        "token_usage": run["token_usage"],
-        "source_count": len(run["source_snapshot"]),
-        "next_action": "Review Goal-Prompt.md, then paste it into Goal mode only if the stage and safety policy match the intended run.",
-    }
-    (out_dir / "Goal-Run.json").write_text(run_json, encoding="utf-8")
-    (out_dir / "Goal-Prompt.md").write_text(prompt, encoding="utf-8")
-    (out_dir / "Goal-Result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"run": run, "result": result, "output_dir": out_dir.as_posix()}
+            prompt = assert_safe_persistent_text(render_prompt_from_run(run))
+            result = {
+                "goal_run_id": run["goal_run_id"],
+                "stage": stage,
+                "status": "ready",
+                "goal_run_sha256": sha256_bytes(run_json.encode("utf-8")),
+                "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
+                "budget_contract": run["budget_contract"],
+                "token_usage": run["token_usage"],
+                "source_count": len(run["source_snapshot"]),
+                "next_action": "Review Goal-Prompt.md, then paste it into Goal mode only if the stage and safety policy match the intended run.",
+            }
+            result_json = serialize_safe_persistent_json(result)
+            atomic_write_text_at(run_fd, "Goal-Run.json", run_json, revalidate=revalidate)
+            atomic_write_text_at(run_fd, "Goal-Prompt.md", prompt, revalidate=revalidate)
+            atomic_write_text_at(
+                run_fd,
+                "Goal-Result.json",
+                result_json,
+                revalidate=revalidate,
+            )
+            return {"run": run, "result": result, "output_dir": out_dir.as_posix()}
 
 
 def render_goal_file(root: Path, goal_run_path: Path, output: Path | None = None) -> str:
-    run = load_goal_run(goal_run_path)
-    errors = validate_goal_run(root.resolve(), run)
-    if errors:
-        raise ValueError(";".join(errors))
-    prompt = render_prompt_from_run(run)
-    if output:
-        output.write_text(prompt, encoding="utf-8")
-    return prompt
+    lexical_root = lexical_absolute(root)
+    root = root.resolve(strict=True)
+    if ".." in goal_run_path.parts:
+        raise ValueError("invalid_goal_run_path=path_traversal_rejected")
+    requested_run_path = goal_run_path if goal_run_path.is_absolute() else root / goal_run_path
+    lexical_run_path = lexical_absolute(requested_run_path)
+    if lexical_run_path.name != "Goal-Run.json":
+        raise ValueError("invalid_goal_run_path=Goal-Run.json_required")
+    run_dir = resolve_managed_goal_run_dir(root, lexical_run_path.parent, lexical_root=lexical_root)
+    with open_managed_goal_run_directory(root, run_dir, create=False, allow_existing=True) as (run_fd, revalidate):
+        with locked_directory(run_fd):
+            run = read_regular_json_at(run_fd, "Goal-Run.json")
+            errors = validate_goal_run(root, run)
+            if errors:
+                raise ValueError(";".join(errors))
+            prompt = assert_safe_persistent_text(render_prompt_from_run(run))
+            if output:
+                if ".." in output.parts:
+                    raise ValueError("invalid_goal_render_output=path_traversal_rejected")
+                requested_output = output if output.is_absolute() else run_dir / output
+                lexical_output = lexical_absolute(requested_output)
+                output_run_dir = resolve_managed_goal_run_dir(
+                    root,
+                    lexical_output.parent,
+                    lexical_root=lexical_root,
+                )
+                if output_run_dir != run_dir or lexical_output.name != "Goal-Prompt.md":
+                    raise ValueError("invalid_goal_render_output=managed_Goal-Prompt.md_required")
+                regular_target_metadata_at(run_fd, "Goal-Prompt.md")
+                atomic_write_text_at(run_fd, "Goal-Prompt.md", prompt, revalidate=revalidate)
+            return prompt
 
 
 def load_goal_run(path: Path) -> dict[str, object]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("Goal-Run.json must contain an object")
-    return data
+    parent_fd = os.open(path.parent, secure_directory_open_flags())
+    try:
+        return read_regular_json_at(parent_fd, path.name)
+    finally:
+        os.close(parent_fd)
+
+
+def print_safe_field(name: str, value: object, *, file=None) -> None:
+    print(f"{name}={safe_log_text(value)}", file=file)
+
+
+class SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        self.exit(2, f"{safe_log_text(self.prog)}: error: {safe_log_text(message)}\n")
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Compile deterministic CodexQB Goal previews.")
+    parser = SafeArgumentParser(prog="goal_run.py", description="Compile deterministic CodexQB Goal previews.")
     sub = parser.add_subparsers(dest="command")
 
     def add_common(p: argparse.ArgumentParser) -> None:
@@ -1381,14 +1866,19 @@ def main(argv: list[str] | None = None) -> int:
             if not args.stage:
                 parser.error("--stage is required")
             compiled = compile_goal(Path(args.root), args.stage, Path(args.output_dir) if args.output_dir else None)
-            print(f"goal_run_status={compiled['result']['status']}")
-            print(f"goal_run_id={compiled['result']['goal_run_id']}")
-            print(f"output_dir={compiled['output_dir']}")
+            print_safe_field("goal_run_status", compiled["result"]["status"])
+            print_safe_field("goal_run_id", compiled["result"]["goal_run_id"])
+            print_safe_field("output_dir", compiled["output_dir"])
             return 0 if compiled["result"]["status"] == "ready" else 1
         if args.command == "collect":
             root = Path(args.root).resolve()
             sources = collect_sources(root, args.stage)
-            print(json.dumps({"stage": args.stage, "source_snapshot": sources}, indent=2, sort_keys=True))
+            collected = json.dumps({"stage": args.stage, "source_snapshot": sources}, indent=2, sort_keys=True)
+            try:
+                collected = redact_secret_like(collected)
+            except (TypeError, ValueError):
+                collected = '{"error":"unsafe_console_payload"}'
+            print(collected)
             return 0
         if args.command == "prepare":
             compiled = compile_goal(
@@ -1401,16 +1891,16 @@ def main(argv: list[str] | None = None) -> int:
                 resume=args.resume,
                 run_id_suffix=args.run_id_suffix,
             )
-            print(f"goal_run_status={compiled['result']['status']}")
-            print(f"goal_run_id={compiled['result']['goal_run_id']}")
-            print(f"output_dir={compiled['output_dir']}")
+            print_safe_field("goal_run_status", compiled["result"]["status"])
+            print_safe_field("goal_run_id", compiled["result"]["goal_run_id"])
+            print_safe_field("output_dir", compiled["output_dir"])
             return 0 if compiled["result"]["status"] == "ready" else 1
         if args.command == "validate":
             errors = validate_goal_run(Path(args.root).resolve(), load_goal_run(Path(args.goal_run)))
             if errors:
                 print("goal_run_status=failed")
                 for error in errors:
-                    print(f"error={error}")
+                    print_safe_field("error", error)
                 return 1
             print("goal_run_status=passed")
             return 0
@@ -1421,7 +1911,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     except Exception as exc:
         print("goal_run_status=failed", file=sys.stderr)
-        print(f"error={exc}", file=sys.stderr)
+        print_safe_field("error", exc, file=sys.stderr)
         return 1
     return 2
 

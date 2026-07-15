@@ -18,13 +18,7 @@ If the audit status is `PASS_WITH_WARNINGS` and any open P0/P1 finding exists, d
 
 If the audit status is `PASS_WITH_WARNINGS` with only open or accepted P2/P3 findings, the canonical handoff may be printed, but state that the implementation run must keep those warnings visible.
 
-Before printing the canonical handoff, run the bundled validator when available:
-
-```bash
-python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4
-```
-
-For strict execution gates, use:
+Before printing the canonical handoff, run the bundled strict validator when available:
 
 ```bash
 python3 plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py --root . --mode step4 --strict

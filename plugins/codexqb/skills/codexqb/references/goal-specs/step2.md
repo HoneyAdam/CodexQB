@@ -14,7 +14,7 @@ Required source references:
 Safety:
 - Detail only the active planning horizon unless full planning is explicit.
 - Represent later phases as deferred roadmap cards.
-- Use structured validation command contracts where possible.
+- Require the closed seven-field structured validation command contract for every executable validation; legacy command prose is informational only.
 - Do not implement product code.
 
 Ready condition:
