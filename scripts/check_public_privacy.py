@@ -23,6 +23,7 @@ PUBLIC_FILES = {
     "docs/MAINTAINING.md",
     "docs/INSTALLATION.md",
     "docs/FEEDBACK-CLOSURE-AUDIT.md",
+    "docs/revision/CODEXQB-0.3-RELEASE-FOUNDATION.md",
 }
 PUBLIC_DIRS = {
     "docs/release-audits",
@@ -58,7 +59,8 @@ def candidate_files(root: Path) -> list[Path]:
     candidates: set[Path] = set()
     for rel in PUBLIC_FILES:
         path = root / rel
-        if path.is_file() and (tracked is None or rel in tracked):
+        # Explicitly public files must be checked before their first commit too.
+        if path.is_file():
             candidates.add(path)
     for rel_dir in PUBLIC_DIRS:
         base = root / rel_dir

@@ -100,6 +100,15 @@ from repository_evidence import (  # noqa: E402
     snapshot_allowed_paths,
     snapshot_repository_inventory,
 )
+from mount_identity import (  # noqa: E402
+    APPLY_RUN_MUTATION,
+    READ_ONLY_EVIDENCE,
+    RUN_REPLACE_QUARANTINE_DELETE,
+    MountResolution,
+    require_mount_assurance,
+    require_same_mount,
+    resolve_mount_identity,
+)
 from git_evidence import (  # noqa: E402
     canonical_git_evidence_digest,
     capture_git_workspace_evidence,
@@ -566,6 +575,37 @@ def lexical_absolute(path: Path) -> Path:
     return Path(os.path.abspath(os.fspath(path)))
 
 
+def repository_mount_relative_path(root: Path, path: Path) -> str:
+    root = lexical_absolute(root)
+    path = lexical_absolute(path)
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("invalid_apply_run_output_dir=indirect_target_rejected") from exc
+    return relative.as_posix() if relative.parts else "."
+
+
+def resolve_apply_mount_identity(directory_fd: int, operation: str) -> MountResolution:
+    resolution = resolve_mount_identity(directory_fd, reconcile=True)
+    require_mount_assurance(resolution, operation)
+    return resolution
+
+
+def require_apply_same_mount(
+    root_resolution: MountResolution,
+    child_fd: int,
+    relative_path: str,
+    *,
+    mismatch_error: str,
+) -> None:
+    try:
+        require_same_mount(root_resolution, child_fd, relative_path)
+    except ValueError as exc:
+        if str(exc).startswith("repository_nested_mount_rejected="):
+            raise ValueError(mismatch_error) from exc
+        raise
+
+
 MOUNTINFO_ESCAPE_RE = re.compile(r"\\([0-7]{3})")
 
 
@@ -962,11 +1002,21 @@ def open_managed_apply_runs_root_fd(
     *,
     create: bool,
     root_anchor_fd: int | None = None,
+    root_mount_resolution: MountResolution | None = None,
+    operation: str = APPLY_RUN_MUTATION,
 ) -> int:
     root_fd = os.dup(root_anchor_fd) if root_anchor_fd is not None else os.open(root, secure_directory_open_flags())
     codexqb_fd = -1
     runs_fd = -1
     try:
+        mount_resolution = root_mount_resolution or resolve_apply_mount_identity(root_fd, operation)
+        require_mount_assurance(mount_resolution, operation)
+        require_apply_same_mount(
+            mount_resolution,
+            root_fd,
+            ".",
+            mismatch_error="invalid_apply_run_output_dir=root_identity_changed",
+        )
         root_metadata = os.fstat(root_fd)
         if not opened_directory_matches_path(root, root_metadata, reject_mount=False):
             raise ValueError("invalid_apply_run_output_dir=root_identity_changed")
@@ -979,6 +1029,12 @@ def open_managed_apply_runs_root_fd(
             codexqb_fd, codexqb_metadata = open_child_directory(root_fd, ".codexqb")
         except (OSError, ValueError) as exc:
             raise ValueError("invalid_apply_run_output_dir=indirect_target_rejected") from exc
+        require_apply_same_mount(
+            mount_resolution,
+            codexqb_fd,
+            ".codexqb",
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
         if (
             codexqb_metadata.st_dev != root_metadata.st_dev
             or not opened_directory_matches_path(root / ".codexqb", codexqb_metadata, reject_mount=True)
@@ -993,6 +1049,12 @@ def open_managed_apply_runs_root_fd(
             runs_fd, runs_metadata = open_child_directory(codexqb_fd, "apply-runs")
         except (OSError, ValueError) as exc:
             raise ValueError("invalid_apply_run_output_dir=indirect_target_rejected") from exc
+        require_apply_same_mount(
+            mount_resolution,
+            runs_fd,
+            APPLY_RUNS_RELATIVE_DIR.as_posix(),
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
         if (
             runs_metadata.st_dev != root_metadata.st_dev
             or not opened_directory_matches_path(
@@ -1044,7 +1106,22 @@ def apply_run_registration_file_name(run_name: str) -> str:
     return f"{sha256_bytes(run_name.encode('utf-8'))}.json"
 
 
-def open_apply_run_registry_fd(root: Path, parent_fd: int, *, create: bool) -> int:
+def open_apply_run_registry_fd(
+    root: Path,
+    parent_fd: int,
+    *,
+    create: bool,
+    root_mount_resolution: MountResolution | None = None,
+    operation: str = APPLY_RUN_MUTATION,
+) -> int:
+    mount_resolution = root_mount_resolution or resolve_apply_mount_identity(parent_fd, operation)
+    require_mount_assurance(mount_resolution, operation)
+    require_apply_same_mount(
+        mount_resolution,
+        parent_fd,
+        APPLY_RUNS_RELATIVE_DIR.as_posix(),
+        mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+    )
     if create:
         try:
             os.mkdir(APPLY_RUN_REGISTRY_DIR_NAME, mode=0o700, dir_fd=parent_fd)
@@ -1057,6 +1134,12 @@ def open_apply_run_registry_fd(root: Path, parent_fd: int, *, create: bool) -> i
     try:
         parent_metadata = os.fstat(parent_fd)
         registry_path = managed_apply_runs_root(root) / APPLY_RUN_REGISTRY_DIR_NAME
+        require_apply_same_mount(
+            mount_resolution,
+            registry_fd,
+            repository_mount_relative_path(root, registry_path),
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
         if (
             registry_metadata.st_dev != parent_metadata.st_dev
             or not metadata_is_owner_controlled(registry_metadata)
@@ -1428,12 +1511,25 @@ def create_apply_run_registration(
     parent_fd: int,
     run_fd: int,
     run_metadata: os.stat_result,
+    root_mount_resolution: MountResolution,
 ) -> None:
     registry_fd = -1
     try:
         parent_metadata = os.fstat(parent_fd)
         require_no_managed_recovery_quarantine(parent_fd)
-        registry_fd = open_apply_run_registry_fd(root, parent_fd, create=True)
+        require_mount_assurance(root_mount_resolution, APPLY_RUN_MUTATION)
+        require_apply_same_mount(
+            root_mount_resolution,
+            run_fd,
+            repository_mount_relative_path(root, run_dir),
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
+        registry_fd = open_apply_run_registry_fd(
+            root,
+            parent_fd,
+            create=True,
+            root_mount_resolution=root_mount_resolution,
+        )
         require_no_managed_recovery_quarantine(registry_fd)
         current_run_metadata = os.fstat(run_fd)
         if (
@@ -1475,11 +1571,23 @@ def refresh_apply_run_provenance(run_dir: Path, run: dict[str, object]) -> None:
     run_fd = -1
     registry_fd = -1
     try:
+        root_mount_resolution = resolve_apply_mount_identity(root_fd, APPLY_RUN_MUTATION)
         root_metadata = os.fstat(root_fd)
-        parent_fd = open_managed_apply_runs_root_fd(root, create=False, root_anchor_fd=root_fd)
+        parent_fd = open_managed_apply_runs_root_fd(
+            root,
+            create=False,
+            root_anchor_fd=root_fd,
+            root_mount_resolution=root_mount_resolution,
+        )
         parent_metadata = os.fstat(parent_fd)
         require_no_managed_recovery_quarantine(parent_fd)
         run_fd, run_metadata = open_child_directory(parent_fd, run_dir.name)
+        require_apply_same_mount(
+            root_mount_resolution,
+            run_fd,
+            repository_mount_relative_path(root, run_dir),
+            mismatch_error="apply_run_provenance_refresh_identity_changed",
+        )
         require_no_managed_recovery_quarantine(run_fd)
         if (
             run_metadata.st_dev != parent_metadata.st_dev
@@ -1490,7 +1598,12 @@ def refresh_apply_run_provenance(run_dir: Path, run: dict[str, object]) -> None:
         if current_run != run:
             raise ValueError("apply_run_provenance_refresh_manifest_changed")
         marker = load_regular_json_at(run_fd, APPLY_RUN_MARKER_NAME)
-        registry_fd = open_apply_run_registry_fd(root, parent_fd, create=False)
+        registry_fd = open_apply_run_registry_fd(
+            root,
+            parent_fd,
+            create=False,
+            root_mount_resolution=root_mount_resolution,
+        )
         require_no_managed_recovery_quarantine(registry_fd)
         registration_name = apply_run_registration_file_name(run_dir.name)
         registration_metadata = os.stat(registration_name, dir_fd=registry_fd, follow_symlinks=False)
@@ -1581,11 +1694,24 @@ def current_apply_run_provenance_is_valid(
         root = root.resolve()
         run_dir = resolve_managed_apply_run_dir(root, run_dir, lexical_root=root)
         root_fd = os.open(root, secure_directory_open_flags())
+        root_mount_resolution = resolve_apply_mount_identity(root_fd, READ_ONLY_EVIDENCE)
         root_metadata = os.fstat(root_fd)
-        parent_fd = open_managed_apply_runs_root_fd(root, create=False, root_anchor_fd=root_fd)
+        parent_fd = open_managed_apply_runs_root_fd(
+            root,
+            create=False,
+            root_anchor_fd=root_fd,
+            root_mount_resolution=root_mount_resolution,
+            operation=READ_ONLY_EVIDENCE,
+        )
         parent_metadata = os.fstat(parent_fd)
         require_no_managed_recovery_quarantine(parent_fd)
         run_fd, run_metadata = open_child_directory(parent_fd, run_dir.name)
+        require_apply_same_mount(
+            root_mount_resolution,
+            run_fd,
+            repository_mount_relative_path(root, run_dir),
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
         require_no_managed_recovery_quarantine(run_fd)
         if (
             run_metadata.st_dev != parent_metadata.st_dev
@@ -1594,7 +1720,13 @@ def current_apply_run_provenance_is_valid(
         ):
             return False
         marker = load_regular_json_at(run_fd, APPLY_RUN_MARKER_NAME)
-        registry_fd = open_apply_run_registry_fd(root, parent_fd, create=False)
+        registry_fd = open_apply_run_registry_fd(
+            root,
+            parent_fd,
+            create=False,
+            root_mount_resolution=root_mount_resolution,
+            operation=READ_ONLY_EVIDENCE,
+        )
         require_no_managed_recovery_quarantine(registry_fd)
         registration_name = apply_run_registration_file_name(run_dir.name)
         registration_metadata = os.stat(registration_name, dir_fd=registry_fd, follow_symlinks=False)
@@ -1672,7 +1804,17 @@ def build_deletion_inventory(
     directory_fd: int,
     expected_device: int,
     logical_path: Path,
+    *,
+    root: Path,
+    root_mount_resolution: MountResolution,
 ) -> dict[str, object]:
+    require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
+    require_apply_same_mount(
+        root_mount_resolution,
+        directory_fd,
+        repository_mount_relative_path(root, logical_path),
+        mismatch_error="replace_apply_run_tree_contains_indirect_target",
+    )
     directory_metadata = os.fstat(directory_fd)
     if directory_metadata.st_dev != expected_device or path_is_mount_point(logical_path):
         raise ValueError("replace_apply_run_tree_contains_indirect_target")
@@ -1696,12 +1838,24 @@ def build_deletion_inventory(
             except (OSError, ValueError) as exc:
                 raise ValueError("replace_apply_run_tree_changed") from exc
             try:
+                require_apply_same_mount(
+                    root_mount_resolution,
+                    child_fd,
+                    repository_mount_relative_path(root, entry_path),
+                    mismatch_error="replace_apply_run_tree_contains_indirect_target",
+                )
                 if (
                     child_metadata.st_dev != expected_device
                     or path_is_mount_point(entry_path)
                 ):
                     raise ValueError("replace_apply_run_tree_contains_indirect_target")
-                entries[name] = build_deletion_inventory(child_fd, expected_device, entry_path)
+                entries[name] = build_deletion_inventory(
+                    child_fd,
+                    expected_device,
+                    entry_path,
+                    root=root,
+                    root_mount_resolution=root_mount_resolution,
+                )
             finally:
                 os.close(child_fd)
         elif stat.S_ISREG(metadata.st_mode):
@@ -1710,6 +1864,12 @@ def build_deletion_inventory(
             except (OSError, ValueError) as exc:
                 raise ValueError("replace_apply_run_tree_changed") from exc
             try:
+                require_apply_same_mount(
+                    root_mount_resolution,
+                    child_fd,
+                    repository_mount_relative_path(root, entry_path),
+                    mismatch_error="replace_apply_run_tree_contains_indirect_target",
+                )
                 if path_is_mount_point(entry_path):
                     raise ValueError("replace_apply_run_tree_contains_indirect_target")
                 entries[name] = inventory_identity(child_metadata, "regular")
@@ -1720,7 +1880,21 @@ def build_deletion_inventory(
     return inventory
 
 
-def create_deletion_quarantine(parent_fd: int, expected_device: int) -> tuple[str, int]:
+def create_deletion_quarantine(
+    parent_fd: int,
+    expected_device: int,
+    *,
+    root: Path,
+    logical_parent: Path,
+    root_mount_resolution: MountResolution,
+) -> tuple[str, int]:
+    require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
+    require_apply_same_mount(
+        root_mount_resolution,
+        parent_fd,
+        repository_mount_relative_path(root, logical_parent),
+        mismatch_error="replace_apply_run_tree_changed",
+    )
     for _ in range(32):
         name = f"{APPLY_DELETE_QUARANTINE_PREFIX}{secrets.token_hex(16)}"
         try:
@@ -1735,6 +1909,20 @@ def create_deletion_quarantine(parent_fd: int, expected_device: int) -> tuple[st
             except OSError:
                 pass
             raise ValueError("replace_apply_run_tree_changed") from exc
+        try:
+            require_apply_same_mount(
+                root_mount_resolution,
+                quarantine_fd,
+                repository_mount_relative_path(root, logical_parent / name),
+                mismatch_error="replace_apply_run_tree_changed",
+            )
+        except Exception:
+            os.close(quarantine_fd)
+            try:
+                os.rmdir(name, dir_fd=parent_fd)
+            except OSError:
+                pass
+            raise
         if metadata.st_dev != expected_device:
             os.close(quarantine_fd)
             try:
@@ -1799,9 +1987,23 @@ def atomic_rename_no_replace(
         raise OSError(error_number, os.strerror(error_number), destination)
 
 
-def probe_atomic_no_replace(parent_fd: int, expected_device: int) -> None:
+def probe_atomic_no_replace(
+    parent_fd: int,
+    expected_device: int,
+    *,
+    root: Path,
+    logical_parent: Path,
+    root_mount_resolution: MountResolution,
+) -> None:
+    require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
     atomic_no_replace_backend()
-    quarantine_name, quarantine_fd = create_deletion_quarantine(parent_fd, expected_device)
+    quarantine_name, quarantine_fd = create_deletion_quarantine(
+        parent_fd,
+        expected_device,
+        root=root,
+        logical_parent=logical_parent,
+        root_mount_resolution=root_mount_resolution,
+    )
     source_fd = -1
     destination_fd = -1
     probe_error: Exception | None = None
@@ -1815,6 +2017,19 @@ def probe_atomic_no_replace(parent_fd: int, expected_device: int) -> None:
         )
         source_fd = os.open("probe-source", file_flags, 0o600, dir_fd=quarantine_fd)
         destination_fd = os.open("probe-destination", file_flags, 0o600, dir_fd=quarantine_fd)
+        quarantine_path = logical_parent / quarantine_name
+        require_apply_same_mount(
+            root_mount_resolution,
+            source_fd,
+            repository_mount_relative_path(root, quarantine_path / "probe-source"),
+            mismatch_error="secure_apply_run_replace_not_supported",
+        )
+        require_apply_same_mount(
+            root_mount_resolution,
+            destination_fd,
+            repository_mount_relative_path(root, quarantine_path / "probe-destination"),
+            mismatch_error="secure_apply_run_replace_not_supported",
+        )
         os.close(source_fd)
         source_fd = -1
         os.close(destination_fd)
@@ -1865,7 +2080,30 @@ def restore_quarantined_entry(
     quarantine_fd: int,
     quarantine_name: str,
     original_name: str,
+    *,
+    kind: str,
+    root: Path,
+    logical_parent: Path,
+    root_mount_resolution: MountResolution,
 ) -> None:
+    require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
+    entry_fd = -1
+    try:
+        if kind == "directory":
+            entry_fd, _ = open_child_directory(quarantine_fd, "entry")
+        elif kind == "regular":
+            entry_fd, _ = open_regular_child(quarantine_fd, "entry")
+        else:
+            raise ValueError(f"replace_apply_run_restore_failed={quarantine_name}")
+        require_apply_same_mount(
+            root_mount_resolution,
+            entry_fd,
+            repository_mount_relative_path(root, logical_parent / quarantine_name / "entry"),
+            mismatch_error=f"replace_apply_run_restore_failed={quarantine_name}",
+        )
+    finally:
+        if entry_fd >= 0:
+            os.close(entry_fd)
     try:
         before = os.stat("entry", dir_fd=quarantine_fd, follow_symlinks=False)
     except OSError as exc:
@@ -1901,11 +2139,21 @@ def delete_inventory_entry(
     entry: dict[str, object],
     expected_device: int,
     logical_parent: Path,
+    *,
+    root: Path,
+    root_mount_resolution: MountResolution,
 ) -> None:
+    require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
     kind = entry.get("kind")
     if kind not in {"directory", "regular"}:
         raise ValueError("replace_apply_run_tree_changed")
     entry_path = logical_parent / name
+    require_apply_same_mount(
+        root_mount_resolution,
+        parent_fd,
+        repository_mount_relative_path(root, logical_parent),
+        mismatch_error="replace_apply_run_tree_changed",
+    )
     try:
         metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
     except OSError as exc:
@@ -1913,7 +2161,13 @@ def delete_inventory_entry(
     if not inventory_matches(metadata, entry, str(kind)) or path_is_mount_point(entry_path):
         raise ValueError("replace_apply_run_tree_changed")
 
-    quarantine_name, quarantine_fd = create_deletion_quarantine(parent_fd, expected_device)
+    quarantine_name, quarantine_fd = create_deletion_quarantine(
+        parent_fd,
+        expected_device,
+        root=root,
+        logical_parent=logical_parent,
+        root_mount_resolution=root_mount_resolution,
+    )
     moved = False
     removed = False
     entry_fd = -1
@@ -1934,9 +2188,22 @@ def delete_inventory_entry(
             raise ValueError("replace_apply_run_tree_changed")
         if kind == "directory":
             entry_fd, opened_metadata = open_child_directory(quarantine_fd, "entry")
+            require_apply_same_mount(
+                root_mount_resolution,
+                entry_fd,
+                repository_mount_relative_path(root, quarantined_path),
+                mismatch_error="replace_apply_run_tree_changed",
+            )
             if not inventory_matches(opened_metadata, entry, "directory"):
                 raise ValueError("replace_apply_run_tree_changed")
-            clear_directory_fd(entry_fd, expected_device, quarantined_path, entry)
+            clear_directory_fd(
+                entry_fd,
+                expected_device,
+                quarantined_path,
+                entry,
+                root=root,
+                root_mount_resolution=root_mount_resolution,
+            )
             current_fd_metadata = os.fstat(entry_fd)
             current_path_metadata = os.stat("entry", dir_fd=quarantine_fd, follow_symlinks=False)
             if (
@@ -1948,6 +2215,12 @@ def delete_inventory_entry(
             os.rmdir("entry", dir_fd=quarantine_fd)
         else:
             entry_fd, opened_metadata = open_regular_child(quarantine_fd, "entry")
+            require_apply_same_mount(
+                root_mount_resolution,
+                entry_fd,
+                repository_mount_relative_path(root, quarantined_path),
+                mismatch_error="replace_apply_run_tree_changed",
+            )
             current_path_metadata = os.stat("entry", dir_fd=quarantine_fd, follow_symlinks=False)
             if (
                 not inventory_matches(opened_metadata, entry, "regular")
@@ -1962,7 +2235,16 @@ def delete_inventory_entry(
             os.close(entry_fd)
             entry_fd = -1
         if moved and not removed:
-            restore_quarantined_entry(parent_fd, quarantine_fd, quarantine_name, name)
+            restore_quarantined_entry(
+                parent_fd,
+                quarantine_fd,
+                quarantine_name,
+                name,
+                kind=str(kind),
+                root=root,
+                logical_parent=logical_parent,
+                root_mount_resolution=root_mount_resolution,
+            )
         else:
             try:
                 os.rmdir(quarantine_name, dir_fd=parent_fd)
@@ -1989,7 +2271,17 @@ def clear_directory_fd(
     expected_device: int,
     logical_path: Path,
     inventory: dict[str, object],
+    *,
+    root: Path,
+    root_mount_resolution: MountResolution,
 ) -> None:
+    require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
+    require_apply_same_mount(
+        root_mount_resolution,
+        directory_fd,
+        repository_mount_relative_path(root, logical_path),
+        mismatch_error="replace_apply_run_tree_changed",
+    )
     directory_metadata = os.fstat(directory_fd)
     if (
         directory_metadata.st_dev != expected_device
@@ -2007,7 +2299,15 @@ def clear_directory_fd(
         entry = entries[name]
         if not isinstance(entry, dict):
             raise ValueError("replace_apply_run_tree_changed")
-        delete_inventory_entry(directory_fd, name, entry, expected_device, logical_path)
+        delete_inventory_entry(
+            directory_fd,
+            name,
+            entry,
+            expected_device,
+            logical_path,
+            root=root,
+            root_mount_resolution=root_mount_resolution,
+        )
     if os.listdir(directory_fd):
         raise ValueError("replace_apply_run_tree_changed")
 
@@ -2042,14 +2342,40 @@ def require_no_stale_apply_run_registration(root: Path, parent_fd: int, run_name
         os.close(registry_fd)
 
 
-def replace_existing_apply_run(root: Path, run_dir: Path, *, root_anchor_fd: int | None = None) -> None:
-    parent_fd = open_managed_apply_runs_root_fd(root, create=False, root_anchor_fd=root_anchor_fd)
+def replace_existing_apply_run(
+    root: Path,
+    run_dir: Path,
+    *,
+    root_anchor_fd: int | None = None,
+    root_mount_resolution: MountResolution | None = None,
+) -> None:
+    if root_mount_resolution is None:
+        if root_anchor_fd is None:
+            raise ValueError("secure_repository_mount_identity_unavailable")
+        root_mount_resolution = resolve_apply_mount_identity(
+            root_anchor_fd,
+            RUN_REPLACE_QUARANTINE_DELETE,
+        )
+    require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
+    parent_fd = open_managed_apply_runs_root_fd(
+        root,
+        create=False,
+        root_anchor_fd=root_anchor_fd,
+        root_mount_resolution=root_mount_resolution,
+        operation=RUN_REPLACE_QUARANTINE_DELETE,
+    )
     run_fd = -1
     registry_fd = -1
     try:
         parent_metadata = os.fstat(parent_fd)
         require_no_managed_recovery_quarantine(parent_fd)
         run_fd, run_metadata = open_child_directory(parent_fd, run_dir.name)
+        require_apply_same_mount(
+            root_mount_resolution,
+            run_fd,
+            repository_mount_relative_path(root, run_dir),
+            mismatch_error="replace_apply_run_tree_contains_indirect_target",
+        )
         require_no_managed_recovery_quarantine(run_fd)
         if (
             run_metadata.st_dev != parent_metadata.st_dev
@@ -2061,7 +2387,13 @@ def replace_existing_apply_run(root: Path, run_dir: Path, *, root_anchor_fd: int
             run = load_regular_json_at(run_fd, "Apply-Run.json")
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise ValueError("replace_requires_existing_apply_run") from exc
-        registry_fd = open_apply_run_registry_fd(root, parent_fd, create=False)
+        registry_fd = open_apply_run_registry_fd(
+            root,
+            parent_fd,
+            create=False,
+            root_mount_resolution=root_mount_resolution,
+            operation=RUN_REPLACE_QUARANTINE_DELETE,
+        )
         require_no_managed_recovery_quarantine(registry_fd)
         registration_name = apply_run_registration_file_name(run_dir.name)
         try:
@@ -2095,8 +2427,20 @@ def replace_existing_apply_run(root: Path, run_dir: Path, *, root_anchor_fd: int
             os.fstat(root_anchor_fd) if root_anchor_fd is not None else os.stat(root, follow_symlinks=False),
         ):
             raise ValueError("replace_requires_existing_apply_run")
-        probe_atomic_no_replace(parent_fd, parent_metadata.st_dev)
-        inventory = build_deletion_inventory(run_fd, parent_metadata.st_dev, run_dir)
+        probe_atomic_no_replace(
+            parent_fd,
+            parent_metadata.st_dev,
+            root=root,
+            logical_parent=managed_apply_runs_root(root),
+            root_mount_resolution=root_mount_resolution,
+        )
+        inventory = build_deletion_inventory(
+            run_fd,
+            parent_metadata.st_dev,
+            run_dir,
+            root=root,
+            root_mount_resolution=root_mount_resolution,
+        )
         os.close(run_fd)
         run_fd = -1
         delete_inventory_entry(
@@ -2105,6 +2449,8 @@ def replace_existing_apply_run(root: Path, run_dir: Path, *, root_anchor_fd: int
             inventory_identity(registration_metadata, "regular"),
             parent_metadata.st_dev,
             managed_apply_runs_root(root) / APPLY_RUN_REGISTRY_DIR_NAME,
+            root=root,
+            root_mount_resolution=root_mount_resolution,
         )
         delete_inventory_entry(
             parent_fd,
@@ -2112,6 +2458,8 @@ def replace_existing_apply_run(root: Path, run_dir: Path, *, root_anchor_fd: int
             inventory,
             parent_metadata.st_dev,
             run_dir.parent,
+            root=root,
+            root_mount_resolution=root_mount_resolution,
         )
     finally:
         if run_fd >= 0:
@@ -2126,8 +2474,14 @@ def create_managed_apply_run_directory(
     run_dir: Path,
     *,
     root_anchor_fd: int | None = None,
+    root_mount_resolution: MountResolution | None = None,
 ) -> tuple[int, int, os.stat_result]:
-    parent_fd = open_managed_apply_runs_root_fd(root, create=True, root_anchor_fd=root_anchor_fd)
+    parent_fd = open_managed_apply_runs_root_fd(
+        root,
+        create=True,
+        root_anchor_fd=root_anchor_fd,
+        root_mount_resolution=root_mount_resolution,
+    )
     run_fd = -1
     created = False
     try:
@@ -2136,6 +2490,16 @@ def create_managed_apply_run_directory(
         os.mkdir(run_dir.name, mode=0o700, dir_fd=parent_fd)
         created = True
         run_fd, run_metadata = open_child_directory(parent_fd, run_dir.name)
+        mount_resolution = root_mount_resolution or resolve_apply_mount_identity(
+            parent_fd,
+            APPLY_RUN_MUTATION,
+        )
+        require_apply_same_mount(
+            mount_resolution,
+            run_fd,
+            repository_mount_relative_path(root, run_dir),
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
         parent_metadata = os.fstat(parent_fd)
         if (
             run_metadata.st_dev != parent_metadata.st_dev
@@ -2889,11 +3253,25 @@ class ApplyMutationHandle:
     run_fd: int
     run_metadata: os.stat_result
     run: dict[str, object]
+    root_mount_resolution: MountResolution
+    mount_operation: str
 
     def revalidate(self) -> bool:
         try:
             parent_metadata = os.fstat(self.parent_fd)
-        except OSError:
+            require_mount_assurance(self.root_mount_resolution, self.mount_operation)
+            require_same_mount(self.root_mount_resolution, self.root_fd, ".")
+            require_same_mount(
+                self.root_mount_resolution,
+                self.parent_fd,
+                APPLY_RUNS_RELATIVE_DIR.as_posix(),
+            )
+            require_same_mount(
+                self.root_mount_resolution,
+                self.run_fd,
+                repository_mount_relative_path(self.root, self.run_dir),
+            )
+        except (OSError, TypeError, ValueError):
             return False
         return (
             self.run_metadata.st_dev == parent_metadata.st_dev
@@ -2928,11 +3306,23 @@ def open_verified_apply_run_for_mutation(
     parent_fd = -1
     opened_run_fd = -1
     try:
+        root_mount_resolution = resolve_apply_mount_identity(root_fd, APPLY_RUN_MUTATION)
         root_metadata = os.fstat(root_fd)
-        parent_fd = open_managed_apply_runs_root_fd(root, create=False, root_anchor_fd=root_fd)
+        parent_fd = open_managed_apply_runs_root_fd(
+            root,
+            create=False,
+            root_anchor_fd=root_fd,
+            root_mount_resolution=root_mount_resolution,
+        )
         parent_metadata = os.fstat(parent_fd)
         require_no_managed_recovery_quarantine(parent_fd)
         opened_run_fd, run_metadata = open_child_directory(parent_fd, canonical_run_dir.name)
+        require_apply_same_mount(
+            root_mount_resolution,
+            opened_run_fd,
+            repository_mount_relative_path(root, canonical_run_dir),
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
         require_no_managed_recovery_quarantine(opened_run_fd)
         if (
             run_metadata.st_dev != parent_metadata.st_dev
@@ -2952,6 +3342,8 @@ def open_verified_apply_run_for_mutation(
                 run_fd=opened_run_fd,
                 run_metadata=run_metadata,
                 run=run,
+                root_mount_resolution=root_mount_resolution,
+                mount_operation=APPLY_RUN_MUTATION,
             )
             if not handle.revalidate() or load_regular_json_at(opened_run_fd, "Apply-Run.json") != run:
                 raise ValueError("apply_run_mutation_identity_changed")
@@ -2975,9 +3367,22 @@ def open_verified_apply_run_for_read(run_dir: Path) -> Iterator[ApplyMutationHan
     parent_fd = -1
     opened_run_fd = -1
     try:
-        parent_fd = open_managed_apply_runs_root_fd(root, create=False, root_anchor_fd=root_fd)
+        root_mount_resolution = resolve_apply_mount_identity(root_fd, READ_ONLY_EVIDENCE)
+        parent_fd = open_managed_apply_runs_root_fd(
+            root,
+            create=False,
+            root_anchor_fd=root_fd,
+            root_mount_resolution=root_mount_resolution,
+            operation=READ_ONLY_EVIDENCE,
+        )
         parent_metadata = os.fstat(parent_fd)
         opened_run_fd, run_metadata = open_child_directory(parent_fd, canonical_run_dir.name)
+        require_apply_same_mount(
+            root_mount_resolution,
+            opened_run_fd,
+            repository_mount_relative_path(root, canonical_run_dir),
+            mismatch_error="invalid_apply_run_output_dir=indirect_target_rejected",
+        )
         if (
             run_metadata.st_dev != parent_metadata.st_dev
             or not metadata_is_private_directory(run_metadata)
@@ -2995,6 +3400,8 @@ def open_verified_apply_run_for_read(run_dir: Path) -> Iterator[ApplyMutationHan
             run_fd=opened_run_fd,
             run_metadata=run_metadata,
             run=run,
+            root_mount_resolution=root_mount_resolution,
+            mount_operation=READ_ONLY_EVIDENCE,
         )
         if not handle.revalidate():
             raise ValueError("apply_run_read_identity_changed")
@@ -3018,10 +3425,24 @@ def open_apply_task_for_mutation(
         raise ValueError("apply_run_mutation_identity_changed")
     task_fd, task_metadata = open_child_directory(handle.run_fd, task_id)
     try:
+        require_apply_same_mount(
+            handle.root_mount_resolution,
+            task_fd,
+            repository_mount_relative_path(handle.root, handle.run_dir / task_id),
+            mismatch_error="invalid_apply_run_task_directory",
+        )
         if task_metadata.st_dev != handle.run_metadata.st_dev or not metadata_is_private_directory(task_metadata):
             raise ValueError("invalid_apply_run_task_directory")
 
         def revalidate() -> bool:
+            try:
+                require_same_mount(
+                    handle.root_mount_resolution,
+                    task_fd,
+                    repository_mount_relative_path(handle.root, handle.run_dir / task_id),
+                )
+            except (OSError, TypeError, ValueError):
+                return False
             return handle.revalidate() and secure_directory_entry_matches(
                 handle.run_fd,
                 task_id,
@@ -3560,6 +3981,9 @@ def create_apply_run(
     root = root.resolve()
     root_anchor_fd = os.open(root, secure_directory_open_flags())
     try:
+        root_mount_resolution = resolve_apply_mount_identity(root_anchor_fd, APPLY_RUN_MUTATION)
+        if replace:
+            require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
         return create_apply_run_anchored(
             root,
             mode,
@@ -3572,6 +3996,7 @@ def create_apply_run(
             allow_unverified_git_worktree=allow_unverified_git_worktree,
             lexical_root=lexical_root,
             root_anchor_fd=root_anchor_fd,
+            root_mount_resolution=root_mount_resolution,
         )
     finally:
         os.close(root_anchor_fd)
@@ -3590,7 +4015,17 @@ def create_apply_run_anchored(
     allow_unverified_git_worktree: bool,
     lexical_root: Path,
     root_anchor_fd: int,
+    root_mount_resolution: MountResolution,
 ) -> dict[str, object]:
+    require_mount_assurance(root_mount_resolution, APPLY_RUN_MUTATION)
+    require_apply_same_mount(
+        root_mount_resolution,
+        root_anchor_fd,
+        ".",
+        mismatch_error="invalid_apply_run_output_dir=root_identity_changed",
+    )
+    if replace:
+        require_mount_assurance(root_mount_resolution, RUN_REPLACE_QUARANTINE_DELETE)
     if not opened_directory_matches_path(
         root,
         os.fstat(root_anchor_fd),
@@ -3738,11 +4173,17 @@ def create_apply_run_anchored(
     )
     load_or_create_apply_run_trust_key(create=True)
     if run_dir.exists() and replace:
-        replace_existing_apply_run(root, run_dir, root_anchor_fd=root_anchor_fd)
+        replace_existing_apply_run(
+            root,
+            run_dir,
+            root_anchor_fd=root_anchor_fd,
+            root_mount_resolution=root_mount_resolution,
+        )
     parent_fd, run_fd, run_metadata = create_managed_apply_run_directory(
         root,
         run_dir,
         root_anchor_fd=root_anchor_fd,
+        root_mount_resolution=root_mount_resolution,
     )
     try:
         write_regular_json_exclusive_at(run_fd, "Apply-Run.json", run)
@@ -3757,6 +4198,12 @@ def create_apply_run_anchored(
             os.mkdir(task_name, mode=0o700, dir_fd=run_fd)
             task_fd, task_metadata = open_child_directory(run_fd, task_name)
             try:
+                require_apply_same_mount(
+                    root_mount_resolution,
+                    task_fd,
+                    repository_mount_relative_path(root, run_dir / task_name),
+                    mismatch_error="invalid_apply_run_task_directory",
+                )
                 if task_metadata.st_dev != run_metadata.st_dev or not metadata_is_private_directory(task_metadata):
                     raise ValueError("invalid_apply_run_task_directory")
                 brief = task_briefs[task_name]
@@ -3794,6 +4241,7 @@ def create_apply_run_anchored(
             parent_fd=parent_fd,
             run_fd=run_fd,
             run_metadata=run_metadata,
+            root_mount_resolution=root_mount_resolution,
         )
         os.fsync(parent_fd)
     finally:

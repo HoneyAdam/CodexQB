@@ -917,17 +917,43 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("pull_request:", workflow)
         self.assertNotIn("branches: [main]", workflow)
         self.assertIn("matrix:", workflow)
-        self.assertIn('python-version: ["3.12", "3.13"]', workflow)
+        for os_name, version in (
+            ("ubuntu-24.04", "3.12"),
+            ("ubuntu-24.04", "3.13"),
+            ("ubuntu-24.04", "3.14"),
+            ("macos-15", "3.13"),
+            ("macos-15", "3.14"),
+        ):
+            self.assertIn(
+                f'- os: {os_name}\n            python-version: "{version}"',
+                workflow,
+            )
         self.assertIn("python-version: ${{ matrix.python-version }}", workflow)
+        self.assertIn("run: make check-fast", workflow)
+        self.assertIn("run: make check-unit", workflow)
+        self.assertIn(
+            "run: PLATFORM_POLICY=required make check-platform",
+            workflow,
+        )
         self.assertIn("pip install --requirement requirements-ci.txt", workflow)
         self.assertIn("make check-schema", workflow)
+        self.assertIn("run: make check-behavior", workflow)
+        self.assertIn("run: make check-package", workflow)
         self.assertIn("make check-public-privacy", workflow)
         self.assertIn("Validate an extracted Gitless source package", workflow)
         self.assertIn("CODEXQB_VALIDATE_SKIP_UNITTESTS=1", workflow)
         self.assertIn("CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE=1", workflow)
+        self.assertIn("--artifact-type plugin", workflow)
+        self.assertIn("--artifact-type source", workflow)
+        self.assertIn("--provenance-mode worktree", workflow)
+        self.assertIn("codexqb-plugin-worktree.zip", workflow)
+        self.assertIn("CodexQB-source-worktree.zip", workflow)
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", workflow)
+        self.assertIn("inputs.run_release_gate", workflow)
+        self.assertIn("run: make check-release", workflow)
         self.assertLess(
-            workflow.index("run: make check\n"),
             workflow.index("pip install --requirement requirements-ci.txt"),
+            workflow.index("run: make check-schema"),
         )
         self.assertEqual(requirements_ci.strip(), "jsonschema==4.26.0")
         self.assertTrue(schema_validator.is_file())
@@ -936,30 +962,70 @@ class SkillContentTests(unittest.TestCase):
         self.assertIn("scripts/validate_apply_schema.py", makefile)
         self.assertIn("tests.test_apply_schema", makefile)
         self.assertIn("scripts/export_sanitized.py", makefile)
-        self.assertIn("check-fast", makefile)
-        self.assertIn("check-behavior", makefile)
+        for target in (
+            "check-fast:",
+            "check-static:",
+            "check-unit:",
+            "check-platform:",
+            "check-schema:",
+            "check-behavior:",
+            "check-package:",
+            "check-release:",
+        ):
+            self.assertIn(target, makefile)
         self.assertIn("check-public-privacy", makefile)
-        self.assertIn("check-release", makefile)
+        self.assertIn("check: check-static check-unit check-platform check-behavior check-package", makefile)
+        check_fast = makefile.split("check-fast:", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("scripts/run_test_suite.py fast", check_fast)
+        self.assertNotIn("check-platform", check_fast)
+        self.assertNotIn("check-release", check_fast)
         self.assertIn("export-sanitized-worktree", makefile)
         self.assertIn("export-sanitized-source-package", makefile)
-        self.assertIn('--output "$$tmpdir/CodexQB-sanitized.zip"', makefile)
-        self.assertIn("--source-package", validate_script)
+        self.assertIn("export-sanitized: export-source", makefile)
+        self.assertIn("export-sanitized-worktree: export-source-worktree", makefile)
+        self.assertIn("export-sanitized-source-package: export-source-package", makefile)
+        self.assertIn("--artifact-type plugin --provenance-mode strict-release", makefile)
+        self.assertIn("--artifact-type source --provenance-mode strict-release", makefile)
+        self.assertIn("codexqb-plugin-release.zip", makefile)
+        self.assertIn("CodexQB-source-release.zip", makefile)
+        self.assertNotIn("CodexQB-sanitized.zip", makefile)
+        self.assertIn("--artifact-type plugin", validate_script)
+        self.assertIn("--artifact-type source", validate_script)
+        self.assertIn('--provenance-mode "$PACKAGE_PROVENANCE_MODE"', validate_script)
+        self.assertIn("codexqb-plugin-worktree.zip", validate_script)
+        self.assertIn("CodexQB-source-worktree.zip", validate_script)
+        self.assertIn("export PYTHONDONTWRITEBYTECODE=1", validate_script)
         self.assertIn(
             'scripts/verify_package_manifest.py --root .',
             validate_script,
         )
+        self.assertLess(
+            validate_script.index('scripts/verify_package_manifest.py --root .'),
+            validate_script.index('TRUSTED_GIT=""'),
+        )
         self.assertIn(
-            'scripts/verify_package_manifest.py --zip "$TMPDIR_VALIDATE/CodexQB-sanitized.zip"',
+            'scripts/verify_package_manifest.py --zip "$PLUGIN_PACKAGE"',
+            validate_script,
+        )
+        self.assertIn(
+            'scripts/verify_package_manifest.py --zip "$SOURCE_PACKAGE"',
             validate_script,
         )
         self.assertIn('"docs/FEEDBACK-CLOSURE-AUDIT.md"', privacy_checker)
+        self.assertIn('"docs/revision/CODEXQB-0.3-RELEASE-FOUNDATION.md"', privacy_checker)
         self.assertNotIn("0.2.1", bug_template)
         self.assertIn("vX.Y.Z or commit SHA", bug_template)
         export_script = (REPO_ROOT / "scripts/export_sanitized.py").read_text(encoding="utf-8")
-        self.assertIn("CodexQB-sanitized.zip", export_script)
+        self.assertNotIn("CodexQB-sanitized.zip", export_script)
+        self.assertIn('"--artifact-type"', export_script)
+        self.assertIn('"--provenance-mode"', export_script)
+        self.assertIn('choices=("strict-release", "worktree", "filesystem")', export_script)
+        self.assertIn('"--source-package"', export_script)
         self.assertIn("IGNORED_PARTS", export_script)
         self.assertIn("BLOCKED_SUFFIXES", export_script)
-        self.assertIn("PACKAGE-MANIFEST.json", export_script)
+        self.assertIn("PACKAGE_MANIFEST_NAME", export_script)
+        package_policy = (REPO_ROOT / "scripts/package_policy.py").read_text(encoding="utf-8")
+        self.assertIn('PACKAGE_MANIFEST_NAME = "PACKAGE-MANIFEST.json"', package_policy)
         self.assertIn("working_tree_dirty", export_script)
         self.assertIn("head_mismatch_origin_main", export_script)
         self.assertIn("git_metadata_required_for_strict_export", export_script)
@@ -1032,7 +1098,7 @@ class SkillContentTests(unittest.TestCase):
         validate_script = (REPO_ROOT / "scripts/validate.sh").read_text(encoding="utf-8")
         self.assertIn("python3 evals/run_fixture_corpus_checks.py", validate_script)
         self.assertIn("python3 evals/run_downstream_goal_apply_dry_run.py", validate_script)
-        self.assertIn("--allow-dirty --allow-head-mismatch", validate_script)
+        self.assertIn('--provenance-mode "$PACKAGE_PROVENANCE_MODE"', validate_script)
 
     def test_probe_policy_and_schema_versions_are_documented(self) -> None:
         probe = SKILL_ROOT / "references/probe-policy.md"
@@ -1180,6 +1246,48 @@ class SkillContentTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("docs/release-evidence/leak.md:1:mac_user_path", result.stdout)
+            self.assertNotIn("/Users/example/private", result.stdout)
+
+    def test_untracked_explicit_public_report_is_privacy_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / "README.md").write_text("safe\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "user.name=CodexQB Test",
+                    "-c",
+                    "user.email=codexqb@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "baseline",
+                ],
+                check=True,
+            )
+            report = root / "docs" / "revision" / "CODEXQB-0.3-RELEASE-FOUNDATION.md"
+            report.parent.mkdir(parents=True)
+            report.write_text("path: /Users/example/private\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [os.environ.get("PYTHON", "python3"), str(REPO_ROOT / "scripts/check_public_privacy.py"), "--root", str(root)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "docs/revision/CODEXQB-0.3-RELEASE-FOUNDATION.md:1:mac_user_path",
+                result.stdout,
+            )
             self.assertNotIn("/Users/example/private", result.stdout)
 
     def test_autopsy_validator_mode_is_documented(self) -> None:

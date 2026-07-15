@@ -24,6 +24,8 @@ dist/
 # Generated/runtime
 .codexqb/
 CodexQB-sanitized.zip
+/codexqb-plugin-*.zip
+/CodexQB-source-*.zip
 artifacts/
 logs/
 tmp/

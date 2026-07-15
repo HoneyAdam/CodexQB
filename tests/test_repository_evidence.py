@@ -427,6 +427,97 @@ class RepositoryEvidenceTests(unittest.TestCase):
                     ):
                         EVIDENCE.snapshot_repository_inventory_from_anchor(anchor)
 
+    def test_root_anchor_fails_closed_for_low_or_unavailable_mount_assurance(self) -> None:
+        mount = EVIDENCE._mount_identity
+        low_identity = mount.MountIdentity("filesystem_device", (7,))
+        low_provider = mount.MountProviderResult(
+            provider=mount.FILESYSTEM_FSTAT_PROVIDER,
+            supported=True,
+            identity=low_identity,
+            assurance=mount.MountAssurance.FILESYSTEM_IDENTITY_ONLY,
+            failure_code=None,
+        )
+        low_resolution = mount.MountResolution(
+            selected_provider=mount.FILESYSTEM_FSTAT_PROVIDER,
+            identity=low_identity,
+            assurance=mount.MountAssurance.FILESYSTEM_IDENTITY_ONLY,
+            providers=(low_provider,),
+            failure_code=mount.SECURE_MOUNT_IDENTITY_UNAVAILABLE,
+        )
+        unavailable_provider = mount.MountProviderResult(
+            provider=mount.LINUX_STATX_PROVIDER,
+            supported=False,
+            identity=None,
+            assurance=mount.MountAssurance.UNAVAILABLE,
+            failure_code="mount_provider_statx_syscall_unavailable",
+        )
+        unavailable_resolution = mount.MountResolution(
+            selected_provider=None,
+            identity=None,
+            assurance=mount.MountAssurance.UNAVAILABLE,
+            providers=(unavailable_provider,),
+            failure_code=mount.SECURE_MOUNT_IDENTITY_UNAVAILABLE,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for candidate in (low_resolution, unavailable_resolution):
+                with self.subTest(assurance=candidate.assurance.value), mock.patch.object(
+                    mount,
+                    "resolve_mount_identity",
+                    return_value=candidate,
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "^secure_repository_mount_identity_unavailable$",
+                    ):
+                        with EVIDENCE.open_repository_root_anchor(Path(temp_dir)):
+                            self.fail("low-assurance repository anchor was opened")
+
+    def test_root_resolution_reconciles_then_revalidation_prefers_selected_provider(self) -> None:
+        mount = EVIDENCE._mount_identity
+        real_resolver = mount.resolve_mount_identity
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mount,
+            "resolve_mount_identity",
+            wraps=real_resolver,
+        ) as resolver:
+            with EVIDENCE.open_repository_root_anchor(Path(temp_dir)) as anchor:
+                self.assertIsInstance(anchor.mount_identity, tuple)
+                self.assertIn(
+                    anchor.mount_resolution.assurance,
+                    (
+                        mount.MountAssurance.MOUNT_UNIQUE_DESCRIPTOR_BOUND,
+                        mount.MountAssurance.MOUNT_RECONCILED,
+                    ),
+                )
+                first = resolver.call_args_list[0]
+                self.assertIs(first.kwargs.get("reconcile"), True)
+                resolver.reset_mock()
+
+                EVIDENCE.revalidate_repository_root_anchor(anchor)
+
+                self.assertTrue(resolver.called)
+                last = resolver.call_args_list[-1]
+                self.assertIs(last.kwargs.get("reconcile"), False)
+                self.assertEqual(
+                    last.kwargs.get("preferred_provider"),
+                    anchor.mount_resolution.selected_provider,
+                )
+
+    def test_root_provider_identity_change_keeps_stable_external_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with EVIDENCE.open_repository_root_anchor(Path(temp_dir)) as anchor:
+                with mock.patch.object(
+                    EVIDENCE,
+                    "_descriptor_mount_identity",
+                    return_value=("changed_mount_identity", 99),
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "^repository_root_mount_identity_changed$",
+                    ):
+                        EVIDENCE.revalidate_repository_root_anchor(anchor)
+
     def test_final_file_and_symlink_mounts_are_rejected_before_content_read(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

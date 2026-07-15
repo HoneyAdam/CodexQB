@@ -159,6 +159,34 @@ class ApplyInventoryBoundsTests(unittest.TestCase):
                 second_baseline["workspace_file_inventory_sha256"],
             )
 
+    def test_apply_run_mutation_rejects_low_mount_assurance_before_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            low_assurance = object()
+
+            with mock.patch.object(
+                APPLY_MODULE,
+                "resolve_mount_identity",
+                return_value=low_assurance,
+            ), mock.patch.object(
+                APPLY_MODULE,
+                "require_mount_assurance",
+                side_effect=ValueError("secure_repository_mount_identity_unavailable"),
+            ) as require_assurance:
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "secure_repository_mount_identity_unavailable",
+                ):
+                    APPLY_MODULE.create_apply_run(
+                        root,
+                        "no_action",
+                        allow_non_git_unsafe=True,
+                        allow_unverified_git_worktree=True,
+                    )
+
+            require_assurance.assert_any_call(low_assurance, APPLY_MODULE.APPLY_RUN_MUTATION)
+            self.assertFalse((root / ".codexqb").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

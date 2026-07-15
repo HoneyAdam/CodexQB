@@ -1452,7 +1452,15 @@ class ApplyRunTests(unittest.TestCase):
             original_clear = APPLY_MODULE.clear_directory_fd
             state = {"swapped": False}
 
-            def swap_then_clear(directory_fd, expected_device, logical_path, inventory):
+            def swap_then_clear(
+                directory_fd,
+                expected_device,
+                logical_path,
+                inventory,
+                *,
+                root,
+                root_mount_resolution,
+            ):
                 if not state["swapped"]:
                     state["swapped"] = True
                     active_nested = Path(logical_path) / ".000-nested"
@@ -1462,7 +1470,14 @@ class ApplyRunTests(unittest.TestCase):
                         "preserve replacement\n",
                         encoding="utf-8",
                     )
-                return original_clear(directory_fd, expected_device, logical_path, inventory)
+                return original_clear(
+                    directory_fd,
+                    expected_device,
+                    logical_path,
+                    inventory,
+                    root=root,
+                    root_mount_resolution=root_mount_resolution,
+                )
 
             with mock.patch.object(APPLY_MODULE, "clear_directory_fd", side_effect=swap_then_clear):
                 with self.assertRaisesRegex(ValueError, "replace_apply_run_tree_changed"):
@@ -2016,12 +2031,25 @@ class ApplyRunTests(unittest.TestCase):
             original_open = APPLY_MODULE.open_managed_apply_runs_root_fd
             state = {"swapped": False}
 
-            def swap_before_managed_open(root, *, create, root_anchor_fd=None):
+            def swap_before_managed_open(
+                root,
+                *,
+                create,
+                root_anchor_fd=None,
+                root_mount_resolution=None,
+                operation=APPLY_MODULE.APPLY_RUN_MUTATION,
+            ):
                 if not create and not state["swapped"]:
                     state["swapped"] = True
                     root_a.rename(stashed_a)
                     root_b.rename(root_a)
-                return original_open(root, create=create, root_anchor_fd=root_anchor_fd)
+                return original_open(
+                    root,
+                    create=create,
+                    root_anchor_fd=root_anchor_fd,
+                    root_mount_resolution=root_mount_resolution,
+                    operation=operation,
+                )
 
             with mock.patch.object(
                 APPLY_MODULE,
@@ -2075,6 +2103,101 @@ class ApplyRunTests(unittest.TestCase):
                     self.create_apply_run(root, "no_action", fixed, replace=True, run_id_suffix="second")
 
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+
+    def test_apply_replace_requires_destructive_mount_assurance_before_deletion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_no_action_fixture(root)
+            fixed = root / ".codexqb" / "apply-runs" / "fixed"
+            self.create_apply_run(root, "no_action", fixed, run_id_suffix="first")
+            sentinel = fixed / "sentinel.txt"
+            sentinel.write_text("preserve me\n", encoding="utf-8")
+            real_require = APPLY_MODULE.require_mount_assurance
+            operations: list[str] = []
+
+            def reject_destructive(resolution, operation):
+                operations.append(operation)
+                if operation == APPLY_MODULE.RUN_REPLACE_QUARANTINE_DELETE:
+                    raise ValueError("secure_repository_mount_identity_unavailable")
+                return real_require(resolution, operation)
+
+            with mock.patch.object(
+                APPLY_MODULE,
+                "require_mount_assurance",
+                side_effect=reject_destructive,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "secure_repository_mount_identity_unavailable",
+                ):
+                    self.create_apply_run(
+                        root,
+                        "no_action",
+                        fixed,
+                        replace=True,
+                        run_id_suffix="second",
+                    )
+
+            self.assertIn(APPLY_MODULE.RUN_REPLACE_QUARANTINE_DELETE, operations)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+
+    def test_apply_replace_rejects_descriptor_bound_descendant_mount_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_no_action_fixture(root)
+            fixed = root / ".codexqb" / "apply-runs" / "fixed"
+            self.create_apply_run(root, "no_action", fixed, run_id_suffix="first")
+            mounted = fixed / "mounted"
+            mounted.mkdir()
+            sentinel = mounted / "sentinel.txt"
+            sentinel.write_text("preserve me\n", encoding="utf-8")
+            real_require_same_mount = APPLY_MODULE.require_same_mount
+
+            def reject_mounted_child(root_resolution, child_fd, relative_path, **kwargs):
+                if str(relative_path).endswith("/mounted"):
+                    raise ValueError(f"repository_nested_mount_rejected={relative_path}")
+                return real_require_same_mount(
+                    root_resolution,
+                    child_fd,
+                    relative_path,
+                    **kwargs,
+                )
+
+            with mock.patch.object(
+                APPLY_MODULE,
+                "require_same_mount",
+                side_effect=reject_mounted_child,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "replace_apply_run_tree_contains_indirect_target",
+                ):
+                    self.create_apply_run(
+                        root,
+                        "no_action",
+                        fixed,
+                        replace=True,
+                        run_id_suffix="second",
+                    )
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+
+    def test_apply_mutation_handle_revalidates_descriptor_mount_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.write_no_action_fixture(root)
+            created = self.create_apply_run(root, "no_action", run_id_suffix="mount-revalidate")
+            run_dir = Path(str(created["run_dir"]))
+
+            with APPLY_MODULE.open_verified_apply_run_for_mutation(run_dir) as handle:
+                with mock.patch.object(
+                    APPLY_MODULE,
+                    "require_same_mount",
+                    side_effect=ValueError(
+                        "repository_nested_mount_rejected=.codexqb/apply-runs"
+                    ),
+                ):
+                    self.assertFalse(handle.revalidate())
 
     def test_apply_run_requires_step4_audit_for_action_modes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

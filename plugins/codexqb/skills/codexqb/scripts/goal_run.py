@@ -59,6 +59,13 @@ from git_evidence import (  # noqa: E402
     canonical_git_evidence_digest,
     capture_git_workspace_evidence,
 )
+from mount_identity import (  # noqa: E402
+    NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION,
+    MountResolution,
+    require_mount_assurance,
+    require_same_mount,
+    resolve_mount_identity,
+)
 from repository_evidence import snapshot_repository_inventory  # noqa: E402
 
 
@@ -243,6 +250,19 @@ def resolve_managed_goal_run_dir(
     return lexical_candidate
 
 
+def require_goal_same_mount(
+    root_resolution: MountResolution,
+    child_fd: int,
+    relative_path: str,
+) -> None:
+    try:
+        require_same_mount(root_resolution, child_fd, relative_path)
+    except ValueError as exc:
+        if str(exc).startswith("repository_nested_mount_rejected="):
+            raise ValueError("invalid_goal_output_dir=directory_identity_changed") from exc
+        raise
+
+
 @contextmanager
 def open_managed_goal_run_directory(
     root: Path,
@@ -259,15 +279,28 @@ def open_managed_goal_run_directory(
     run_fd = -1
     created_run = False
     try:
+        root_mount_resolution = resolve_mount_identity(root_fd, reconcile=True)
+        require_mount_assurance(
+            root_mount_resolution,
+            NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION,
+        )
+        require_goal_same_mount(root_mount_resolution, root_fd, ".")
+        root_metadata = os.fstat(root_fd)
         planner_fd, planner_metadata, _ = open_or_create_child_directory(
             root_fd,
             "Planner-docs",
             create=create,
         )
+        require_goal_same_mount(root_mount_resolution, planner_fd, "Planner-docs")
         runs_fd, runs_metadata, _ = open_or_create_child_directory(
             planner_fd,
             "Goal-Runs",
             create=create,
+        )
+        require_goal_same_mount(
+            root_mount_resolution,
+            runs_fd,
+            GOAL_RUNS_RELATIVE_DIR.as_posix(),
         )
         try:
             existing_metadata = os.stat(run_dir.name, dir_fd=runs_fd, follow_symlinks=False)
@@ -281,10 +314,30 @@ def open_managed_goal_run_directory(
             os.mkdir(run_dir.name, mode=0o700, dir_fd=runs_fd)
             created_run = True
         run_fd, run_metadata = open_child_directory(runs_fd, run_dir.name)
+        run_relative_path = run_dir.relative_to(root).as_posix()
+        require_goal_same_mount(root_mount_resolution, run_fd, run_relative_path)
 
         def revalidate() -> bool:
+            try:
+                current_root_metadata = os.stat(root, follow_symlinks=False)
+                require_mount_assurance(
+                    root_mount_resolution,
+                    NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION,
+                )
+                require_same_mount(root_mount_resolution, root_fd, ".")
+                require_same_mount(root_mount_resolution, planner_fd, "Planner-docs")
+                require_same_mount(
+                    root_mount_resolution,
+                    runs_fd,
+                    GOAL_RUNS_RELATIVE_DIR.as_posix(),
+                )
+                require_same_mount(root_mount_resolution, run_fd, run_relative_path)
+            except (OSError, TypeError, ValueError):
+                return False
             return (
-                directory_entry_matches(root_fd, "Planner-docs", planner_metadata)
+                current_root_metadata.st_dev == root_metadata.st_dev
+                and current_root_metadata.st_ino == root_metadata.st_ino
+                and directory_entry_matches(root_fd, "Planner-docs", planner_metadata)
                 and directory_entry_matches(planner_fd, "Goal-Runs", runs_metadata)
                 and directory_entry_matches(runs_fd, run_dir.name, run_metadata)
             )

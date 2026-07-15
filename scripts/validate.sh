@@ -3,22 +3,53 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-TRUSTED_GIT="$(PATH=/bin:/usr/bin command -v git || true)"
-if [[ -z "$TRUSTED_GIT" ]]; then
-  echo "trusted_git_executable_unavailable"
-  exit 1
+
+PROFILE="${1:-all}"
+case "$PROFILE" in
+  all|static|fast|unit|platform|behavior|package)
+    ;;
+  *)
+    echo "unknown_validation_profile=$PROFILE"
+    exit 2
+    ;;
+esac
+
+export PYTHONDONTWRITEBYTECODE=1
+HAS_PACKAGE_MANIFEST=0
+if [[ -f "PACKAGE-MANIFEST.json" ]]; then
+  # A Gitless extracted source package is authenticated by its manifest before
+  # Git discovery. Package validation must not require a Git executable.
+  python3 scripts/verify_package_manifest.py --root . --strict-artifact --expected-artifact-type source
+  HAS_PACKAGE_MANIFEST=1
+fi
+
+TRUSTED_GIT=""
+if [[ "$HAS_PACKAGE_MANIFEST" != "1" ]]; then
+  TRUSTED_GIT="$(PATH=/bin:/usr/bin command -v git || true)"
+  if [[ -z "$TRUSTED_GIT" ]]; then
+    echo "trusted_git_executable_unavailable"
+    exit 1
+  fi
 fi
 export CODEXQB_TRUSTED_GIT="$TRUSTED_GIT"
-GIT_TOP_LEVEL="$("$TRUSTED_GIT" rev-parse --show-toplevel 2>/dev/null || true)"
+GIT_TOP_LEVEL=""
+if [[ -n "$TRUSTED_GIT" ]]; then
+  GIT_TOP_LEVEL="$("$TRUSTED_GIT" rev-parse --show-toplevel 2>/dev/null || true)"
+fi
 IS_EXACT_GIT_ROOT=0
 if [[ -n "$GIT_TOP_LEVEL" && "$(cd "$GIT_TOP_LEVEL" && pwd -P)" == "$(pwd -P)" ]]; then
   IS_EXACT_GIT_ROOT=1
+fi
+if [[ "$HAS_PACKAGE_MANIFEST" != "1" && "$IS_EXACT_GIT_ROOT" != "1" ]]; then
+  echo "package_manifest_missing_for_gitless_tree"
+  exit 1
 fi
 TMPDIR_VALIDATE="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_VALIDATE"' EXIT
 export CODEXQB_TRUST_ROOT="$TMPDIR_VALIDATE/codexqb-trust"
 mkdir -m 700 "$CODEXQB_TRUST_ROOT"
 
+if [[ "$PROFILE" == "all" || "$PROFILE" == "static" || "$PROFILE" == "fast" ]]; then
 python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
 python3 -m json.tool plugins/codexqb/.codex-plugin/plugin.json >/dev/null
 
@@ -35,6 +66,8 @@ required_files=(
   "plugins/codexqb/skills/codexqb/scripts/validate_planner_docs.py"
   "plugins/codexqb/skills/codexqb/scripts/goal_run.py"
   "plugins/codexqb/skills/codexqb/scripts/apply_run.py"
+  "plugins/codexqb/skills/codexqb/scripts/mount_identity.py"
+  "plugins/codexqb/skills/codexqb/scripts/doctor.py"
   "plugins/codexqb/skills/codexqb/references/First-Planner.md"
   "plugins/codexqb/skills/codexqb/references/Autopsy-Planner.md"
   "plugins/codexqb/skills/codexqb/references/Second-Planner.md"
@@ -73,15 +106,23 @@ required_files=(
   "evals/run_fixture_checks.py"
   "requirements-ci.txt"
   "scripts/export_sanitized.py"
+  "scripts/extract_verified_package.py"
+  "scripts/package_policy.py"
   "scripts/validate_openai_yaml.py"
   "scripts/verify_package_manifest.py"
   "scripts/validate_apply_schema.py"
+  "scripts/run_test_suite.py"
   "tests/test_package_manifest.py"
+  "tests/test_package_extraction.py"
   "tests/test_apply_schema.py"
   "tests/test_apply_inventory.py"
   "tests/test_evidence_contracts.py"
   "tests/test_repository_evidence.py"
   "tests/test_git_evidence.py"
+  "tests/test_mount_identity.py"
+  "tests/test_doctor.py"
+  "tests/test_suite_partition.py"
+  "tests/platform/run_mount_identity_probe.py"
   "README.md"
   "CHANGELOG.md"
   "docs/INSTALLATION.md"
@@ -98,13 +139,6 @@ for path in "${required_files[@]}"; do
     exit 1
   fi
 done
-
-if [[ -f "PACKAGE-MANIFEST.json" ]]; then
-  python3 scripts/verify_package_manifest.py --root .
-elif [[ "$IS_EXACT_GIT_ROOT" != "1" ]]; then
-  echo "package_manifest_missing_for_gitless_tree"
-  exit 1
-fi
 
 python3 scripts/validate_openai_yaml.py
 
@@ -167,6 +201,8 @@ from safety_contracts import literal_secret_match_locations, secret_match_locati
 GIT = os.environ["CODEXQB_TRUSTED_GIT"]
 
 def in_git_checkout() -> bool:
+    if not GIT:
+        return False
     return subprocess.run(
         [GIT, "rev-parse", "--is-inside-work-tree"],
         stdout=subprocess.DEVNULL,
@@ -249,6 +285,8 @@ bad = re.compile(
 )
 
 def in_git_checkout() -> bool:
+    if not GIT:
+        return False
     return subprocess.run(
         [GIT, "rev-parse", "--is-inside-work-tree"],
         stdout=subprocess.DEVNULL,
@@ -295,14 +333,41 @@ if offenders:
         print(offender)
     sys.exit(1)
 PY
-
-if [[ "$IS_EXACT_GIT_ROOT" == "1" ]]; then
-  python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" --include-untracked --allow-dirty --allow-head-mismatch >/dev/null
-else
-  python3 scripts/export_sanitized.py --root . --output "$TMPDIR_VALIDATE/CodexQB-sanitized.zip" --source-package >/dev/null
 fi
-python3 scripts/verify_package_manifest.py --zip "$TMPDIR_VALIDATE/CodexQB-sanitized.zip"
-CODEXQB_SANITIZED_ZIP="$TMPDIR_VALIDATE/CodexQB-sanitized.zip" python3 - <<'PY'
+
+if [[ "$PROFILE" == "all" || "$PROFILE" == "package" ]]; then
+PLUGIN_PACKAGE="$TMPDIR_VALIDATE/codexqb-plugin-worktree.zip"
+SOURCE_PACKAGE="$TMPDIR_VALIDATE/CodexQB-source-worktree.zip"
+if [[ "$IS_EXACT_GIT_ROOT" == "1" ]]; then
+  PACKAGE_PROVENANCE_MODE="worktree"
+else
+  PACKAGE_PROVENANCE_MODE="filesystem"
+fi
+python3 scripts/export_sanitized.py --root . --artifact-type plugin --provenance-mode "$PACKAGE_PROVENANCE_MODE" --output "$PLUGIN_PACKAGE" >/dev/null
+python3 scripts/export_sanitized.py --root . --artifact-type source --provenance-mode "$PACKAGE_PROVENANCE_MODE" --output "$SOURCE_PACKAGE" >/dev/null
+python3 scripts/verify_package_manifest.py --zip "$PLUGIN_PACKAGE"
+python3 scripts/verify_package_manifest.py --zip "$SOURCE_PACKAGE"
+python3 scripts/extract_verified_package.py \
+  --zip "$PLUGIN_PACKAGE" \
+  --output "$TMPDIR_VALIDATE/plugin-extracted" \
+  --artifact-type plugin
+python3 scripts/extract_verified_package.py \
+  --zip "$SOURCE_PACKAGE" \
+  --output "$TMPDIR_VALIDATE/source-extracted" \
+  --artifact-type source
+python3 scripts/verify_package_manifest.py \
+  --root "$TMPDIR_VALIDATE/plugin-extracted" \
+  --strict-artifact \
+  --expected-artifact-type plugin
+python3 scripts/verify_package_manifest.py \
+  --root "$TMPDIR_VALIDATE/source-extracted/CodexQB" \
+  --strict-artifact \
+  --expected-artifact-type source
+test -f "$TMPDIR_VALIDATE/plugin-extracted/.codex-plugin/plugin.json"
+test -f "$TMPDIR_VALIDATE/plugin-extracted/skills/codexqb/SKILL.md"
+test ! -e "$TMPDIR_VALIDATE/plugin-extracted/tests"
+test ! -e "$TMPDIR_VALIDATE/source-extracted/CodexQB/.git"
+CODEXQB_PACKAGE_ZIPS="$PLUGIN_PACKAGE:$SOURCE_PACKAGE" python3 - <<'PY'
 import os
 import re
 import sys
@@ -317,32 +382,38 @@ bad = re.compile(
     r"(^|/)(\.git|\.codexqb|__pycache__|\.env|artifacts|logs|tmp|__MACOSX)(/|$)"
     r"|\.pyc$|\.pem$|\.key$|\.local($|\.)"
 )
-archive_path = Path(os.environ["CODEXQB_SANITIZED_ZIP"])
 offenders: list[str] = []
 secret_offenders: list[str] = []
-with zipfile.ZipFile(archive_path) as archive:
-    names = set(archive.namelist())
-    if "CodexQB/PACKAGE-MANIFEST.json" not in names:
-        offenders.append("missing_package_manifest")
-    for info in archive.infolist():
-        name = info.filename
-        if bad.search(name):
-            offenders.append(name)
-            continue
-        if info.is_dir():
-            continue
-        data = archive.read(info)
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError:
-            continue
-        scanner = (
-            literal_secret_match_locations
-            if Path(name).suffix.lower() in {".py", ".sh", ".json"}
-            else secret_match_locations
+for archive_name in os.environ["CODEXQB_PACKAGE_ZIPS"].split(":"):
+    archive_path = Path(archive_name)
+    with zipfile.ZipFile(archive_path) as archive:
+        names = set(archive.namelist())
+        expected_manifest = (
+            "PACKAGE-MANIFEST.json"
+            if archive_path.name.startswith("codexqb-plugin-")
+            else "CodexQB/PACKAGE-MANIFEST.json"
         )
-        if scanner(text):
-            secret_offenders.append(name)
+        if expected_manifest not in names:
+            offenders.append(f"{archive_path.name}:missing_package_manifest")
+        for info in archive.infolist():
+            name = info.filename
+            if bad.search(name):
+                offenders.append(f"{archive_path.name}:{name}")
+                continue
+            if info.is_dir():
+                continue
+            data = archive.read(info)
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            scanner = (
+                literal_secret_match_locations
+                if Path(name).suffix.lower() in {".py", ".sh", ".json"}
+                else secret_match_locations
+            )
+            if scanner(text):
+                secret_offenders.append(f"{archive_path.name}:{name}")
 
 if offenders or secret_offenders:
     print("sanitized_zip_hygiene_failed")
@@ -353,13 +424,28 @@ if offenders or secret_offenders:
     sys.exit(1)
 print("sanitized_zip_hygiene=passed")
 PY
+if [[ "${CODEXQB_VALIDATE_SKIP_UNITTESTS:-0}" != "1" ]]; then
+  python3 scripts/run_test_suite.py package
+fi
+fi
 
+if [[ "$PROFILE" == "fast" ]]; then
+  python3 scripts/run_test_suite.py fast
+elif [[ "$PROFILE" == "all" || "$PROFILE" == "unit" ]]; then
 if [[ "${CODEXQB_VALIDATE_SKIP_UNITTESTS:-0}" == "1" ]]; then
   echo "unit_tests_skipped=1"
 else
-  python3 -m unittest discover -s tests -v
+  python3 scripts/run_test_suite.py unit
+fi
 fi
 
+if [[ "$PROFILE" == "all" || "$PROFILE" == "platform" ]]; then
+if [[ "${CODEXQB_VALIDATE_SKIP_UNITTESTS:-0}" != "1" && "$HAS_PACKAGE_MANIFEST" != "1" ]]; then
+  python3 scripts/run_test_suite.py platform
+fi
+fi
+
+if [[ "$PROFILE" == "all" || "$PROFILE" == "behavior" ]]; then
 if [[ "${CODEXQB_VALIDATE_SKIP_BEHAVIOR_SMOKE:-0}" == "1" ]]; then
   echo "behavior_smokes_skipped=1"
 else
@@ -367,7 +453,9 @@ else
   python3 evals/run_apply_behavior_smoke.py
   # evals/run_downstream_goal_apply_dry_run.py prints downstream_goal_apply_dry_run=passed on success.
   python3 evals/run_downstream_goal_apply_dry_run.py
+  python3 scripts/run_test_suite.py behavior
 fi
 # evals/run_goal_apply_metric_checks.py prints goal_apply_metric_checks=passed on success.
 python3 evals/run_goal_apply_metric_checks.py
 python3 evals/run_fixture_corpus_checks.py
+fi

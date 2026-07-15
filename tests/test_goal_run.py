@@ -266,6 +266,157 @@ class GoalRunTests(unittest.TestCase):
 
             self.assertEqual(list(real_run.iterdir()), [])
 
+    def test_goal_mount_assurance_fails_before_managed_directory_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            output = root / "Planner-docs" / "Goal-Runs" / "blocked"
+            resolution = object()
+
+            with (
+                mock.patch.object(GOAL_MODULE, "resolve_mount_identity", return_value=resolution) as resolve,
+                mock.patch.object(
+                    GOAL_MODULE,
+                    "require_mount_assurance",
+                    side_effect=ValueError("secure_repository_mount_identity_unavailable"),
+                ) as require,
+                mock.patch.object(GOAL_MODULE, "open_or_create_child_directory") as open_child,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "^secure_repository_mount_identity_unavailable$",
+                ):
+                    with GOAL_MODULE.open_managed_goal_run_directory(
+                        root,
+                        output,
+                        create=True,
+                        allow_existing=False,
+                    ):
+                        self.fail("low-assurance Goal directory unexpectedly opened")
+
+            resolve.assert_called_once()
+            self.assertEqual(resolve.call_args.kwargs, {"reconcile": True})
+            require.assert_called_once_with(
+                resolution,
+                GOAL_MODULE.NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION,
+            )
+            open_child.assert_not_called()
+            self.assertFalse((root / "Planner-docs").exists())
+            self.assertFalse((root / ".codexqb").exists())
+
+    def test_goal_nested_mount_mismatch_maps_to_directory_identity_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            run_dir = root / "Planner-docs" / "Goal-Runs" / "fixed"
+            run_dir.mkdir(parents=True)
+            sentinel = run_dir / "sentinel.txt"
+            sentinel.write_text("preserve me\n", encoding="utf-8")
+            resolution = object()
+            checked_paths: list[str] = []
+
+            def reject_runs_mount(root_resolution, child_fd, relative_path):
+                checked_paths.append(str(relative_path))
+                if relative_path == "Planner-docs/Goal-Runs":
+                    raise ValueError(
+                        "repository_nested_mount_rejected=Planner-docs/Goal-Runs"
+                    )
+                return resolution
+
+            with (
+                mock.patch.object(GOAL_MODULE, "resolve_mount_identity", return_value=resolution),
+                mock.patch.object(GOAL_MODULE, "require_mount_assurance"),
+                mock.patch.object(
+                    GOAL_MODULE,
+                    "require_same_mount",
+                    side_effect=reject_runs_mount,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "^invalid_goal_output_dir=directory_identity_changed$",
+                ):
+                    with GOAL_MODULE.open_managed_goal_run_directory(
+                        root,
+                        run_dir,
+                        create=False,
+                        allow_existing=True,
+                    ):
+                        self.fail("nested-mount Goal directory unexpectedly opened")
+
+            self.assertEqual(
+                checked_paths,
+                [".", "Planner-docs", "Planner-docs/Goal-Runs"],
+            )
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+
+    def test_goal_atomic_write_revalidates_mount_and_path_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            run_dir = root / "Planner-docs" / "Goal-Runs" / "fixed"
+            run_dir.mkdir(parents=True)
+            sentinel = run_dir / "sentinel.txt"
+            sentinel.write_text("preserve me\n", encoding="utf-8")
+            resolution = object()
+            reject_mount = False
+            checked_paths: list[str] = []
+
+            def require_current_mount(root_resolution, child_fd, relative_path):
+                checked_paths.append(str(relative_path))
+                if reject_mount and relative_path == "Planner-docs/Goal-Runs/fixed":
+                    raise ValueError(
+                        "repository_nested_mount_rejected=Planner-docs/Goal-Runs/fixed"
+                    )
+                return resolution
+
+            with (
+                mock.patch.object(GOAL_MODULE, "resolve_mount_identity", return_value=resolution),
+                mock.patch.object(GOAL_MODULE, "require_mount_assurance") as require,
+                mock.patch.object(
+                    GOAL_MODULE,
+                    "require_same_mount",
+                    side_effect=require_current_mount,
+                ),
+            ):
+                with GOAL_MODULE.open_managed_goal_run_directory(
+                    root,
+                    run_dir,
+                    create=False,
+                    allow_existing=True,
+                ) as (run_fd, revalidate):
+                    self.assertEqual(
+                        checked_paths[:4],
+                        [
+                            ".",
+                            "Planner-docs",
+                            "Planner-docs/Goal-Runs",
+                            "Planner-docs/Goal-Runs/fixed",
+                        ],
+                    )
+                    checked_paths.clear()
+                    reject_mount = True
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "^artifact_directory_identity_changed$",
+                    ):
+                        GOAL_MODULE.atomic_write_text_at(
+                            run_fd,
+                            "blocked.txt",
+                            "must not persist\n",
+                            revalidate=revalidate,
+                        )
+
+            self.assertGreaterEqual(require.call_count, 2)
+            self.assertEqual(
+                checked_paths,
+                [
+                    ".",
+                    "Planner-docs",
+                    "Planner-docs/Goal-Runs",
+                    "Planner-docs/Goal-Runs/fixed",
+                ],
+            )
+            self.assertFalse((run_dir / "blocked.txt").exists())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+
     def test_goal_prepare_rejects_artifact_symlink_without_touching_victim(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir:
             root = Path(temp_dir)

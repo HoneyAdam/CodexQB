@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
+import hashlib
+import io
 import json
 import os
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -29,6 +33,63 @@ def load_export_module():
 
 
 EXPORT_MODULE = load_export_module()
+MOUNT_MODULE = sys.modules["mount_identity"]
+VALID_PLUGIN_SKILL = """---
+name: codexqb
+description: Canonical CodexQB package fixture.
+---
+
+# CodexQB fixture
+"""
+VALID_PLUGIN_ACTIVATION = """interface:
+  display_name: "CodexQB"
+  short_description: "Vibecoding evidence fixture"
+  default_prompt: "Use $codexqb for the fixture."
+policy:
+  allow_implicit_invocation: false
+"""
+
+
+def valid_empty_zip64() -> bytes:
+    zip64_eocd = struct.pack(
+        "<IQHHIIQQQQ",
+        0x06064B50,
+        44,
+        45,
+        45,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+    locator = struct.pack("<IIQI", 0x07064B50, 0, 0, 1)
+    eocd = struct.pack(
+        "<IHHHHIIH",
+        0x06054B50,
+        0,
+        0,
+        0xFFFF,
+        0xFFFF,
+        0xFFFFFFFF,
+        0xFFFFFFFF,
+        0,
+    )
+    payload = zip64_eocd + locator + eocd
+    if not zipfile.is_zipfile(io.BytesIO(payload)):
+        raise AssertionError("ZIP64 fixture must be a valid ZIP archive")
+    return payload
+
+
+def valid_zip_polyglot() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("payload.txt", b"nested payload\n")
+    payload = b"#!/bin/sh\nexit 0\n" + buffer.getvalue()
+    if not zipfile.is_zipfile(io.BytesIO(payload)):
+        raise AssertionError("polyglot fixture must be a valid ZIP archive")
+    return payload
 
 
 def git(root: Path, *args: str) -> None:
@@ -86,9 +147,18 @@ def archive_name_list(output: Path) -> list[str]:
         return archive.namelist()
 
 
-def package_manifest(output: Path) -> dict[str, object]:
+def package_manifest(output: Path, artifact_type: str = "source") -> dict[str, object]:
+    member = (
+        "PACKAGE-MANIFEST.json"
+        if artifact_type == "plugin"
+        else "CodexQB/PACKAGE-MANIFEST.json"
+    )
     with zipfile.ZipFile(output) as archive:
-        return json.loads(archive.read("CodexQB/PACKAGE-MANIFEST.json").decode("utf-8"))
+        return json.loads(archive.read(member).decode("utf-8"))
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 class ExportSanitizedTests(unittest.TestCase):
@@ -109,7 +179,10 @@ class ExportSanitizedTests(unittest.TestCase):
             self.assertIn("CodexQB/README.md", names)
             self.assertIn("CodexQB/PACKAGE-MANIFEST.json", names)
             manifest = package_manifest(output)
-            self.assertEqual(manifest["package_schema_version"], 2)
+            self.assertEqual(manifest["package_schema_version"], 3)
+            self.assertEqual(manifest["artifact_type"], "source")
+            self.assertEqual(manifest["layout_version"], 1)
+            self.assertEqual(manifest["content_sha256"], manifest["tree_sha256"])
             self.assertEqual(manifest["plugin_version"], "0.3.0")
             self.assertEqual(manifest["file_count"], 3)
             self.assertEqual(manifest["working_tree_clean"], True)
@@ -1037,6 +1110,524 @@ class ExportSanitizedTests(unittest.TestCase):
             self.assertEqual(manifest["release_tag_commit"], "unknown")
             self.assertEqual(manifest["release_tag_matches_head"], None)
 
+    def test_filesystem_export_remains_available_without_a_git_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "source.zip"
+
+            with mock.patch.object(
+                EXPORT_MODULE,
+                "trusted_git_executable",
+                side_effect=ValueError("trusted_git_executable_unavailable"),
+            ):
+                EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            manifest = package_manifest(output)
+            self.assertEqual(manifest["export_mode"], "source_package")
+            self.assertEqual(manifest["git_provenance_available"], False)
+            self.assertEqual(manifest["git_commit"], "unknown")
+
+    def test_package_creation_enforces_the_non_destructive_mount_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "source.zip"
+            low_assurance = MOUNT_MODULE.MountResolution(
+                selected_provider=MOUNT_MODULE.FILESYSTEM_FSTAT_PROVIDER,
+                identity=MOUNT_MODULE.MountIdentity("filesystem", (1,)),
+                assurance=MOUNT_MODULE.MountAssurance.FILESYSTEM_IDENTITY_ONLY,
+                providers=(),
+                failure_code=None,
+            )
+            real_require = EXPORT_MODULE.require_mount_assurance
+            observed_operations: list[str] = []
+
+            def force_low_assurance(_resolution, operation):
+                observed_operations.append(operation)
+                return real_require(low_assurance, operation)
+
+            with mock.patch.object(
+                EXPORT_MODULE,
+                "require_mount_assurance",
+                side_effect=force_low_assurance,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "secure_repository_mount_identity_unavailable",
+                ):
+                    EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            self.assertEqual(
+                observed_operations,
+                [MOUNT_MODULE.NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION],
+            )
+            self.assertFalse(output.exists())
+
+    def test_output_parent_mount_assurance_is_required_before_temp_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "source.zip"
+            low_assurance = MOUNT_MODULE.MountResolution(
+                selected_provider=MOUNT_MODULE.FILESYSTEM_FSTAT_PROVIDER,
+                identity=MOUNT_MODULE.MountIdentity("filesystem", (1,)),
+                assurance=MOUNT_MODULE.MountAssurance.FILESYSTEM_IDENTITY_ONLY,
+                providers=(),
+                failure_code=None,
+            )
+
+            with (
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "resolve_mount_identity",
+                    return_value=low_assurance,
+                ),
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "create_secure_package_temp",
+                ) as create_temp,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "secure_repository_mount_identity_unavailable",
+                ):
+                    EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            create_temp.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_post_publish_output_parent_mount_change_is_rolled_back(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "source.zip"
+            real_replace = EXPORT_MODULE.os.replace
+            real_parent_check = EXPORT_MODULE.require_output_parent_identity
+            published = False
+
+            def publish_then_mark(source, destination, *args, **kwargs):
+                nonlocal published
+                result = real_replace(source, destination, *args, **kwargs)
+                if destination == output.name:
+                    published = True
+                return result
+
+            def reject_changed_parent(*args, **kwargs):
+                if published:
+                    raise ValueError("package_output_nested_mount_rejected")
+                return real_parent_check(*args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    EXPORT_MODULE.os,
+                    "replace",
+                    side_effect=publish_then_mark,
+                ),
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "require_output_parent_identity",
+                    side_effect=reject_changed_parent,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "package_output_nested_mount_rejected",
+                ):
+                    EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            self.assertFalse(output.exists())
+            self.assertEqual(list(base.glob(f".{output.name}.*.tmp")), [])
+            self.assertEqual(list(base.glob(f".{output.name}.*.backup")), [])
+
+    def test_final_output_path_substitution_cannot_return_success(self) -> None:
+        for existing_bytes in (None, b"preexisting package bytes"):
+            with self.subTest(existing=existing_bytes is not None), tempfile.TemporaryDirectory() as temp_dir:
+                base = Path(temp_dir)
+                root = base / "source"
+                root.mkdir()
+                write_minimal_codexqb_tree(root)
+                output = base / "source.zip"
+                poison = b"attacker-controlled final path"
+                if existing_bytes is not None:
+                    output.write_bytes(existing_bytes)
+                real_parent_check = EXPORT_MODULE.require_output_parent_identity
+                parent_checks = 0
+
+                def substitute_before_final_parent_check(*args, **kwargs):
+                    nonlocal parent_checks
+                    parent_checks += 1
+                    if parent_checks == 5:
+                        output.unlink()
+                        output.write_bytes(poison)
+                    return real_parent_check(*args, **kwargs)
+
+                with mock.patch.object(
+                    EXPORT_MODULE,
+                    "require_output_parent_identity",
+                    side_effect=substitute_before_final_parent_check,
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "^package_publish_rollback_failed$",
+                    ):
+                        EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+                self.assertEqual(parent_checks, 5)
+                self.assertEqual(output.read_bytes(), poison)
+                self.assertEqual(list(base.glob(f".{output.name}.*.tmp")), [])
+                backups = list(base.glob(f".{output.name}.*.backup"))
+                if existing_bytes is None:
+                    self.assertEqual(backups, [])
+                else:
+                    self.assertEqual(len(backups), 1)
+                    self.assertEqual(backups[0].read_bytes(), existing_bytes)
+
+    def test_final_output_parent_mount_failure_rolls_back_before_commit(self) -> None:
+        for existing_bytes in (None, b"preexisting package bytes"):
+            with self.subTest(existing=existing_bytes is not None), tempfile.TemporaryDirectory() as temp_dir:
+                base = Path(temp_dir)
+                root = base / "source"
+                root.mkdir()
+                write_minimal_codexqb_tree(root)
+                output = base / "source.zip"
+                if existing_bytes is not None:
+                    output.write_bytes(existing_bytes)
+                real_parent_check = EXPORT_MODULE.require_output_parent_identity
+                parent_checks = 0
+
+                def reject_final_parent_mount(*args, **kwargs):
+                    nonlocal parent_checks
+                    parent_checks += 1
+                    if parent_checks == 5:
+                        raise ValueError("package_output_nested_mount_rejected")
+                    return real_parent_check(*args, **kwargs)
+
+                with mock.patch.object(
+                    EXPORT_MODULE,
+                    "require_output_parent_identity",
+                    side_effect=reject_final_parent_mount,
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "^package_output_nested_mount_rejected$",
+                    ):
+                        EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+                self.assertEqual(parent_checks, 5)
+                if existing_bytes is None:
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(output.read_bytes(), existing_bytes)
+                self.assertEqual(list(base.glob(f".{output.name}.*.tmp")), [])
+                self.assertEqual(list(base.glob(f".{output.name}.*.backup")), [])
+
+    def test_plugin_and_source_artifacts_have_distinct_reproducible_layouts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            (root / "plugins/codexqb/.codex-plugin/plugin.json").write_text(
+                json.dumps(
+                    {
+                        "name": "codexqb",
+                        "version": "0.3.0",
+                        "skills": "./skills/",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            skill = root / "plugins/codexqb/skills/codexqb/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text(VALID_PLUGIN_SKILL, encoding="utf-8")
+            activation = root / "plugins/codexqb/skills/codexqb/agents/openai.yaml"
+            activation.parent.mkdir()
+            activation.write_text(VALID_PLUGIN_ACTIVATION, encoding="utf-8")
+            (root / ".github").mkdir()
+            (root / ".github/workflow.yml").write_text("name: fixture\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests/test_fixture.py").write_text("pass\n", encoding="utf-8")
+            (root / "._README.md").write_bytes(b"appledouble source metadata")
+            (root / ".cache").mkdir()
+            (root / ".cache/runtime.bin").write_bytes(b"cache metadata")
+            (root / ".env").mkdir()
+            (root / ".env/credentials.txt").write_text("local only\n", encoding="utf-8")
+            (root / "scratch.tmp").write_bytes(b"temporary metadata")
+            plugin_appledouble = root / "plugins/codexqb/._plugin.json"
+            plugin_appledouble.write_bytes(b"appledouble plugin metadata")
+            plugin_environment = root / "plugins/codexqb/.env/credentials.txt"
+            plugin_environment.parent.mkdir()
+            plugin_environment.write_text("local only\n", encoding="utf-8")
+
+            plugin_a = base / "plugin-a.zip"
+            plugin_b = base / "plugin-b.zip"
+            source_a = base / "source-a.zip"
+            source_b = base / "source-b.zip"
+            with mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "946684800"}):
+                EXPORT_MODULE.create_zip(
+                    root,
+                    plugin_a,
+                    source_package=True,
+                    artifact_type="plugin",
+                )
+                EXPORT_MODULE.create_zip(
+                    root,
+                    plugin_b,
+                    source_package=True,
+                    artifact_type="plugin",
+                )
+                EXPORT_MODULE.create_zip(root, source_a, source_package=True)
+                EXPORT_MODULE.create_zip(root, source_b, source_package=True)
+
+            self.assertEqual(file_sha256(plugin_a), file_sha256(plugin_b))
+            self.assertEqual(file_sha256(source_a), file_sha256(source_b))
+            plugin_names = archive_names(plugin_a)
+            self.assertIn(".codex-plugin/plugin.json", plugin_names)
+            self.assertIn("skills/codexqb/SKILL.md", plugin_names)
+            self.assertIn("PACKAGE-MANIFEST.json", plugin_names)
+            self.assertNotIn("README.md", plugin_names)
+            self.assertNotIn("._plugin.json", plugin_names)
+            self.assertNotIn(".env/credentials.txt", plugin_names)
+            self.assertFalse(any(name.startswith(".github/") for name in plugin_names))
+            self.assertFalse(any(name.startswith("tests/") for name in plugin_names))
+            source_names = archive_names(source_a)
+            self.assertIn("CodexQB/README.md", source_names)
+            self.assertNotIn("CodexQB/._README.md", source_names)
+            self.assertNotIn("CodexQB/.cache/runtime.bin", source_names)
+            self.assertNotIn("CodexQB/.env/credentials.txt", source_names)
+            self.assertNotIn("CodexQB/scratch.tmp", source_names)
+            self.assertNotIn("CodexQB/plugins/codexqb/._plugin.json", source_names)
+            self.assertNotIn(
+                "CodexQB/plugins/codexqb/.env/credentials.txt",
+                source_names,
+            )
+            self.assertIn(
+                "CodexQB/plugins/codexqb/.codex-plugin/plugin.json",
+                source_names,
+            )
+            plugin_manifest = package_manifest(plugin_a, "plugin")
+            self.assertEqual(plugin_manifest["artifact_type"], "plugin")
+            self.assertEqual(plugin_manifest["plugin_version"], "0.3.0")
+            self.assertEqual(
+                plugin_manifest["content_sha256"],
+                plugin_manifest["tree_sha256"],
+            )
+
+    def test_nested_zip_and_polyglot_payloads_are_rejected_without_zip_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            payloads = {
+                "local-header": b"PK\x03\x04payload",
+                "zip64": valid_empty_zip64(),
+                "shell-polyglot": valid_zip_polyglot(),
+            }
+            for label, payload in payloads.items():
+                with self.subTest(label=label):
+                    (root / "disguised.bin").write_bytes(payload)
+                    output = base / f"{label}.zip"
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "package_nested_zip_rejected",
+                    ):
+                        EXPORT_MODULE.create_zip(
+                            root,
+                            output,
+                            source_package=True,
+                        )
+                    self.assertFalse(output.exists())
+
+    def test_plugin_artifact_requires_the_invokable_codexqb_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            (root / "plugins/codexqb/.codex-plugin/plugin.json").write_text(
+                json.dumps(
+                    {
+                        "name": "codexqb",
+                        "version": "0.3.0",
+                        "skills": "./skills/",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            junk = root / "plugins/codexqb/skills/junk.txt"
+            junk.parent.mkdir(parents=True)
+            junk.write_text("not invokable\n", encoding="utf-8")
+            output = base / "plugin.zip"
+
+            with self.assertRaisesRegex(ValueError, "package_plugin_skills_missing"):
+                EXPORT_MODULE.create_zip(
+                    root,
+                    output,
+                    source_package=True,
+                    artifact_type="plugin",
+                )
+
+            self.assertFalse(output.exists())
+
+    def test_plugin_artifact_omits_additional_skill_and_auto_activation_surfaces(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            (root / "plugins/codexqb/.codex-plugin/plugin.json").write_text(
+                json.dumps(
+                    {
+                        "name": "codexqb",
+                        "version": "0.3.0",
+                        "skills": "./skills/",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            skill = root / "plugins/codexqb/skills/codexqb/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text(VALID_PLUGIN_SKILL, encoding="utf-8")
+            activation = root / "plugins/codexqb/skills/codexqb/agents/openai.yaml"
+            activation.parent.mkdir()
+            activation.write_text(VALID_PLUGIN_ACTIVATION, encoding="utf-8")
+            evil_skill = root / "plugins/codexqb/skills/evil/SKILL.md"
+            evil_skill.parent.mkdir(parents=True)
+            evil_skill.write_text(VALID_PLUGIN_SKILL, encoding="utf-8")
+            hook = root / "plugins/codexqb/hooks/preflight.json"
+            hook.parent.mkdir(parents=True)
+            hook.write_text("{}\n", encoding="utf-8")
+            (root / "plugins/codexqb/.mcp.json").write_text("{}\n", encoding="utf-8")
+            output = base / "plugin.zip"
+
+            EXPORT_MODULE.create_zip(
+                root,
+                output,
+                source_package=True,
+                artifact_type="plugin",
+            )
+
+            names = archive_names(output)
+            self.assertIn("skills/codexqb/SKILL.md", names)
+            self.assertNotIn("skills/evil/SKILL.md", names)
+            self.assertNotIn("hooks/preflight.json", names)
+            self.assertNotIn(".mcp.json", names)
+
+    def test_plugin_artifact_rejects_invalid_skill_and_implicit_activation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            (root / "plugins/codexqb/.codex-plugin/plugin.json").write_text(
+                json.dumps(
+                    {
+                        "name": "codexqb",
+                        "version": "0.3.0",
+                        "skills": "./skills/",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            skill = root / "plugins/codexqb/skills/codexqb/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            activation = root / "plugins/codexqb/skills/codexqb/agents/openai.yaml"
+            activation.parent.mkdir()
+            output = base / "plugin.zip"
+
+            skill.write_text("not frontmatter\n", encoding="utf-8")
+            activation.write_text(VALID_PLUGIN_ACTIVATION, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "package_plugin_skill_frontmatter_invalid",
+            ):
+                EXPORT_MODULE.create_zip(
+                    root,
+                    output,
+                    source_package=True,
+                    artifact_type="plugin",
+                )
+
+            skill.write_text(VALID_PLUGIN_SKILL, encoding="utf-8")
+            activation.write_text(
+                VALID_PLUGIN_ACTIVATION.replace(
+                    "allow_implicit_invocation: false",
+                    "allow_implicit_invocation: true",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "package_plugin_implicit_invocation_not_disabled",
+            ):
+                EXPORT_MODULE.create_zip(
+                    root,
+                    output,
+                    source_package=True,
+                    artifact_type="plugin",
+                )
+
+            self.assertFalse(output.exists())
+
+    def test_source_date_epoch_must_be_canonical_non_negative_integer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+
+            with mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "../secret"}):
+                with self.assertRaisesRegex(ValueError, "source_date_epoch_invalid"):
+                    EXPORT_MODULE.create_zip(
+                        root,
+                        base / "source.zip",
+                        source_package=True,
+                    )
+
+    def test_default_artifact_filenames_are_versioned_and_mode_explicit(self) -> None:
+        self.assertEqual(
+            EXPORT_MODULE.default_artifact_filename(
+                "plugin",
+                "0.3.0",
+                "strict_release",
+            ),
+            "codexqb-plugin-0.3.0.zip",
+        )
+        self.assertEqual(
+            EXPORT_MODULE.default_artifact_filename(
+                "source",
+                "0.3.0",
+                "strict_release",
+            ),
+            "CodexQB-source-0.3.0.zip",
+        )
+        self.assertEqual(
+            EXPORT_MODULE.default_artifact_filename(
+                "source",
+                "0.3.0",
+                "worktree",
+            ),
+            "CodexQB-source-0.3.0-worktree.zip",
+        )
+
     @unittest.skipIf(os.name == "nt", "POSIX filename semantics required")
     def test_export_rejects_nonportable_manifest_path_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1045,6 +1636,23 @@ class ExportSanitizedTests(unittest.TestCase):
             root.mkdir()
             write_minimal_codexqb_tree(root)
             (root / "bad\\name.txt").write_text("not portable\n", encoding="utf-8")
+            output = base / "package.zip"
+
+            with self.assertRaisesRegex(ValueError, "package_manifest_preflight_failed"):
+                EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            self.assertFalse(output.exists())
+
+    @unittest.skipIf(os.name == "nt", "POSIX filename semantics required")
+    def test_export_rejects_windows_ambiguous_dot_suffixed_components(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            ambiguous = root / ".git./config"
+            ambiguous.parent.mkdir()
+            ambiguous.write_text("not portable\n", encoding="utf-8")
             output = base / "package.zip"
 
             with self.assertRaisesRegex(ValueError, "package_manifest_preflight_failed"):
@@ -1065,12 +1673,16 @@ class ExportSanitizedTests(unittest.TestCase):
             with mock.patch.object(EXPORT_MODULE, "MAX_EXPORT_PAYLOAD_BYTES", 1):
                 with self.assertRaisesRegex(ValueError, "package_payload_size_limit_exceeded"):
                     EXPORT_MODULE.create_zip(root, base / "bytes.zip", source_package=True)
+            with mock.patch.object(EXPORT_MODULE, "MAX_EXPORT_FILE_BYTES", 1):
+                with self.assertRaisesRegex(ValueError, "package_file_size_limit_exceeded"):
+                    EXPORT_MODULE.create_zip(root, base / "file-bytes.zip", source_package=True)
             with mock.patch.object(EXPORT_MODULE, "SOURCE_WALK_TIMEOUT_SECONDS", 1e-9):
                 with self.assertRaisesRegex(ValueError, "package_source_walk_deadline_exceeded"):
                     EXPORT_MODULE.create_zip(root, base / "deadline.zip", source_package=True)
 
             self.assertFalse((base / "count.zip").exists())
             self.assertFalse((base / "bytes.zip").exists())
+            self.assertFalse((base / "file-bytes.zip").exists())
             self.assertFalse((base / "deadline.zip").exists())
 
     def test_failed_final_package_verification_preserves_existing_output(self) -> None:
@@ -1103,6 +1715,213 @@ class ExportSanitizedTests(unittest.TestCase):
             self.assertEqual(EXPORT_MODULE.verify_zip(output), [])
             self.assertEqual(list(base.glob(".package.zip.*.tmp")), [])
             self.assertEqual(list(base.glob(".package.zip.*.backup")), [])
+
+    def test_temp_path_is_mount_revalidated_before_atomic_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "package.zip"
+            descriptor_names: dict[int, str] = {}
+            mount_checked_names: list[str] = []
+            real_create_temp = EXPORT_MODULE.create_secure_package_temp
+            real_open_output = EXPORT_MODULE.open_output_descriptor_at
+            real_require_mount = EXPORT_MODULE.require_package_output_mount
+
+            def record_temp(parent_descriptor, output_name):
+                name, descriptor = real_create_temp(parent_descriptor, output_name)
+                descriptor_names[descriptor] = name
+                return name, descriptor
+
+            def record_open(parent_descriptor, name):
+                descriptor = real_open_output(parent_descriptor, name)
+                descriptor_names[descriptor] = name
+                return descriptor
+
+            def record_mount_check(resolution, descriptor):
+                name = descriptor_names.get(descriptor)
+                if name is not None:
+                    mount_checked_names.append(name)
+                return real_require_mount(resolution, descriptor)
+
+            with (
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "create_secure_package_temp",
+                    side_effect=record_temp,
+                ),
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "open_output_descriptor_at",
+                    side_effect=record_open,
+                ),
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "require_package_output_mount",
+                    side_effect=record_mount_check,
+                ),
+            ):
+                EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            temp_mount_checks = [
+                name
+                for name in mount_checked_names
+                if name.startswith(f".{output.name}.") and name.endswith(".tmp")
+            ]
+            self.assertGreaterEqual(len(temp_mount_checks), 2)
+
+    def test_backup_path_is_mount_revalidated_before_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "package.zip"
+            output.write_bytes(b"preexisting package bytes")
+            descriptor_names: dict[int, str] = {}
+            mount_checked_names: list[str] = []
+            real_open_output = EXPORT_MODULE.open_output_descriptor_at
+            real_require_mount = EXPORT_MODULE.require_package_output_mount
+
+            def record_open(parent_descriptor, name):
+                descriptor = real_open_output(parent_descriptor, name)
+                descriptor_names[descriptor] = name
+                return descriptor
+
+            def record_mount_check(resolution, descriptor):
+                name = descriptor_names.get(descriptor)
+                if name is not None:
+                    mount_checked_names.append(name)
+                return real_require_mount(resolution, descriptor)
+
+            with (
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "open_output_descriptor_at",
+                    side_effect=record_open,
+                ),
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "require_package_output_mount",
+                    side_effect=record_mount_check,
+                ),
+            ):
+                EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            backup_mount_checks = [
+                name
+                for name in mount_checked_names
+                if name.startswith(f".{output.name}.") and name.endswith(".backup")
+            ]
+            self.assertGreaterEqual(len(backup_mount_checks), 2)
+
+    def test_backup_cleanup_ebusy_has_stable_error_and_preserves_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "package.zip"
+            original = b"preexisting package bytes"
+            output.write_bytes(original)
+            real_unlink = EXPORT_MODULE.os.unlink
+
+            def reject_backup_unlink(path, *args, **kwargs):
+                if isinstance(path, str) and path.endswith(".backup"):
+                    raise OSError(errno.EBUSY, "simulated backup mountpoint")
+                return real_unlink(path, *args, **kwargs)
+
+            with mock.patch.object(
+                EXPORT_MODULE.os,
+                "unlink",
+                side_effect=reject_backup_unlink,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "^package_backup_cleanup_state_unknown$",
+                ):
+                    EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            self.assertEqual(EXPORT_MODULE.verify_zip(output), [])
+            backups = list(base.glob(f".{output.name}.*.backup"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_bytes(), original)
+
+    def test_temp_cleanup_ebusy_preserves_primary_error_with_stable_cause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            output = base / "package.zip"
+            original = b"preexisting package bytes"
+            output.write_bytes(original)
+            real_unlink = EXPORT_MODULE.os.unlink
+
+            def reject_temp_unlink(path, *args, **kwargs):
+                if isinstance(path, str) and path.endswith(".tmp"):
+                    raise OSError(errno.EBUSY, "simulated temp mountpoint")
+                return real_unlink(path, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    EXPORT_MODULE,
+                    "verify_zip",
+                    return_value=["forced_failure"],
+                ),
+                mock.patch.object(
+                    EXPORT_MODULE.os,
+                    "unlink",
+                    side_effect=reject_temp_unlink,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "^package_verification_failed=forced_failure$",
+                ) as caught:
+                    EXPORT_MODULE.create_zip(root, output, source_package=True)
+
+            cleanup_error = caught.exception.__cause__
+            self.assertIsInstance(cleanup_error, RuntimeError)
+            self.assertEqual(str(cleanup_error), "package_temp_cleanup_state_unknown")
+            self.assertEqual(output.read_bytes(), original)
+            self.assertEqual(list(base.glob(f".{output.name}.*.backup")), [])
+
+    def test_cli_failure_does_not_echo_secret_paths_or_tracebacks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "source"
+            root.mkdir()
+            write_minimal_codexqb_tree(root)
+            secret_marker = "sk-" + "proj-" + "DO_NOT_ECHO_1234567890"
+            output = base / f"missing-{secret_marker}-\x1b[31m" / "package.zip"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(EXPORTER),
+                    "--root",
+                    str(root),
+                    "--output",
+                    str(output),
+                    "--provenance-mode",
+                    "filesystem",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("sanitized_export=failed", result.stdout)
+            self.assertIn("error_code=output_parent_unavailable", result.stdout)
+            self.assertNotIn(secret_marker, combined)
+            self.assertNotIn(str(root), combined)
+            self.assertNotIn("Traceback", combined)
+            self.assertNotIn("\x1b", combined)
 
     def test_temp_name_swap_fails_and_rolls_back_output(self) -> None:
         for existing_bytes in (None, b"preexisting package bytes"):
@@ -1518,7 +2337,7 @@ class ExportSanitizedTests(unittest.TestCase):
                         allow_head_mismatch=True,
                     )
 
-    def test_nul_delimited_git_inventory_preserves_newlines_in_paths(self) -> None:
+    def test_nul_delimited_inventory_preserves_newlines_before_portable_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             git(root, "init")
@@ -1530,21 +2349,25 @@ class ExportSanitizedTests(unittest.TestCase):
             (root / untracked_name).write_text("untracked safe content\n", encoding="utf-8")
             output = root / "CodexQB-worktree.zip"
 
-            count = EXPORT_MODULE.create_zip(
-                root,
-                output,
-                include_untracked=True,
-                allow_dirty=True,
-                allow_head_mismatch=True,
+            index_inventory, index_errors = EXPORT_MODULE.git_index_inventory(root)
+            self.assertEqual(index_errors, [])
+            self.assertIn(tracked_name, index_inventory)
+            self.assertIn(
+                untracked_name,
+                EXPORT_MODULE.run_git_paths(
+                    root,
+                    ["ls-files", "-z", "--others", "--exclude-standard"],
+                ),
             )
-
-            self.assertEqual(count, 5)
-            names = archive_names(output)
-            self.assertIn(f"CodexQB/{tracked_name}", names)
-            self.assertIn(f"CodexQB/{untracked_name}", names)
-            manifest_paths = {item["path"] for item in package_manifest(output)["files"]}
-            self.assertIn(tracked_name, manifest_paths)
-            self.assertIn(untracked_name, manifest_paths)
+            with self.assertRaisesRegex(ValueError, "package_manifest_preflight_failed"):
+                EXPORT_MODULE.create_zip(
+                    root,
+                    output,
+                    include_untracked=True,
+                    allow_dirty=True,
+                    allow_head_mismatch=True,
+                )
+            self.assertFalse(output.exists())
 
     @unittest.skipUnless(hasattr(Path, "symlink_to"), "symlink support required")
     def test_export_rejects_symlink_candidates(self) -> None:

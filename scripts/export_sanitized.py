@@ -39,6 +39,14 @@ from safety_contracts import (  # noqa: E402
     secret_match_locations,
 )
 from git_evidence import trusted_git_executable  # noqa: E402
+from mount_identity import (  # noqa: E402
+    MountIdentityError,
+    MountResolution,
+    NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION,
+    require_mount_assurance,
+    require_same_mount,
+    resolve_mount_identity,
+)
 from repository_evidence import (  # noqa: E402
     RepositoryRootAnchor,
     normalize_repo_relative_path,
@@ -57,34 +65,40 @@ from verify_package_manifest import (  # noqa: E402
     portable_path_key,
     verify_zip,
 )
+from package_policy import (  # noqa: E402
+    ARTIFACT_TYPES,
+    COMMON_DENIED_PARTS,
+    COMMON_DENIED_SUFFIXES,
+    LAYOUT_VERSION,
+    MAX_ARTIFACT_FILE_BYTES,
+    MAX_CANONICAL_ZIP_MEMBERS,
+    PACKAGE_MANIFEST_NAME,
+    PACKAGE_SCHEMA_VERSION,
+    PLUGIN_ACTIVATION_PATH,
+    PLUGIN_ARTIFACT,
+    PLUGIN_SKILL_PATH,
+    SOURCE_ARTIFACT,
+    archive_prefix,
+    default_artifact_filename,
+    denied_path_reason,
+    payload_is_zip_archive,
+    plugin_activation_contract_errors,
+    plugin_skill_contract_errors,
+    source_to_artifact_path,
+)
 
 
-IGNORED_PARTS = {
-    ".git",
-    ".codexqb",
-    "__macosx",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    "artifacts",
-    "build",
-    "dist",
-    "logs",
-    "tmp",
-}
-BLOCKED_SUFFIXES = {".pyc", ".pem", ".key", ".zip"}
+IGNORED_PARTS = set(COMMON_DENIED_PARTS)
+BLOCKED_SUFFIXES = set(COMMON_DENIED_SUFFIXES)
 BLOCKED_RE = re.compile(
     r"(^|/)(\.git|\.codexqb|__pycache__|\.env|artifacts|logs|tmp|__MACOSX)(/|$)|"
     r"\.pyc$|\.pem$|\.key$|\.local($|\.)",
     re.IGNORECASE,
 )
-PACKAGE_MANIFEST_NAME = "PACKAGE-MANIFEST.json"
-PACKAGE_SCHEMA_VERSION = 2
 STRICT_RELEASE_MODE = "strict_release"
 WORKTREE_MODE = "worktree"
 SOURCE_PACKAGE_MODE = "source_package"
-MAX_EXPORT_FILE_BYTES = 64 * 1024 * 1024
+MAX_EXPORT_FILE_BYTES = MAX_ARTIFACT_FILE_BYTES
 MAX_EXPORT_PAYLOAD_BYTES = min(
     256 * 1024 * 1024,
     MAX_PACKAGE_UNCOMPRESSED_BYTES - MAX_MANIFEST_BYTES,
@@ -93,6 +107,7 @@ GIT_COMMAND_TIMEOUT_SECONDS = 10
 MAX_GIT_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
 GIT_OUTPUT_CHUNK_BYTES = 64 * 1024
 SOURCE_WALK_TIMEOUT_SECONDS = 60
+SAFE_EXPORT_FAILURE_CODE_RE = re.compile(r"[a-z][a-z0-9_]*(?:=[a-z0-9_-]+)?")
 GitRoot = Path | RepositoryRootAnchor
 
 
@@ -196,7 +211,7 @@ def _run_bounded_git_process(root: GitRoot, args: list[str]) -> tuple[int, bytes
             git_command(args),
             **popen_kwargs,
         )
-    except OSError:
+    except (OSError, ValueError):
         return None
 
     try:
@@ -535,7 +550,7 @@ def plugin_version(root: GitRoot) -> str:
         except ValueError as exc:
             if str(exc).startswith("repository_evidence_target_unavailable="):
                 return "unknown"
-            raise
+            raise _payload_read_error(exc) from exc
         return plugin_version_from_bytes(payload.data)
     plugin = root_path / "plugins/codexqb/.codex-plugin/plugin.json"
     try:
@@ -578,7 +593,7 @@ def changelog_release_state(root: GitRoot, version: str) -> str:
         except ValueError as exc:
             if str(exc).startswith("repository_evidence_target_unavailable="):
                 return "missing" if version != "unknown" else "unknown"
-            raise
+            raise _payload_read_error(exc) from exc
         return changelog_release_state_from_bytes(payload.data, version)
     changelog = root_path / "CHANGELOG.md"
     try:
@@ -739,8 +754,18 @@ def candidate_paths(
     return [root_path / rel for rel in sorted(rels)]
 
 
-def file_digest(root: Path, path: Path, data: bytes, mode: int) -> dict[str, str]:
-    rel = path.relative_to(root).as_posix()
+def file_digest(
+    root: Path,
+    path: Path,
+    data: bytes,
+    mode: int,
+    *,
+    artifact_type: str = SOURCE_ARTIFACT,
+) -> dict[str, str]:
+    source_rel = path.relative_to(root).as_posix()
+    rel = source_to_artifact_path(source_rel, artifact_type)
+    if rel is None:
+        raise ValueError("package_artifact_path_unmapped")
     return {
         "path": rel,
         "sha256": sha256_bytes(data),
@@ -753,6 +778,29 @@ def tree_digest(entries: list[dict[str, str]]) -> str:
     return sha256_bytes(payload)
 
 
+def reproducible_generated_at() -> str:
+    """Return one path-independent, reproducible manifest timestamp."""
+
+    raw = os.environ.get("SOURCE_DATE_EPOCH")
+    if raw is None:
+        epoch = 315532800  # 1980-01-01T00:00:00Z, matching ZIP's minimum date.
+    else:
+        if re.fullmatch(r"0|[1-9][0-9]*", raw) is None:
+            raise ValueError("source_date_epoch_invalid")
+        try:
+            epoch = int(raw)
+            generated = datetime.fromtimestamp(epoch, timezone.utc)
+        except (OverflowError, OSError, ValueError) as exc:
+            raise ValueError("source_date_epoch_invalid") from exc
+        if generated.year > 9999:
+            raise ValueError("source_date_epoch_invalid")
+    try:
+        generated = datetime.fromtimestamp(epoch, timezone.utc)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise ValueError("source_date_epoch_invalid") from exc
+    return generated.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def package_manifest(
     root: GitRoot,
     files: list[Path],
@@ -762,15 +810,32 @@ def package_manifest(
     payloads: dict[Path, bytes],
     modes: dict[Path, int],
     index_errors: list[str],
+    artifact_type: str = SOURCE_ARTIFACT,
 ) -> dict[str, object]:
     root_path = _git_root_path(root).resolve()
-    entries = [file_digest(root_path, path, payloads[path], modes[path]) for path in files]
+    entries = sorted(
+        (
+            file_digest(
+                root_path,
+                path,
+                payloads[path],
+                modes[path],
+                artifact_type=artifact_type,
+            )
+            for path in files
+        ),
+        key=lambda item: item["path"],
+    )
     version = plugin_version_from_bytes(
         payloads.get(root_path / "plugins/codexqb/.codex-plugin/plugin.json")
     )
-    changelog_state = changelog_release_state_from_bytes(
-        payloads.get(root_path / "CHANGELOG.md"),
-        version,
+    changelog_state = (
+        changelog_release_state(root, version)
+        if artifact_type == PLUGIN_ARTIFACT
+        else changelog_release_state_from_bytes(
+            payloads.get(root_path / "CHANGELOG.md"),
+            version,
+        )
     )
     git_provenance = in_git_checkout(root)
     head_value = git_commit(root) if git_provenance else None
@@ -782,8 +847,11 @@ def package_manifest(
     tag = release_tag(version)
     tag_commit = release_tag_commit(root, version) if git_provenance else None
     source_inventory = "filesystem" if mode == SOURCE_PACKAGE_MODE else "git_index"
+    content_sha256 = tree_digest(entries)
     return {
         "package_schema_version": PACKAGE_SCHEMA_VERSION,
+        "artifact_type": artifact_type,
+        "layout_version": LAYOUT_VERSION,
         "export_mode": mode,
         "release_claim": mode == STRICT_RELEASE_MODE,
         "git_provenance_available": git_provenance,
@@ -806,9 +874,10 @@ def package_manifest(
         "release_tag_matches_head": (
             tag_commit == head_value if tag_commit is not None and head_value is not None else None
         ),
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at": reproducible_generated_at(),
         "file_count": len(files),
-        "tree_sha256": tree_digest(entries),
+        "tree_sha256": content_sha256,
+        "content_sha256": content_sha256,
         "files": entries,
     }
 
@@ -1089,6 +1158,8 @@ def _included_candidate_paths(
     anchor: RepositoryRootAnchor,
     paths: list[Path],
     output: Path,
+    *,
+    artifact_type: str = SOURCE_ARTIFACT,
 ) -> list[str]:
     root = anchor.path
     output_rel = output_relative_path_by_identity(root, output)
@@ -1102,21 +1173,14 @@ def _included_candidate_paths(
             raise ValueError("package_manifest_preflight_failed=path_not_portable") from exc
         if normalized != rel:
             raise ValueError("package_manifest_preflight_failed=path_not_portable")
-        candidate = Path(rel)
         if output_key is not None and portable_path_key(rel) == output_key:
             continue
         if rel == PACKAGE_MANIFEST_NAME:
             continue
-        if IGNORED_PARTS.intersection(part.casefold() for part in candidate.parts):
+        artifact_rel = source_to_artifact_path(rel, artifact_type)
+        if artifact_rel is None:
             continue
-        folded_name = candidate.name.casefold()
-        if folded_name == ".ds_store" or folded_name.startswith(".env"):
-            continue
-        if candidate.suffix.lower() in BLOCKED_SUFFIXES:
-            continue
-        if folded_name.endswith(".local") or ".local." in folded_name:
-            continue
-        if BLOCKED_RE.search(rel):
+        if denied_path_reason(artifact_rel, artifact_type) is not None:
             continue
         included.append(rel)
         if len(included) > MAX_MANIFEST_FILES:
@@ -1155,10 +1219,17 @@ def collect_anchored_payloads(
     anchor: RepositoryRootAnchor,
     paths: list[Path],
     output: Path,
+    *,
+    artifact_type: str = SOURCE_ARTIFACT,
 ) -> tuple[list[Path], dict[Path, bytes], dict[Path, int], dict[str, int]]:
     """Filter and read package payloads only through the opened root inode."""
 
-    relatives = _included_candidate_paths(anchor, paths, output)
+    relatives = _included_candidate_paths(
+        anchor,
+        paths,
+        output,
+        artifact_type=artifact_type,
+    )
     try:
         anchored_payloads = read_regular_files_from_anchor(
             anchor,
@@ -1175,6 +1246,8 @@ def collect_anchored_payloads(
     modes: dict[Path, int] = {}
     for payload in anchored_payloads:
         path = anchor.path / payload.path
+        if payload_is_zip_archive(payload.data):
+            raise ValueError(f"package_nested_zip_rejected={payload.path}")
         try:
             text = payload.data.decode("utf-8")
         except UnicodeDecodeError:
@@ -1200,7 +1273,9 @@ def collect_anchored_payloads(
 def zip_file_info(name: str, mode: int) -> zipfile.ZipInfo:
     info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
     info.create_system = 3
-    info.compress_type = zipfile.ZIP_DEFLATED
+    info.compress_type = zipfile.ZIP_STORED
+    info.extra = b""
+    info.comment = b""
     info.external_attr = (stat.S_IFREG | mode) << 16
     return info
 
@@ -1337,6 +1412,7 @@ def require_output_parent_identity(
     parent: Path,
     parent_descriptor: int,
     expected: tuple[int, int],
+    mount_resolution: MountResolution | None = None,
 ) -> None:
     try:
         descriptor_metadata = os.fstat(parent_descriptor)
@@ -1352,6 +1428,92 @@ def require_output_parent_identity(
         or path_identity != expected
     ):
         raise ValueError("output_parent_changed_during_export")
+    if mount_resolution is None:
+        return
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError("secure_output_primitives_unavailable")
+    flags |= os.O_DIRECTORY | os.O_NOFOLLOW
+    reopened_descriptor = -1
+    try:
+        reopened_descriptor = os.open(parent, flags)
+        reopened_metadata = os.fstat(reopened_descriptor)
+        if (
+            not stat.S_ISDIR(reopened_metadata.st_mode)
+            or (reopened_metadata.st_dev, reopened_metadata.st_ino) != expected
+        ):
+            raise ValueError("output_parent_changed_during_export")
+        require_package_output_mount(mount_resolution, reopened_descriptor)
+    except OSError as exc:
+        raise ValueError("output_parent_changed_during_export") from exc
+    finally:
+        if reopened_descriptor >= 0:
+            os.close(reopened_descriptor)
+
+
+def require_package_output_mount(
+    root_resolution: MountResolution,
+    descriptor: int,
+) -> None:
+    try:
+        require_same_mount(root_resolution, descriptor, ".")
+    except MountIdentityError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise ValueError("package_output_nested_mount_rejected") from exc
+
+
+def require_existing_output_mount(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, int, int, int, int] | None,
+    root_resolution: MountResolution,
+) -> None:
+    if expected_identity is None:
+        return
+    descriptor = open_output_descriptor_at(parent_descriptor, name)
+    try:
+        if output_identity_from_metadata(os.fstat(descriptor)) != expected_identity:
+            raise ValueError("output_target_changed_during_export")
+        require_package_output_mount(root_resolution, descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def require_verified_published_output(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, int, int, int, int],
+    root_resolution: MountResolution,
+) -> None:
+    descriptor = open_output_descriptor_at(parent_descriptor, name)
+    try:
+        require_package_output_mount(root_resolution, descriptor)
+        if (
+            output_identity_from_metadata(os.fstat(descriptor)) != expected_identity
+            or output_identity_at(parent_descriptor, name) != expected_identity
+        ):
+            raise ValueError("package_publish_identity_mismatch")
+        with os.fdopen(os.dup(descriptor), "rb", closefd=True) as published_file:
+            verification_errors = verify_zip(published_file)
+        if verification_errors:
+            raise ValueError(
+                "published_package_verification_failed="
+                + ",".join(verification_errors)
+            )
+        if (
+            output_identity_from_metadata(os.fstat(descriptor)) != expected_identity
+            or output_identity_at(parent_descriptor, name) != expected_identity
+        ):
+            raise ValueError("package_publish_identity_mismatch")
+    finally:
+        os.close(descriptor)
+    require_existing_output_mount(
+        parent_descriptor,
+        name,
+        expected_identity,
+        root_resolution,
+    )
 
 
 def output_identity_from_metadata(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
@@ -1504,7 +1666,10 @@ def create_zip(
     allow_dirty: bool = False,
     allow_head_mismatch: bool = False,
     source_package: bool = False,
+    artifact_type: str = SOURCE_ARTIFACT,
 ) -> int:
+    if artifact_type not in ARTIFACT_TYPES:
+        raise ValueError("package_artifact_type_invalid")
     root = root.resolve()
     output, output_parent_identity = canonical_output_path(output)
     original_output_identity = initial_output_identity(output)
@@ -1524,6 +1689,7 @@ def create_zip(
             include_untracked=include_untracked,
             allow_dirty=allow_dirty,
             allow_head_mismatch=allow_head_mismatch,
+            artifact_type=artifact_type,
         )
         revalidate_repository_root_anchor(anchor)
         return count
@@ -1539,8 +1705,13 @@ def _create_zip_from_anchor(
     include_untracked: bool,
     allow_dirty: bool,
     allow_head_mismatch: bool,
+    artifact_type: str,
 ) -> int:
     root = anchor.path
+    require_mount_assurance(
+        anchor.mount_resolution,
+        NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION,
+    )
     revalidate_repository_root_anchor(anchor)
     index_inventory: dict[str, tuple[str, str, str]] | None = None
     index_errors: list[str] = []
@@ -1575,7 +1746,20 @@ def _create_zip_from_anchor(
         anchor,
         candidates,
         output,
+        artifact_type=artifact_type,
     )
+    plugin_manifest_path = root / "plugins/codexqb/.codex-plugin/plugin.json"
+    if plugin_manifest_path not in payloads:
+        raise ValueError("package_plugin_manifest_missing")
+    if artifact_type == PLUGIN_ARTIFACT:
+        required_plugin_skill = root / f"plugins/codexqb/{PLUGIN_SKILL_PATH}"
+        required_plugin_activation = root / f"plugins/codexqb/{PLUGIN_ACTIVATION_PATH}"
+        runtime_contract_errors = [
+            *plugin_skill_contract_errors(payloads.get(required_plugin_skill)),
+            *plugin_activation_contract_errors(payloads.get(required_plugin_activation)),
+        ]
+        if runtime_contract_errors:
+            raise ValueError(";".join(runtime_contract_errors))
     manifest = package_manifest(
         anchor,
         files,
@@ -1584,6 +1768,7 @@ def _create_zip_from_anchor(
         payloads=payloads,
         modes=modes,
         index_errors=index_errors,
+        artifact_type=artifact_type,
     )
     if mode == STRICT_RELEASE_MODE:
         manifest_blockers = strict_manifest_blockers(manifest)
@@ -1610,6 +1795,8 @@ def _create_zip_from_anchor(
         raise ValueError("package_manifest_size_limit_exceeded")
     if counters["payload_bytes"] + len(manifest_bytes) > MAX_PACKAGE_UNCOMPRESSED_BYTES:
         raise ValueError("package_uncompressed_size_limit_exceeded")
+    if len(files) + 1 > MAX_CANONICAL_ZIP_MEMBERS:
+        raise ValueError("package_zip_member_count_limit_exceeded")
 
     parent_flags = os.O_RDONLY
     if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
@@ -1626,26 +1813,59 @@ def _create_zip_from_anchor(
     backup_name: str | None = None
     backup_descriptor = -1
     preserve_backup_on_failure = False
+    primary_error: BaseException | None = None
     try:
+        output_parent_mount_resolution = resolve_mount_identity(
+            parent_descriptor,
+            reconcile=True,
+        )
+        require_mount_assurance(
+            output_parent_mount_resolution,
+            NON_DESTRUCTIVE_ARTIFACT_PACKAGE_CREATION,
+        )
+        require_package_output_mount(
+            output_parent_mount_resolution,
+            parent_descriptor,
+        )
         revalidate_repository_root_anchor(anchor)
         require_output_parent_identity(
             output.parent,
             parent_descriptor,
             output_parent_identity,
+            output_parent_mount_resolution,
         )
         require_unchanged_output(parent_descriptor, output.name, original_output_identity)
+        require_existing_output_mount(
+            parent_descriptor,
+            output.name,
+            original_output_identity,
+            output_parent_mount_resolution,
+        )
         temp_name, temp_descriptor = create_secure_package_temp(parent_descriptor, output.name)
+        require_package_output_mount(
+            output_parent_mount_resolution,
+            temp_descriptor,
+        )
         package_file = os.fdopen(temp_descriptor, "w+b", closefd=True)
         temp_descriptor = -1
-        with zipfile.ZipFile(package_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for path in files:
-                rel = path.relative_to(root).as_posix()
+        prefix = archive_prefix(artifact_type)
+        archive_items = sorted(
+            (
+                source_to_artifact_path(path.relative_to(root).as_posix(), artifact_type),
+                path,
+            )
+            for path in files
+        )
+        with zipfile.ZipFile(package_file, "w", compression=zipfile.ZIP_STORED) as archive:
+            for rel, path in archive_items:
+                if rel is None:
+                    raise ValueError("package_artifact_path_unmapped")
                 archive.writestr(
-                    zip_file_info(f"CodexQB/{rel}", modes[path]),
+                    zip_file_info(f"{prefix}{rel}", modes[path]),
                     payloads[path],
                 )
             archive.writestr(
-                zip_file_info(f"CodexQB/{PACKAGE_MANIFEST_NAME}", 0o644),
+                zip_file_info(f"{prefix}{PACKAGE_MANIFEST_NAME}", 0o644),
                 manifest_bytes,
             )
         package_file.flush()
@@ -1671,6 +1891,10 @@ def _create_zip_from_anchor(
                 output.name,
                 original_output_identity,
             )
+            require_package_output_mount(
+                output_parent_mount_resolution,
+                backup_descriptor,
+            )
         if mode == STRICT_RELEASE_MODE:
             if index_inventory is None:
                 raise ValueError("git_index_inventory_unavailable")
@@ -1690,10 +1914,17 @@ def _create_zip_from_anchor(
             output.parent,
             parent_descriptor,
             output_parent_identity,
+            output_parent_mount_resolution,
         )
         require_unchanged_output(parent_descriptor, output.name, original_output_identity)
         if output_identity_at(parent_descriptor, temp_name) != verified_temp_identity:
             raise ValueError("package_temp_changed_during_export")
+        require_existing_output_mount(
+            parent_descriptor,
+            temp_name,
+            verified_temp_identity,
+            output_parent_mount_resolution,
+        )
         publication_attempted = False
         published_raw_identity: tuple[int, int, int, int, int] | None = None
         try:
@@ -1713,12 +1944,17 @@ def _create_zip_from_anchor(
                 output.parent,
                 parent_descriptor,
                 output_parent_identity,
+                output_parent_mount_resolution,
             )
             published_raw_identity = raw_output_identity_at(
                 parent_descriptor,
                 output.name,
             )
             published_descriptor = open_output_descriptor_at(parent_descriptor, output.name)
+            require_package_output_mount(
+                output_parent_mount_resolution,
+                published_descriptor,
+            )
             published_identity = output_identity_from_metadata(
                 os.fstat(published_descriptor)
             )
@@ -1758,6 +1994,26 @@ def _create_zip_from_anchor(
                 output.parent,
                 parent_descriptor,
                 output_parent_identity,
+                output_parent_mount_resolution,
+            )
+            require_verified_published_output(
+                parent_descriptor,
+                output.name,
+                verified_temp_identity,
+                output_parent_mount_resolution,
+            )
+            revalidate_repository_root_anchor(anchor)
+            require_output_parent_identity(
+                output.parent,
+                parent_descriptor,
+                output_parent_identity,
+                output_parent_mount_resolution,
+            )
+            require_verified_published_output(
+                parent_descriptor,
+                output.name,
+                verified_temp_identity,
+                output_parent_mount_resolution,
             )
         except BaseException as publication_error:
             if publication_attempted:
@@ -1778,6 +2034,12 @@ def _create_zip_from_anchor(
                                 or current_raw_identity != published_raw_identity
                             ):
                                 raise ValueError("published_output_changed_before_rollback")
+                            require_existing_output_mount(
+                                parent_descriptor,
+                                output.name,
+                                published_raw_identity,
+                                output_parent_mount_resolution,
+                            )
                             os.unlink(output.name, dir_fd=parent_descriptor)
                     elif current_raw_identity != original_output_identity:
                         if (
@@ -1791,6 +2053,18 @@ def _create_zip_from_anchor(
                             != original_output_identity
                         ):
                             raise ValueError("output_backup_changed_before_rollback")
+                        require_existing_output_mount(
+                            parent_descriptor,
+                            output.name,
+                            published_raw_identity,
+                            output_parent_mount_resolution,
+                        )
+                        require_existing_output_mount(
+                            parent_descriptor,
+                            backup_name,
+                            original_output_identity,
+                            output_parent_mount_resolution,
+                        )
                         os.replace(
                             backup_name,
                             output.name,
@@ -1803,6 +2077,12 @@ def _create_zip_from_anchor(
                             != original_output_identity
                         ):
                             raise ValueError("output_rollback_identity_mismatch")
+                        require_existing_output_mount(
+                            parent_descriptor,
+                            output.name,
+                            original_output_identity,
+                            output_parent_mount_resolution,
+                        )
                     os.fsync(parent_descriptor)
                 except BaseException:
                     if backup_name is not None:
@@ -1811,28 +2091,32 @@ def _create_zip_from_anchor(
             raise
         if backup_name is not None:
             preserve_backup_on_failure = True
-            if (
-                backup_descriptor < 0
-                or output_identity_at(parent_descriptor, backup_name)
-                != original_output_identity
-                or output_identity_from_metadata(os.fstat(backup_descriptor))
-                != original_output_identity
-            ):
-                raise RuntimeError("package_backup_cleanup_state_unknown")
-            os.unlink(backup_name, dir_fd=parent_descriptor)
-            backup_name = None
-            preserve_backup_on_failure = False
             try:
+                if (
+                    backup_descriptor < 0
+                    or output_identity_at(parent_descriptor, backup_name)
+                    != original_output_identity
+                    or output_identity_from_metadata(os.fstat(backup_descriptor))
+                    != original_output_identity
+                ):
+                    raise ValueError("output_backup_changed_before_cleanup")
+                require_existing_output_mount(
+                    parent_descriptor,
+                    backup_name,
+                    original_output_identity,
+                    output_parent_mount_resolution,
+                )
+                os.unlink(backup_name, dir_fd=parent_descriptor)
+                backup_name = None
                 os.fsync(parent_descriptor)
-            except OSError as exc:
+            except BaseException as exc:
                 raise RuntimeError("package_backup_cleanup_state_unknown") from exc
-        revalidate_repository_root_anchor(anchor)
-        require_output_parent_identity(
-            output.parent,
-            parent_descriptor,
-            output_parent_identity,
-        )
+            preserve_backup_on_failure = False
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
+        cleanup_error: RuntimeError | None = None
         if backup_descriptor >= 0:
             os.close(backup_descriptor)
         if published_descriptor >= 0:
@@ -1846,19 +2130,49 @@ def _create_zip_from_anchor(
                 os.unlink(temp_name, dir_fd=parent_descriptor)
             except FileNotFoundError:
                 pass
+            except OSError:
+                cleanup_error = RuntimeError("package_temp_cleanup_state_unknown")
         if backup_name is not None and not preserve_backup_on_failure:
             try:
                 os.unlink(backup_name, dir_fd=parent_descriptor)
             except FileNotFoundError:
                 pass
+            except OSError:
+                if cleanup_error is None:
+                    cleanup_error = RuntimeError("package_backup_cleanup_state_unknown")
         os.close(parent_descriptor)
+        if cleanup_error is not None:
+            if primary_error is None:
+                raise cleanup_error
+            if primary_error.__cause__ is None:
+                primary_error.__cause__ = cleanup_error
     return len(files)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Create CodexQB-sanitized.zip from the current worktree.")
+def safe_export_failure_code(exc: BaseException) -> str:
+    value = str(exc)
+    if len(value) <= 160 and SAFE_EXPORT_FAILURE_CODE_RE.fullmatch(value):
+        return value
+    return "sanitized_export_failed"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Create a reproducible CodexQB plugin or source package."
+    )
     parser.add_argument("--root", default=".")
-    parser.add_argument("--output", default="CodexQB-sanitized.zip")
+    parser.add_argument("--output")
+    parser.add_argument(
+        "--artifact-type",
+        choices=sorted(ARTIFACT_TYPES),
+        default=SOURCE_ARTIFACT,
+        help="Create an installable plugin-root artifact or a full source artifact.",
+    )
+    parser.add_argument(
+        "--provenance-mode",
+        choices=("strict-release", "worktree", "filesystem"),
+        help="Explicit provenance policy; legacy flags remain available for compatibility.",
+    )
     parser.add_argument(
         "--include-untracked",
         action="store_true",
@@ -1879,18 +2193,57 @@ def main() -> int:
         action="store_true",
         help="Export an extracted/Gitless source tree as a non-release filesystem package.",
     )
-    args = parser.parse_args()
-    count = create_zip(
-        Path(args.root),
-        Path(args.output),
-        include_untracked=args.include_untracked,
-        allow_dirty=args.allow_dirty,
-        allow_head_mismatch=args.allow_head_mismatch,
-        source_package=args.source_package,
-    )
+    args = parser.parse_args(argv)
+    if args.provenance_mode is not None and any(
+        (
+            args.include_untracked,
+            args.allow_dirty,
+            args.allow_head_mismatch,
+            args.source_package,
+        )
+    ):
+        parser.error("--provenance-mode conflicts with legacy mode flags")
+    if args.source_package and args.artifact_type != SOURCE_ARTIFACT:
+        parser.error("legacy --source-package is valid only for a source artifact")
+    include_untracked = args.include_untracked
+    allow_dirty = args.allow_dirty
+    allow_head_mismatch = args.allow_head_mismatch
+    source_package = args.source_package
+    if args.provenance_mode == "worktree":
+        include_untracked = True
+        allow_dirty = True
+        allow_head_mismatch = True
+    elif args.provenance_mode == "filesystem":
+        source_package = True
+    try:
+        mode = export_mode(
+            source_package=source_package,
+            include_untracked=include_untracked,
+            allow_dirty=allow_dirty,
+            allow_head_mismatch=allow_head_mismatch,
+        )
+        root = Path(args.root)
+        output = Path(args.output) if args.output else Path(
+            default_artifact_filename(args.artifact_type, plugin_version(root), mode)
+        )
+        count = create_zip(
+            root,
+            output,
+            include_untracked=include_untracked,
+            allow_dirty=allow_dirty,
+            allow_head_mismatch=allow_head_mismatch,
+            source_package=source_package,
+            artifact_type=args.artifact_type,
+        )
+    except Exception as exc:
+        print("sanitized_export=failed")
+        print(f"error_code={safe_export_failure_code(exc)}")
+        return 1
     print(f"sanitized_export=created")
+    print(f"artifact_type={args.artifact_type}")
+    print(f"export_mode={mode}")
     print(f"file_count={count}")
-    print(f"output={args.output}")
+    print("output=created")
     return 0
 
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-import ctypes
 from dataclasses import dataclass
 try:
     import fcntl
@@ -27,6 +26,13 @@ import stat
 import sys
 import time
 from typing import Any
+
+
+_SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+_SCRIPT_DIRECTORY_TEXT = os.fspath(_SCRIPT_DIRECTORY)
+if _SCRIPT_DIRECTORY_TEXT not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIRECTORY_TEXT)
+import mount_identity as _mount_identity
 
 
 REPOSITORY_EVIDENCE_SCHEMA_VERSION = 1
@@ -50,6 +56,7 @@ class RepositoryRootAnchor:
     fd: int
     metadata: os.stat_result
     mount_identity: tuple[object, ...]
+    mount_resolution: _mount_identity.MountResolution
 
 
 @dataclass(frozen=True)
@@ -113,81 +120,68 @@ def _secure_symlink_metadata_flags() -> int:
     raise ValueError("secure_repository_mount_identity_unavailable")
 
 
-def _linux_mount_id(fd: int) -> int:
+def _require_descriptor_mount_resolution(
+    fd: int,
+    *,
+    reconcile: bool,
+    preferred_provider: str | None = None,
+) -> _mount_identity.MountResolution:
+    """Resolve one descriptor and map all capability failures to the stable API."""
+
     try:
-        with open(f"/proc/self/fdinfo/{fd}", "rb") as handle:
-            payload = handle.read(65537)
-    except OSError as exc:
+        resolution = _mount_identity.resolve_mount_identity(
+            fd,
+            reconcile=reconcile,
+            preferred_provider=preferred_provider,
+        )
+        _mount_identity.require_mount_assurance(
+            resolution,
+            _mount_identity.READ_ONLY_EVIDENCE,
+        )
+    except Exception as exc:
         raise ValueError("secure_repository_mount_identity_unavailable") from exc
-    if len(payload) > 65536:
+    return resolution
+
+
+def _opaque_mount_identity(
+    resolution: _mount_identity.MountResolution,
+) -> tuple[object, ...]:
+    identity = resolution.identity
+    if identity is None:
         raise ValueError("secure_repository_mount_identity_unavailable")
-    for line in payload.splitlines():
-        if line.startswith(b"mnt_id:\t"):
-            raw = line.removeprefix(b"mnt_id:\t")
-            if raw.isdigit():
-                return int(raw)
-    raise ValueError("secure_repository_mount_identity_unavailable")
-
-
-class _DarwinFsid(ctypes.Structure):
-    _fields_ = [("value", ctypes.c_int32 * 2)]
-
-
-class _DarwinStatfs(ctypes.Structure):
-    _fields_ = [
-        ("f_bsize", ctypes.c_uint32),
-        ("f_iosize", ctypes.c_int32),
-        ("f_blocks", ctypes.c_uint64),
-        ("f_bfree", ctypes.c_uint64),
-        ("f_bavail", ctypes.c_uint64),
-        ("f_files", ctypes.c_uint64),
-        ("f_ffree", ctypes.c_uint64),
-        ("f_fsid", _DarwinFsid),
-        ("f_owner", ctypes.c_uint32),
-        ("f_type", ctypes.c_uint32),
-        ("f_flags", ctypes.c_uint32),
-        ("f_fssubtype", ctypes.c_uint32),
-        ("f_fstypename", ctypes.c_char * 16),
-        ("f_mntonname", ctypes.c_char * 1024),
-        ("f_mntfromname", ctypes.c_char * 1024),
-        ("f_flags_ext", ctypes.c_uint32),
-        ("f_reserved", ctypes.c_uint32 * 7),
-    ]
-
-
-def _darwin_mount_identity(fd: int) -> tuple[object, ...]:
     try:
-        libc = ctypes.CDLL(None, use_errno=True)
-        fstatfs = libc.fstatfs
-        fstatfs.argtypes = [ctypes.c_int, ctypes.POINTER(_DarwinStatfs)]
-        fstatfs.restype = ctypes.c_int
-        payload = _DarwinStatfs()
-        if fstatfs(fd, ctypes.byref(payload)) != 0:
-            raise OSError(ctypes.get_errno(), "fstatfs failed")
-    except (AttributeError, OSError) as exc:
+        return (identity.namespace, *identity.parts)
+    except (AttributeError, TypeError) as exc:
         raise ValueError("secure_repository_mount_identity_unavailable") from exc
-    mount_on = bytes(payload.f_mntonname).split(b"\0", 1)[0]
-    mount_from = bytes(payload.f_mntfromname).split(b"\0", 1)[0]
-    filesystem_type = bytes(payload.f_fstypename).split(b"\0", 1)[0]
-    if not mount_on or not mount_from or not filesystem_type:
-        raise ValueError("secure_repository_mount_identity_unavailable")
-    return (
-        "darwin_fstatfs",
-        int(payload.f_fsid.value[0]),
-        int(payload.f_fsid.value[1]),
-        int(payload.f_type),
-        filesystem_type,
-        mount_on,
-        mount_from,
-    )
 
 
 def _descriptor_mount_identity(fd: int) -> tuple[object, ...]:
-    if sys.platform.startswith("linux"):
-        return ("linux_mnt_id", _linux_mount_id(fd))
-    if sys.platform == "darwin":
-        return _darwin_mount_identity(fd)
-    raise ValueError("secure_repository_mount_identity_unavailable")
+    """Compatibility patch point returning one opaque descriptor identity."""
+
+    return _opaque_mount_identity(
+        _require_descriptor_mount_resolution(fd, reconcile=False)
+    )
+
+
+_ORIGINAL_DESCRIPTOR_MOUNT_IDENTITY = _descriptor_mount_identity
+
+
+def _preferred_descriptor_mount_identity(
+    fd: int,
+    preferred_provider: str | None,
+) -> tuple[object, ...]:
+    # Existing callers/tests patch the one-argument private helper to simulate
+    # same-device bind mounts.  Preserve that hook while production calls use
+    # the root-selected provider first and stop after one high-assurance result.
+    if _descriptor_mount_identity is not _ORIGINAL_DESCRIPTOR_MOUNT_IDENTITY:
+        return _descriptor_mount_identity(fd)
+    return _opaque_mount_identity(
+        _require_descriptor_mount_resolution(
+            fd,
+            reconcile=False,
+            preferred_provider=preferred_provider,
+        )
+    )
 
 
 def _promote_root_fd(root_fd: int) -> int:
@@ -307,7 +301,15 @@ def _root_path(value: object) -> Path:
     return Path(os.path.abspath(raw))
 
 
-def _open_root(root: object) -> tuple[Path, int, os.stat_result, tuple[object, ...]]:
+def _open_root(
+    root: object,
+) -> tuple[
+    Path,
+    int,
+    os.stat_result,
+    tuple[object, ...],
+    _mount_identity.MountResolution,
+]:
     path = _root_path(root)
     try:
         before = os.stat(path, follow_symlinks=False)
@@ -319,7 +321,17 @@ def _open_root(root: object) -> tuple[Path, int, os.stat_result, tuple[object, .
         opened = os.fstat(root_fd)
         if not stat.S_ISDIR(before.st_mode) or not stat.S_ISDIR(opened.st_mode) or not _same_identity(before, opened):
             raise ValueError("repository_root_must_be_real_directory")
-        return path, root_fd, opened, _descriptor_mount_identity(root_fd)
+        mount_resolution = _require_descriptor_mount_resolution(
+            root_fd,
+            reconcile=True,
+        )
+        return (
+            path,
+            root_fd,
+            opened,
+            _opaque_mount_identity(mount_resolution),
+            mount_resolution,
+        )
     except Exception:
         os.close(root_fd)
         raise
@@ -329,12 +341,13 @@ def _open_root(root: object) -> tuple[Path, int, os.stat_result, tuple[object, .
 def open_repository_root_anchor(root: object) -> Iterator[RepositoryRootAnchor]:
     """Open one no-follow root descriptor for a complete evidence operation."""
 
-    path, root_fd, metadata, mount_identity = _open_root(root)
+    path, root_fd, metadata, mount_identity, mount_resolution = _open_root(root)
     anchor = RepositoryRootAnchor(
         path=path,
         fd=root_fd,
         metadata=metadata,
         mount_identity=mount_identity,
+        mount_resolution=mount_resolution,
     )
     try:
         yield anchor
@@ -362,9 +375,13 @@ def _revalidate_root_mount(
     root_fd: int,
     root_metadata: os.stat_result,
     root_mount_identity: tuple[object, ...],
+    preferred_provider: str | None,
 ) -> None:
     _revalidate_root(root_path, root_fd, root_metadata)
-    if _descriptor_mount_identity(root_fd) != root_mount_identity:
+    if (
+        _preferred_descriptor_mount_identity(root_fd, preferred_provider)
+        != root_mount_identity
+    ):
         raise ValueError("repository_root_mount_identity_changed")
 
 
@@ -378,6 +395,7 @@ def revalidate_repository_root_anchor(anchor: RepositoryRootAnchor) -> None:
         anchor.fd,
         anchor.metadata,
         anchor.mount_identity,
+        anchor.mount_resolution.selected_provider,
     )
 
 
@@ -398,7 +416,11 @@ def require_same_repository_mount(
     if (
         not stat.S_ISDIR(child_metadata.st_mode)
         or child_metadata.st_dev != anchor.metadata.st_dev
-        or _descriptor_mount_identity(child_fd) != anchor.mount_identity
+        or _preferred_descriptor_mount_identity(
+            child_fd,
+            anchor.mount_resolution.selected_provider,
+        )
+        != anchor.mount_identity
     ):
         raise ValueError(f"repository_nested_mount_rejected={path}")
     revalidate_repository_root_anchor(anchor)
@@ -408,8 +430,12 @@ def _require_descriptor_on_root_mount(
     root_mount_identity: tuple[object, ...],
     child_fd: int,
     relative_path: str,
+    preferred_provider: str | None,
 ) -> None:
-    if _descriptor_mount_identity(child_fd) != root_mount_identity:
+    if (
+        _preferred_descriptor_mount_identity(child_fd, preferred_provider)
+        != root_mount_identity
+    ):
         raise ValueError(f"repository_nested_mount_rejected={relative_path}")
 
 
@@ -419,6 +445,7 @@ def _verify_symlink_mount_identity(
     metadata: os.stat_result,
     root_mount_identity: tuple[object, ...],
     relative_path: str,
+    preferred_provider: str | None,
 ) -> None:
     try:
         symlink_fd = os.open(name, _secure_symlink_metadata_flags(), dir_fd=parent_fd)
@@ -432,6 +459,7 @@ def _verify_symlink_mount_identity(
             root_mount_identity,
             symlink_fd,
             relative_path,
+            preferred_provider,
         )
     finally:
         os.close(symlink_fd)
@@ -444,6 +472,7 @@ def _revalidate_directory_chain(
     chain: Sequence[DirectoryLink],
     root_device: int,
     root_mount_identity: tuple[object, ...],
+    preferred_provider: str | None,
 ) -> None:
     for parent_fd, name, child_fd, metadata in chain:
         try:
@@ -456,7 +485,8 @@ def _revalidate_directory_chain(
             or not stat.S_ISDIR(current_fd.st_mode)
             or current_path.st_dev != root_device
             or current_fd.st_dev != root_device
-            or _descriptor_mount_identity(child_fd) != root_mount_identity
+            or _preferred_descriptor_mount_identity(child_fd, preferred_provider)
+            != root_mount_identity
             or not _same_identity(metadata, current_path)
             or not _same_identity(metadata, current_fd)
         ):
@@ -537,6 +567,7 @@ def _snapshot_one(
     root_fd: int,
     root_metadata: os.stat_result,
     root_mount_identity: tuple[object, ...],
+    root_mount_provider: str | None,
     path: str,
     max_bytes: int,
     budget: _SnapshotBudget,
@@ -552,16 +583,27 @@ def _snapshot_one(
             try:
                 before = os.stat(component, dir_fd=current_fd, follow_symlinks=False)
             except FileNotFoundError:
-                _revalidate_directory_chain(chain, root_metadata.st_dev, root_mount_identity)
+                _revalidate_directory_chain(
+                    chain,
+                    root_metadata.st_dev,
+                    root_mount_identity,
+                    root_mount_provider,
+                )
                 try:
                     os.stat(component, dir_fd=current_fd, follow_symlinks=False)
                 except FileNotFoundError:
-                    _revalidate_directory_chain(chain, root_metadata.st_dev, root_mount_identity)
+                    _revalidate_directory_chain(
+                        chain,
+                        root_metadata.st_dev,
+                        root_mount_identity,
+                        root_mount_provider,
+                    )
                     _revalidate_root_mount(
                         root_path,
                         root_fd,
                         root_metadata,
                         root_mount_identity,
+                        root_mount_provider,
                     )
                     return _missing_entry(path, git_object_format)
                 raise ValueError("repository_path_parent_identity_changed")
@@ -588,6 +630,7 @@ def _snapshot_one(
                     root_mount_identity,
                     child_fd,
                     "/".join(parts[: len(chain) + 1]),
+                    root_mount_provider,
                 )
             except Exception:
                 os.close(child_fd)
@@ -600,16 +643,27 @@ def _snapshot_one(
         try:
             before = os.stat(name, dir_fd=current_fd, follow_symlinks=False)
         except FileNotFoundError:
-            _revalidate_directory_chain(chain, root_metadata.st_dev, root_mount_identity)
+            _revalidate_directory_chain(
+                chain,
+                root_metadata.st_dev,
+                root_mount_identity,
+                root_mount_provider,
+            )
             try:
                 os.stat(name, dir_fd=current_fd, follow_symlinks=False)
             except FileNotFoundError:
-                _revalidate_directory_chain(chain, root_metadata.st_dev, root_mount_identity)
+                _revalidate_directory_chain(
+                    chain,
+                    root_metadata.st_dev,
+                    root_mount_identity,
+                    root_mount_provider,
+                )
                 _revalidate_root_mount(
                     root_path,
                     root_fd,
                     root_metadata,
                     root_mount_identity,
+                    root_mount_provider,
                 )
                 return _missing_entry(path, git_object_format)
             raise ValueError("repository_evidence_file_identity_changed")
@@ -626,6 +680,7 @@ def _snapshot_one(
                 before,
                 root_mount_identity,
                 path,
+                root_mount_provider,
             )
             try:
                 target_before = os.readlink(name, dir_fd=current_fd)
@@ -644,12 +699,18 @@ def _snapshot_one(
             if len(encoded_target) > max_bytes:
                 raise ValueError("repository_evidence_file_too_large")
             budget.consume_bytes(len(encoded_target))
-            _revalidate_directory_chain(chain, root_metadata.st_dev, root_mount_identity)
+            _revalidate_directory_chain(
+                chain,
+                root_metadata.st_dev,
+                root_mount_identity,
+                root_mount_provider,
+            )
             _revalidate_root_mount(
                 root_path,
                 root_fd,
                 root_metadata,
                 root_mount_identity,
+                root_mount_provider,
             )
             return {
                 "path": path,
@@ -679,6 +740,7 @@ def _snapshot_one(
                 root_mount_identity,
                 file_fd,
                 path,
+                root_mount_provider,
             )
             content_sha256, git_blob_oid, bytes_read = _read_expected_hashes(
                 file_fd,
@@ -701,12 +763,18 @@ def _snapshot_one(
             or after_fd.st_size != bytes_read
         ):
             raise ValueError("repository_evidence_file_identity_changed")
-        _revalidate_directory_chain(chain, root_metadata.st_dev, root_mount_identity)
+        _revalidate_directory_chain(
+            chain,
+            root_metadata.st_dev,
+            root_mount_identity,
+            root_mount_provider,
+        )
         _revalidate_root_mount(
             root_path,
             root_fd,
             root_metadata,
             root_mount_identity,
+            root_mount_provider,
         )
         result: dict[str, object] = {
             "path": path,
@@ -759,6 +827,7 @@ def _snapshot_paths_from_anchor(
                     anchor.fd,
                     anchor.metadata,
                     anchor.mount_identity,
+                    anchor.mount_resolution.selected_provider,
                     path,
                     byte_limit,
                     budget,
@@ -1019,6 +1088,7 @@ def _capture_repository_inventory_pass(
                         chain + (link,),
                         anchor.metadata.st_dev,
                         anchor.mount_identity,
+                        anchor.mount_resolution.selected_provider,
                     )
                 finally:
                     os.close(child_fd)
@@ -1034,6 +1104,7 @@ def _capture_repository_inventory_pass(
                     before,
                     anchor.mount_identity,
                     path,
+                    anchor.mount_resolution.selected_provider,
                 )
                 try:
                     target_before = os.readlink(name, dir_fd=directory_fd)
@@ -1067,6 +1138,7 @@ def _capture_repository_inventory_pass(
                     chain,
                     anchor.metadata.st_dev,
                     anchor.mount_identity,
+                    anchor.mount_resolution.selected_provider,
                 )
                 continue
 
@@ -1089,6 +1161,7 @@ def _capture_repository_inventory_pass(
                         anchor.mount_identity,
                         file_fd,
                         path,
+                        anchor.mount_resolution.selected_provider,
                     )
                     content_sha256, _, bytes_read = _read_expected_hashes(
                         file_fd,
@@ -1127,6 +1200,7 @@ def _capture_repository_inventory_pass(
                     chain,
                     anchor.metadata.st_dev,
                     anchor.mount_identity,
+                    anchor.mount_resolution.selected_provider,
                 )
                 continue
 
@@ -1136,6 +1210,7 @@ def _capture_repository_inventory_pass(
             chain,
             anchor.metadata.st_dev,
             anchor.mount_identity,
+            anchor.mount_resolution.selected_provider,
         )
         revalidate_repository_root_anchor(anchor)
 
@@ -1288,6 +1363,7 @@ def _read_regular_payload(
                 anchor.mount_identity,
                 file_fd,
                 path,
+                anchor.mount_resolution.selected_provider,
             )
             encoded = _read_expected_bytes(file_fd, before.st_size, budget)
             after_fd = os.fstat(file_fd)
@@ -1309,6 +1385,7 @@ def _read_regular_payload(
             chain,
             anchor.metadata.st_dev,
             anchor.mount_identity,
+            anchor.mount_resolution.selected_provider,
         )
         revalidate_repository_root_anchor(anchor)
         return AnchoredFilePayload(

@@ -6,13 +6,13 @@
 
 ![CodexQB source-bound workflow and release validation](docs/assets/codexqb-workflow.png)
 
-The diagram shows the current 0.3.0 flow: repo-aware intake, existing-project autopsy and comprehension, source-bound sub-plans, P0/P1-gated QA audit, digest-verified Goal/Apply runs, public privacy scanning, and sanitized release validation.
+The diagram shows the current 0.3.0 flow: repo-aware intake, existing-project autopsy and comprehension, source-bound sub-plans, P0/P1-gated QA audit, digest-verified Goal/Apply runs, public privacy scanning, and dual-artifact release validation.
 
 CodexQB is a Codex plugin that installs the `$codexqb` skill. It is built for software, AI, infrastructure, security, and automation projects where planning needs to be evidence-backed, reviewable, adaptive, and ready for small verified execution slices.
 
-The unreleased 0.3.0 release candidate hardens CodexQB's Goal/Apply path from planning handoff through release evidence. Goal previews now bind every implementation contract to its source sub-plan path and SHA-256 hash, record stage-aware source snapshots, and separate expected mutable outputs from immutable planning inputs so normal Step 3/4 progress does not look like source drift. Apply runs carry the same source binding into task briefs, dispatch packets, reports, and results with contract digests, bounded budgets, honest token-usage reporting, and stricter validation around subagent attempts, fix cycles, writer locks, workspace drift, and review evidence.
+The unreleased 0.3.0 development line hardens CodexQB's Goal/Apply path from planning handoff through release evidence. Goal previews now bind every implementation contract to its source sub-plan path and SHA-256 hash, record stage-aware source snapshots, and separate expected mutable outputs from immutable planning inputs so normal Step 3/4 progress does not look like source drift. Apply runs carry the same source binding into task briefs, dispatch packets, reports, and results with contract digests, bounded budgets, honest token-usage reporting, and stricter validation around subagent attempts, fix cycles, writer locks, workspace drift, and review evidence.
 
-Repository marketplace distribution remains hardened through dependency-free `make check`, GitHub Actions validation, deterministic fixture corpus checks, public release privacy scans, and sanitized exports through `make export-sanitized`. The feedback closeout includes sanitized live `subagent_serial` evidence for the earlier Apply lifecycle, but that evidence does not by itself prove the new schema-v3 receipt chain; a fresh live v3 E2E run is required before making that stronger claim. Final release tagging remains a separate clean-provenance gate.
+Repository marketplace distribution remains the primary installation route. The release foundation adds capability-aware mount identity, a dependency-free doctor, split validation gates, a deterministic fixture corpus, and two unambiguous reproducible distributions: a marketplace-ready plugin-root ZIP and a full source ZIP. The feedback closeout includes sanitized live `subagent_serial` evidence for the earlier Apply lifecycle, but that evidence does not by itself prove the new schema-v3 receipt chain; a fresh live v3 E2E run is required before making that stronger claim. Final release tagging remains a separate clean-provenance gate.
 
 Release contracts:
 
@@ -31,8 +31,23 @@ budget_schema_version: 1
 - Stage-aware resume safety: Goal runs snapshot immutable planning inputs while allowing expected mutable outputs such as Step 3 audits, Step 4 ledger updates, and declared implementation paths.
 - Bounded execution metadata: Goal and Apply artifacts include `budget_contract`; Apply validation enforces selected-task, per-role attempt, and fix-cycle limits while reporting runtime token usage as `not_observed` unless a real usage source is available.
 - Receipt-bound Apply evidence: Apply schema v3 binds a controller-captured live change set, every planned validation command, and ordered spec, quality, optional security, and final controller-recorded reviewer lifecycles to the same run, task, contract, and repository-state digests; host attestation remains a separate fail-closed verification gate.
-- Public release privacy checks: `make check-public-privacy` scans public docs and release evidence for local user paths, attachment paths, UUID-like attachment identifiers, and live Codex agent/thread IDs before release sharing.
+- Public release privacy checks: `make check-public-privacy` scans designated public release files and release evidence for local user paths, attachment paths, UUID-like attachment identifiers, and live Codex agent/thread IDs before release sharing.
 - Sanitized live evidence: release evidence is redacted, reviewable, and labeled with its schema/protocol scope; raw local runtime logs stay out of public docs, and older lifecycle evidence is not presented as proof of the schema-v3 receipt chain.
+- Capability-aware repository safety: Linux fdinfo, descriptor-bound `statx`, descriptor-bound `name_to_handle_at`, and Darwin `fstatfs` share one provider/assurance model. Filesystem device identity remains diagnostic-only; evidence and mutation paths fail closed without a descriptor-bound mount identity.
+- Dependency-free diagnostics: `doctor.py` emits human-readable or stable JSON capability reports without raw mount identities, private paths, trust-key material, or environment secrets.
+- Reproducible dual artifacts: plugin and source ZIPs have separate layouts, explicit names, schema-v3 manifests, canonical metadata, strict denylist enforcement in both producer and verifier, and extraction-time verification.
+- Split portability gates: static, unit, platform, schema, behavior, package, and release checks have separate responsibilities; release provenance is not part of `check-fast` or normal push/pull-request validation.
+
+## 0.3.0 Verification Snapshot
+
+The release-foundation implementation was locally verified on 2026-07-15. This is evidence for the current unreleased work, not a claim that 0.3.0 has been tagged or published:
+
+- `make test` passed 604 tests with 12 documented dependency/filesystem skips. The aggregate `make check` gate also passed its unit (162), platform (26), behavior (227), fixture/metric, and package (178) partitions.
+- Darwin capability checks passed with descriptor-bound `fstatfs`. A real Linux container reconciled fdinfo and descriptor-bound `statx`, reported `name_to_handle_at` as expected-unsupported, and rejected a same-`st_dev` nested bind mount.
+- The completed foundation run produced byte-identical A/B plugin artifacts and byte-identical A/B source artifacts, then verified their ZIPs, extracted roots, denylist policy, and an isolated repo-marketplace installation. The installed copy retained canonical `allow_implicit_invocation: false` metadata.
+- Release-only gates remain open by design: `CHANGELOG.md` is still `Unreleased`, no final `v0.3.0` tag exists, and clean release provenance is therefore unavailable. The five-entry GitHub-hosted matrix has been defined but not yet observed remotely. A fresh live-host negative model invocation and host-attested schema-v3 end-to-end completion receipt also remain separate evidence gates.
+
+See [CodexQB 0.3 Release Foundation](docs/revision/CODEXQB-0.3-RELEASE-FOUNDATION.md) for the capability matrix, exact commands, artifact evidence, unsupported environments, and remaining trade-offs.
 
 ## Why CodexQB
 
@@ -114,7 +129,7 @@ The same bounded secret policy guards every persistent Goal/Apply JSON, JSONL, M
 
 ## Quick Start
 
-CodexQB is explicit-invocation only. Its packaged skill policy sets `allow_implicit_invocation: false`, so normal Codex requests do not activate it; start the workflow with `$codexqb` when you want to use it.
+CodexQB is configured for explicit invocation only. Package and installed-copy validation enforce `allow_implicit_invocation: false`; normal Codex requests are not intended to activate it. Confirm live host behavior with the fresh-thread negative and positive probes in the [Installation guide](docs/INSTALLATION.md), then start the workflow with `$codexqb` when you want to use it.
 
 Add this repository as a Codex plugin marketplace:
 
@@ -238,15 +253,24 @@ Repository maintainers can run the dependency-free repo check with:
 make check
 ```
 
-`make check` validates plugin JSON, required package files, `agents/openai.yaml` semantic fields, stale invocation names, tracked-file secret hygiene, archive hygiene, the generated package manifest, the apply-run CLI behavior smoke, the downstream Step 2 -> Step 4 Goal/Apply dry run, Goal/Apply prompt-size metric checks, the fixture corpus, and the unit test suite without requiring PyYAML or local Codex validator dependencies. A tree that is not the exact root of a Git checkout must contain `PACKAGE-MANIFEST.json`; validation fails if that manifest is missing, then verifies it against the exact package file set and SHA-256 digests while ignoring only known regenerated runtime-cache files. Schema maintainers can install `requirements-ci.txt` and run `make check-schema`; CI does this on every validation job. That extra gate uses a real Draft 2020-12 engine and intended artifact definitions without adding a runtime dependency. Apply-run validation requires a signed current change set and complete planned-command receipts, then controller-normalized read-only reviewer payloads and controller-recorded lifecycles published in `spec`, `quality`, optional `security`, and `final` order. Free-text reviewer IDs are not evidence, and the controller-built chain remains unattested until the host supplies identity and completion proof.
+`make check` aggregates the dependency-free static, unit, real-platform, behavior, and dual-package gates. The individual diagnostic targets are `check-static`, `check-unit`, `check-platform`, `check-behavior`, and `check-package`; `check-schema` intentionally uses the pinned development dependency in `requirements-ci.txt`, while `check-release` additionally requires clean release provenance. A tree that is not the exact root of a Git checkout must contain and verify `PACKAGE-MANIFEST.json` before Git discovery. Apply-run validation still requires a signed current change set and complete planned-command receipts, then controller-normalized read-only reviewer payloads and controller-recorded lifecycles published in `spec`, `quality`, optional `security`, and `final` order. Free-text reviewer IDs are not evidence, and the controller-built chain remains unattested until the host supplies identity and completion proof.
 
-For a faster local unit-test loop, run:
+For the short platform-independent development loop, run:
 
 ```bash
-make test
+make check-fast
 ```
 
-`make check` duration is host-dependent and the full Apply regression suite can take tens of minutes. Do not impose a 45-second global timeout; use the focused test commands while iterating, then allow the complete release gate to finish. A test that exceeds its own declared fixture timeout or stops making progress is a release blocker, not a warning to ignore.
+Use `make test` when full legacy unittest discovery is specifically needed. `make check` duration is host-dependent and the full Apply regression suite can take tens of minutes. Do not impose a 45-second global timeout; use the focused gate while iterating, then allow the complete applicable gate to finish. A test that exceeds its own declared fixture timeout or stops making progress is a release blocker, not a warning to ignore.
+
+Capability diagnostics are dependency-free:
+
+```bash
+python3 plugins/codexqb/skills/codexqb/scripts/doctor.py
+python3 plugins/codexqb/skills/codexqb/scripts/doctor.py --json
+```
+
+Linux probes fdinfo `mnt_id`, descriptor-bound `statx`, and descriptor-bound `name_to_handle_at`; successful comparable providers must agree. macOS uses descriptor-bound `fstatfs`. `filesystem_fstat` is diagnostic-only and never authorizes evidence capture or mutation. `expected_unsupported` means no high-assurance provider is available on that runtime; `probe_failed` means an advertised provider or provider contract failed and is a gate failure. The compatibility error for blocked callers remains `secure_repository_mount_identity_unavailable`.
 
 ## Release Validation
 
@@ -260,13 +284,25 @@ git diff --check
 
 The repository also includes GitHub Actions at `.github/workflows/validate.yml`, which runs validation on pushes and pull requests, then adds the pinned schema gate, public privacy scan, and a Gitless extracted-package smoke test.
 
-For sanitized zip sharing, use the sanitized export target instead of Finder or generic directory compression:
+Use an explicit artifact target instead of Finder or generic directory compression:
 
 ```bash
-make export-sanitized
+make export-plugin
+make export-source
 ```
 
-The exporter has three explicit truth modes. `make export-sanitized` is a strict release export: the root itself must be a Git checkout, the worktree must be clean, `HEAD` must match `origin/main` when that ref exists, `CHANGELOG.md` must contain an exact dated heading for the plugin version, and the matching `v<version>` tag must resolve to `HEAD`. Its `PACKAGE-MANIFEST.json` records `export_mode: strict_release`, payload-derived Git/changelog/tag provenance, tracked-only status, and schema-v2 file entries that bind each SHA-256 to its normalized `0644` or `0755` mode; the tree digest covers all three fields. `make export-sanitized-worktree` is an explicitly non-release pre-commit snapshot that scans included tracked and untracked files. `make export-sanitized-source-package` is an explicitly non-release filesystem export for a Gitless or copied tree and always records `tracked_only: false`; it reports Git provenance when it is actually available without turning that package into a release. Every mode rejects symlinks, outside-root paths, blocked local/runtime paths, oversized packages, and length-bounded secret patterns, and writes portable ordered manifest paths. The producer applies the verifier contract before writing, keeps the verified and `fsync`ed same-directory temporary inode open through atomic replace, reopens and re-verifies the published inode, and rolls failures back to an identity-pinned backup of any existing regular output; if automatic restoration itself fails, the recovery backup is retained. Strict mode also rechecks the index, worktree, `HEAD`, tag, and `origin/main` immediately before publication. `scripts/verify_package_manifest.py` rejects unsafe or ambiguous ZIP entries and validates exact files, modes, hashes, tree digest, and mode-specific provenance. Extracted verification uses descriptor-anchored no-follow traversal, binds hashes to the first inventory, and repeats the inventory before success. These unkeyed hashes prove package consistency only; they are not a signature, publisher identity, trusted timestamp, or independent release attestation. A pre-existing file merely named `CodexQB-sanitized.zip` is never current release truth; regenerate it only through a passing strict export and inspect its manifest. `make check-release` uses a temporary package path so it cannot overwrite a historical local zip.
+`make export-plugin` writes `codexqb-plugin-0.3.0.zip`; extraction places `.codex-plugin/plugin.json` and the invokable `skills/codexqb/SKILL.md` at the archive root and excludes repository tests, CI, release history, and maintenance docs. `make export-source` writes `CodexQB-source-0.3.0.zip`; extraction creates one `CodexQB/` source root containing repository source, tests, docs, and CI files. Both commands are strict-release exports and therefore require a clean exact Git root, a dated changelog heading, a matching `v0.3.0` tag at `HEAD`, and `origin/main` parity when that ref exists.
+
+For non-release review artifacts use `make export-plugin-worktree` and `make export-source-worktree`. For a Gitless/copied source tree use `make export-source-package`. The legacy `export-sanitized`, `export-sanitized-worktree`, and `export-sanitized-source-package` Make targets remain compatibility aliases for source artifacts, but the ambiguous `CodexQB-sanitized.zip` filename is no longer generated by default and an existing copy may be stale historical evidence.
+
+Schema-v3 manifests bind `artifact_type`, `layout_version`, plugin version, provenance status, file count, normalized modes, per-file hashes, and a content/tree digest. ZIP metadata and member order are canonical and stored without compressor-version variance. Raw preflight rejects ZIP64 and enforces at most 65,534 members, a 576 MiB archive, and an 8 MiB central directory before the standard-library parser runs; verification and extraction continue from one immutable opened snapshot. Producer and verifier apply the same portable denylist and reject Git/runtime metadata, cache/bytecode, macOS metadata, local secret paths, nested archives/polyglots, non-canonical names, traversal, symlinks, collisions, unsafe modes, size overruns, and manifest-external bytes. Exporter CLI failures use stable path-safe codes, and success reports `output=created` without printing the output path. Verify each ZIP before extraction and its actual artifact root afterwards:
+
+```bash
+python3 scripts/verify_package_manifest.py --zip <artifact.zip>
+python3 scripts/verify_package_manifest.py --root <extracted-artifact-root> --strict-artifact
+```
+
+Strict extracted-root verification is descriptor-relative, no-follow, mount-aware, and rejects nested mounts, hardlinks, special files, unexpected empty directories, unsafe root or expected-directory modes, root/descendant swaps, and post-inventory changes. Canonical extraction normalizes generated inner directories to `0755` even under a restrictive umask; strict installed-copy verification also accepts the safe `0700` and `0750` forms produced by plugin managers under restrictive umasks, while still rejecting group- or world-writable directories. It therefore requires a high-assurance descriptor-bound mount provider and fails with the stable `secure_repository_mount_identity_unavailable` code when the host cannot supply one. The source verifier retains schema-v2 read compatibility for older source packages only when their ZIP container is canonical: no prefix/trailer bytes, global or member comments, extra fields, directory entries, or reordered members. New exports use schema v3. If extraction fails and cleanup cannot prove that the identity-pinned generated tree was removed, the helper returns `package_extract_cleanup_state_unknown` and deliberately leaves the recovery artifact for inspection. Manifest hashes prove consistency only, not publisher identity, signature, trusted timestamp, or host attestation. `make check-release` creates and verifies both strict artifacts in a temporary directory and never overwrites the historical repository-root ZIP.
 
 The feedback closure status for the 0.3.0 Goal/Apply hardening pass is tracked in `docs/FEEDBACK-CLOSURE-AUDIT.md`, with requirement-by-requirement status in `docs/release-audits/0.3.0-feedback-closure.md` and sanitized live subagent smoke evidence in `docs/release-evidence/0.3.0-live-subagent-smoke.md`. Public release evidence is privacy-scanned by `make check-public-privacy`; raw local runtime artifacts are not published unless they are intentionally redacted and reviewable. The local metric gate `python3 evals/run_goal_apply_metric_checks.py` reports deterministic size estimates for static Step 4 handoff text, dynamic direct/subagent Goal prompts, direct Apply briefs, and subagent dispatch prompts. The downstream dry-run gate `python3 evals/run_downstream_goal_apply_dry_run.py` builds a disposable git project, validates Step 2, Step 3 preflight, Step 3, and Step 4, compiles Goal previews, and exercises the schema-v3 controller receipt protocol without calling live Codex tools; it is not proof of real multi-agent execution. Treat remaining release-audit items in the closure audit as blockers before moving `CHANGELOG.md` from `Unreleased` to a dated final release section.
 
@@ -298,6 +334,9 @@ plugins/codexqb/
     scripts/safety_contracts.py
     scripts/goal_run.py
     scripts/apply_run.py
+    scripts/repository_evidence.py
+    scripts/mount_identity.py
+    scripts/doctor.py
     references/
       First-Planner.md
       Autopsy-Planner.md
@@ -326,11 +365,19 @@ docs/
   MAINTAINING.md
   USAGE.md
   assets/codexqb-workflow.png
+  revision/CODEXQB-0.3-RELEASE-FOUNDATION.md
 evals/
   run_fixture_corpus_checks.py
 scripts/
+  check_public_privacy.py
+  export_sanitized.py
+  extract_verified_package.py
+  package_policy.py
+  run_test_suite.py
   validate.sh
+  verify_package_manifest.py
 tests/
+  platform/
 CHANGELOG.md
 LICENSE
 README.md
@@ -341,6 +388,7 @@ README.md
 - [Installation](docs/INSTALLATION.md)
 - [Usage](docs/USAGE.md)
 - [Maintaining CodexQB](docs/MAINTAINING.md)
+- [0.3 Release Foundation evidence](docs/revision/CODEXQB-0.3-RELEASE-FOUNDATION.md)
 
 ## Contributing
 
@@ -361,9 +409,9 @@ make check-public-privacy
 make check-release
 ```
 
-`make check-release` creates the strict package in a temporary directory, extracts it without `.git/`, and runs the bounded package validation there. It requires the exact release tag/changelog/clean-tree contract and does not leave or replace a repository-root zip.
+`make check-release` creates both strict artifacts in a temporary directory, verifies and extracts them without `.git/`, and runs the bounded plugin/source validation there. It requires the exact release tag/changelog/clean-tree contract and does not leave or replace a repository-root ZIP.
 
-Pull requests should keep the existing compatibility contracts intact: preserve the `$codexqb` invocation, keep `Planing` filenames unchanged, keep validator checks dependency-free, avoid printing secret values, and do not weaken `export-sanitized` symlink, path-boundary, untracked-file, or content secret-scan guards.
+Pull requests should keep the existing compatibility contracts intact: preserve explicit-only `$codexqb` invocation, keep `Planing` filenames unchanged, keep runtime validators dependency-free, avoid printing secret values, and do not weaken mount assurance, artifact producer/verifier parity, symlink/path boundaries, untracked-file scanning, or secret and nested-archive guards.
 
 ## Community Supporters
 
